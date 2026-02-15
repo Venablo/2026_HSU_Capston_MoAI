@@ -6,7 +6,7 @@ export default function MainPage() {
 
     return (
         <div style={{ padding: '2rem' }}>
-            <h1>내 캘린더</h1>
+            <h1>자료뷰어</h1>
             <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column', maxWidth: '200px' }}>
                 <button onClick={() => navigate(`/study/${studyId}/classroom`)} style={{ marginTop: '1rem' }}>
                     스터디 대시보드로
