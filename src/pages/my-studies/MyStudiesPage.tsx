@@ -9,7 +9,6 @@ export default function MyStudiesPage() {
     return (
         <div className="my-studies-page">
             <h1>내 스터디</h1>
-            <button onClick={() => navigate('/main')}>메인으로</button>
 
             <div className="studies-section">
                 <h2>참가 중인 스터디 ({activeStudies.length})</h2>

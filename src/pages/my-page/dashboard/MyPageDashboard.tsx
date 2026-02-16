@@ -10,7 +10,6 @@ export default function MyPageDashboard() {  // 함수명도 수정!
                 <button onClick={() => navigate('/my-page/archive')}>통합 학습 보관함</button>
                 <button onClick={() => navigate('/my-page/settings')}>환경 설정</button>
                 <button onClick={() => navigate('/my-page/wrong-answers')}>통합 오답 노트</button>
-                <button onClick={() => navigate('/main')}>메인</button>
             </div>
         </div>
     )

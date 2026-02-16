@@ -43,7 +43,6 @@ export default function StudyRanking() {
                 )}
             </div>
 
-            <button onClick={() => navigate('/main')}>메인으로 돌아가기</button>
         </div>
     )
 }

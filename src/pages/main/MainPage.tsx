@@ -11,14 +11,6 @@ export default function MainPage() {
         <div className="main-page">
             <h1>메인 대시보드</h1>
 
-            <div className="nav-buttons">
-                <button onClick={() => navigate('/my-studies')}>내 스터디</button>
-                <button onClick={() => navigate('/my-calendar')}>내 캘린더</button>
-                <button onClick={() => navigate('/my-page')}>마이페이지</button>
-                <button onClick={() => navigate('/notifications')}>알림 보관함</button>
-                <button onClick={() => navigate('/messages')}>메시지</button>
-            </div>
-
             <h2>진행 중인 스터디</h2>
             <div className="study-grid">
                 {activeStudies.map(study => (

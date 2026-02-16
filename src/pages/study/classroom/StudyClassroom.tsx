@@ -50,7 +50,6 @@ export default function StudyClassroom() {
                 <button onClick={() => navigate(`/study/${studyId}/classroom/assignment`)}>과제제출</button>
             </div>
 
-            <button onClick={() => navigate('/main')}>메인으로 돌아가기</button>
         </div>
     )
 }
