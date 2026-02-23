@@ -1,4 +1,5 @@
 export interface Study {
+    isPrivate: boolean;
     id: number
     title: string
     status: 'active' | 'none'
@@ -18,7 +19,8 @@ export const mockStudies: Study[] = [
         memberCount: 12,
         startDate: '2024-01-01',
         endDate: '2024-04-30',
-        tags: ['#자격증', '#코딩']
+        tags: ['#자격증', '#코딩'],
+        isPrivate: true
     },
     {
         id: 2,
@@ -28,7 +30,8 @@ export const mockStudies: Study[] = [
         memberCount: 13,
         startDate: '2024-02-01',
         endDate: '2024-05-31',
-        tags: ['#디자인', '#Figma']
+        tags: ['#디자인', '#Figma'],
+        isPrivate: true
     },
     {
         id: 3,
@@ -38,7 +41,8 @@ export const mockStudies: Study[] = [
         memberCount: 12,
         startDate: '2024-01-15',
         endDate: '2024-06-15',
-        tags: ['#React']
+        tags: ['#React'],
+        isPrivate: true,
     },
     {
         id: 4,
@@ -48,6 +52,7 @@ export const mockStudies: Study[] = [
         memberCount: 35,
         startDate: '2023-09-01',
         endDate: '2023-12-31',
-        tags: ['#알고리즘']
+        tags: ['#알고리즘'],
+        isPrivate: false,
     }
 ]
