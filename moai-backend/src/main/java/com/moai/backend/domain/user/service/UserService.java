@@ -1,8 +1,11 @@
 package com.moai.backend.domain.user.service;
 
+import com.moai.backend.domain.user.dto.UserLoginRequestDto;
 import com.moai.backend.domain.user.dto.UserSignUpRequestDto;
 import com.moai.backend.domain.user.entity.User;
 import com.moai.backend.domain.user.repository.UserRepository;
+import com.moai.backend.global.auth.JwtTokenProvider;
+import io.jsonwebtoken.Jwts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider jwtTokenProvider;
 
     @Transactional // 쓰기 권한 부여(readOnly = false)
     public Long join(UserSignUpRequestDto requestDto) {
@@ -26,7 +30,7 @@ public class UserService {
         String encodedPassword = passwordEncoder.encode(requestDto.getPassword());
 
         // 3. DTO를 열어서 Entity로 변환
-        User user = requestDto.toEntity(requestDto.getPassword());
+        User user = requestDto.toEntity(encodedPassword);
 
         // 4. Repository로 DB에 저장
         userRepository.save(user);
@@ -40,5 +44,21 @@ public class UserService {
                 .ifPresent(m -> {
                     throw new IllegalStateException("이미 존재하는 이메일입니다.");
                 });
+    }
+
+    @Transactional(readOnly = true)
+    public String login(UserLoginRequestDto requestDto) {
+
+        // 1. 이메일 존재 확인
+        User user = userRepository.findByEmail(requestDto.getEmail())
+                .orElseThrow(() -> new IllegalArgumentException("가입되지 않은 이메일입니다."));
+
+        // 2. 비밀번호 일치 확인
+        if (!passwordEncoder.matches(requestDto.getPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
+        }
+
+        // 3. 로그인 성공(토큰 발급)
+        return jwtTokenProvider.createToken(user.getEmail(), user.getUserRole().getKey());
     }
 }

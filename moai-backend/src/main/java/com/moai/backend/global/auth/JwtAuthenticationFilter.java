@@ -1,0 +1,47 @@
+package com.moai.backend.global.auth;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@RequiredArgsConstructor // final이 붙은 필드를 자동으로 주입
+public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요청당 한번만 실행되는 필터
+
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+
+        // 요청 헤더에서 토큰 꺼내기
+        String token = resolveToken(request);
+
+        // 토큰 존재 여부, 유효성 검사
+        if (token != null && jwtTokenProvider.validateToken(token)) {
+            // 토큰에서 유저 정보(명찰)를 꺼내옴
+            Authentication authentication = jwtTokenProvider.getAuthentication(token);
+
+            // 스프링 시큐리티의 세션 주머니(Context)에 이 명찰을 넣어줌
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        }
+
+        filterChain.doFilter(request, response);
+    }
+
+    // 순수 토큰만 가져오는 메서드
+    private String resolveToken(HttpServletRequest request) {
+        String bearerToken = request.getHeader("Authorization");
+        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) { // 문자열 검사 및 'Bearer ' 시작
+            return bearerToken.substring(7); // 순수 토큰 추출
+        }
+        return null;
+    }
+}

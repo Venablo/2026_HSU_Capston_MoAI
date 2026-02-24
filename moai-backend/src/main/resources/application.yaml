@@ -20,3 +20,8 @@ spring:
     redis:
       host: localhost
       port: 6379
+
+jwt:
+  secret: ${JWT_SECRET_KEY}
+  # 유효시간: 3600000ms = 1시간
+  expiration: 3600000
