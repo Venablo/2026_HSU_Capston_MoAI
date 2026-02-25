@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Plus, BookOpen, Users, Lock } from 'lucide-react'
-import { mockStudies } from '../../constants/mockData'
+import { mockStudies, STUDY_TAGS } from '../../constants'
+import CreateStudyModal from '../../components/modals/CreateStudyModal'
 import './MainPage.css'
 
 export default function MainPage() {
@@ -9,13 +10,7 @@ export default function MainPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedFilter, setSelectedFilter] = useState<'all' | 'public' | 'private'>('all')
     const [selectedTags, setSelectedTags] = useState<string[]>([])
-
-    // 태그 목록
-    const availableTags = [
-        '#Frontend', '#TOEIC', '#기사', '#공무원', '#JAVA',
-        '#Spring', '#Python', '#변리사', '#세무사', '#회계사',
-        '#Language', '#Backend'
-    ]
+    const [isModalOpen, setIsModalOpen] = useState(false)
 
     // 필터링된 스터디
     const filteredStudies = mockStudies.filter(study => {
@@ -73,7 +68,7 @@ export default function MainPage() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
-                <button className="create-group-btn" onClick={() => navigate('')}>
+                <button className="create-group-btn" onClick={() => setIsModalOpen(true)}>
                     <Plus size={20} />
                     <span>그룹 만들기</span>
                 </button>
@@ -105,7 +100,7 @@ export default function MainPage() {
 
             {/* Tag Filter */}
             <div className="tag-filter">
-                {availableTags.map(tag => (
+                {STUDY_TAGS.map(tag => (
                     <button
                         key={tag}
                         className={`tag-filter-btn ${selectedTags.includes(tag) ? 'active' : ''}`}
@@ -153,6 +148,12 @@ export default function MainPage() {
                     <p>검색 결과가 없습니다.</p>
                 </div>
             )}
+
+            {/* Create Study Modal */}
+            <CreateStudyModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+            />
         </div>
     )
 }
