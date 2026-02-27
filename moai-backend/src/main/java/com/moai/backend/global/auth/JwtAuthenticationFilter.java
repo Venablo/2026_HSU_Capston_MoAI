@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
@@ -16,6 +17,7 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요청당 한번만 실행되는 필터
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -26,11 +28,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요�
 
         // 토큰 존재 여부, 유효성 검사
         if (token != null && jwtTokenProvider.validateToken(token)) {
-            // 토큰에서 유저 정보(명찰)를 꺼내옴
-            Authentication authentication = jwtTokenProvider.getAuthentication(token);
 
-            // 스프링 시큐리티의 세션 주머니(Context)에 이 명찰을 넣어줌
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            // Redis에서 해당 토큰이 로그아웃된 상태인지 확인
+            String isLogout = redisTemplate.opsForValue().get(token);
+
+            if (isLogout == null) { // Redis에 없을 때만(정상 토큰일 때만) 인증 정보를 세션에 저장
+                // 토큰에서 유저 정보(명찰)를 꺼내옴
+                Authentication authentication = jwtTokenProvider.getAuthentication(token);
+
+                // 스프링 시큐리티의 세션 주머니(Context)에 이 명찰을 넣어줌
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         }
 
         filterChain.doFilter(request, response);

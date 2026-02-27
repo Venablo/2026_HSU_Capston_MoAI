@@ -5,6 +5,7 @@ import com.moai.backend.global.auth.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -19,6 +20,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Bean
     public BCryptPasswordEncoder passwordEncoder() {
@@ -42,13 +44,13 @@ public class SecurityConfig {
 
                 // 4. 요청 권한 설정
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/auth/**").permitAll() // 로그인, 회원가입은 티켓 없이 통과
-                        .requestMatchers("/health").permitAll() // /health 경로는 누구나 접근 가능
+                        .requestMatchers("/api/auth/**").permitAll() // 로그인, 로그아웃은 티켓 없이 통과
+                        .requestMatchers("/api/user/**").permitAll() // 회원가입은 티켓 없이 통과
                         .anyRequest().authenticated()               // 나머지는 무조건 토큰 검사
                 )
 
                 // 5. JWT 필터를 기존 시큐리티 필터 체인에 끼워 넣기
-                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider),
+                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, redisTemplate),
                 UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

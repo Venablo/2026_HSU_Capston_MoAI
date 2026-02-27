@@ -1,11 +1,11 @@
 package com.moai.backend.domain.user.service;
 
-import com.moai.backend.domain.user.dto.UserLoginRequestDto;
+import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
 import com.moai.backend.domain.user.dto.UserSignUpRequestDto;
 import com.moai.backend.domain.user.entity.User;
 import com.moai.backend.domain.user.repository.UserRepository;
 import com.moai.backend.global.auth.JwtTokenProvider;
-import io.jsonwebtoken.Jwts;
+import com.moai.backend.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,7 +24,8 @@ public class UserService {
     public Long join(UserSignUpRequestDto requestDto) {
 
         // 1. 중복 회원 검증
-        validateDuplicateUser(requestDto.getEmail());
+        validateDuplicateEmail(requestDto.getEmail());
+        validateDuplicateNickname(requestDto.getNickname());
 
         // 2. DTO에서 꺼낸 비밀번호를 BCrypt로 변환
         String encodedPassword = passwordEncoder.encode(requestDto.getPassword());
@@ -38,27 +39,20 @@ public class UserService {
         return user.getId(); // 저장된 유저의 고유 번호 반환
     }
 
-    // 중복 검사 로직
-    private void validateDuplicateUser(String email) {
+    // 이메일 중복 검사
+    private void validateDuplicateEmail(String email) {
         userRepository.findByEmail(email)
                 .ifPresent(m -> {
-                    throw new IllegalStateException("이미 존재하는 이메일입니다.");
+                    throw new CustomException(400, "AUTH_002", "이미 가입된 이메일입니다.");
                 });
     }
 
-    @Transactional(readOnly = true)
-    public String login(UserLoginRequestDto requestDto) {
-
-        // 1. 이메일 존재 확인
-        User user = userRepository.findByEmail(requestDto.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("가입되지 않은 이메일입니다."));
-
-        // 2. 비밀번호 일치 확인
-        if (!passwordEncoder.matches(requestDto.getPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
-        }
-
-        // 3. 로그인 성공(토큰 발급)
-        return jwtTokenProvider.createToken(user.getEmail(), user.getUserRole().getKey());
+    // 닉네임 중복 검증
+    private void validateDuplicateNickname(String nickname) {
+        userRepository.findByNickname(nickname)
+                .ifPresent(m -> {
+                    throw new CustomException(400, "AUTH_003", "이미 사용 중인 닉네임입니다.");
+                });
     }
+
 }

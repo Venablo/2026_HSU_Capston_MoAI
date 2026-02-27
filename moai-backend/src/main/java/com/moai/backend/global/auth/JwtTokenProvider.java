@@ -1,5 +1,6 @@
 package com.moai.backend.global.auth;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,4 +78,17 @@ public class JwtTokenProvider {
         return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
     }
 
+    // 토큰에서 남은 유효 시간을 밀리초(ms) 단위로 추출
+    public Long getExpiration(String accessToken) {
+        Date expiration = Jwts.parser()
+                .verifyWith(key)  // 유저가 가져온 토큰의 암호 도장이 우리 서버의 암호 도장과 일치하는지 검사
+                .build() // 해석기 조립 완료
+                .parseSignedClaims(accessToken) // 해석기에 토큰 주입
+                .getPayload()  // Data 추출
+                .getExpiration(); // 만료 시간 추출
+
+        // 2. (만료 시간 - 현재 시간) 계산
+        long now = new Date().getTime();
+        return (expiration.getTime() - now);
+    }
 }
