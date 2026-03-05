@@ -6,11 +6,11 @@
 
 .main-content {
     margin-left: 240px;
-    margin-top: 64px;
+    margin-top: 0;
     flex: 1;
     min-width: 0;
     min-height: calc(100vh - 64px);
     padding: 2rem;
     background-color: #F9FAFB;
-    overflow-x: hidden;
+    overflow-x: clip;
 }

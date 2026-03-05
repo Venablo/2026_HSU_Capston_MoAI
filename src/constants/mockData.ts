@@ -8,6 +8,7 @@ export interface Study {
     startDate: string
     endDate: string
     tags: string[]
+    studyCode: string
 }
 
 export const mockStudies: Study[] = [
@@ -20,7 +21,8 @@ export const mockStudies: Study[] = [
         startDate: '2024-01-01',
         endDate: '2024-04-30',
         tags: ['#자격증', '#코딩'],
-        isPrivate: true
+        isPrivate: true,
+        studyCode: '6915-8821'
     },
     {
         id: 2,
@@ -31,7 +33,8 @@ export const mockStudies: Study[] = [
         startDate: '2024-02-01',
         endDate: '2024-05-31',
         tags: ['#디자인', '#Figma'],
-        isPrivate: true
+        isPrivate: true,
+        studyCode: '3271-4490'
     },
     {
         id: 3,
@@ -43,6 +46,7 @@ export const mockStudies: Study[] = [
         endDate: '2024-06-15',
         tags: ['#React'],
         isPrivate: true,
+        studyCode: '8834-2201'
     },
     {
         id: 4,
@@ -54,5 +58,16 @@ export const mockStudies: Study[] = [
         endDate: '2023-12-31',
         tags: ['#알고리즘'],
         isPrivate: false,
+        studyCode: '5523-7719'
     }
 ]
+
+/** StudyHeader에 넘길 props 형태로 변환하는 헬퍼 */
+export function toStudyHeaderProps(study: Study) {
+    return {
+        title: study.title,
+        studyCode: study.studyCode,
+        memberCount: study.memberCount,
+        tags: study.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+    }
+}

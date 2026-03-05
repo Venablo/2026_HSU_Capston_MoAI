@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { Target, TrendingUp, FileText, Sheet, Image as ImageIcon, Calendar as CalendarIcon, ChevronRight, MessageSquare } from 'lucide-react'
-import { mockStudies } from '../../../constants'
+import { mockStudies, toStudyHeaderProps } from '../../../constants'
 import StudyHeader from '../../../components/Study/StudyHeader/StudyHeader'
 
 import './StudyDashboard.css'
@@ -19,12 +19,7 @@ export default function StudyDashboard() {
         )
     }
 
-    const studyData = {
-        title: study.title,
-        studyCode: '6915-8821',
-        memberCount: study.memberCount,
-        tags: study.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
-    }
+    const studyData = toStudyHeaderProps(study)
 
     const weeklyGoal = {
         title: 'Week 4: 데이터베이스 SQL 활용',
@@ -68,46 +63,49 @@ export default function StudyDashboard() {
             </div>
 
             <div className="dashboard-grid">
-                {/* Left : 이번 주 학습 목표 + 나의 진도율 */}
-                <div className="dashboard-left">
-                    {/* 이번 주 학습 목표 */}
-                    <div className="dashboard-card">
-                        <div className="card-icon purple">
-                            <Target size={24} />
-                        </div>
-                        <h3 className="card-title">이번 주 학습 목표</h3>
-                        <p className="goal-title">{weeklyGoal.title}</p>
-                        <p className="goal-desc">{weeklyGoal.description}</p>
-                    </div>
-
-                    {/* 나의 진도율 */}
-                    <div className="dashboard-card progress-card">
-                        <div className="card-icon green">
-                            <TrendingUp size={24} />
-                        </div>
-                        <h3 className="card-title">나의 진도율</h3>
-                        <div className="progress-circle">
-                            <svg width="120" height="120" viewBox="0 0 120 120">
-                                <circle cx="60" cy="60" r="54" fill="none" stroke="#F3F4F6" strokeWidth="12" />
-                                <circle
-                                    cx="60" cy="60" r="54" fill="none"
-                                    stroke="#8B5CF6" strokeWidth="12"
-                                    strokeDasharray={`${2 * Math.PI * 54}`}
-                                    strokeDashoffset={`${2 * Math.PI * 54 * (1 - progress / 100)}`}
-                                    strokeLinecap="round"
-                                    transform="rotate(-90 60 60)"
-                                />
-                            </svg>
-                            <div className="progress-text">
-                                <span className="progress-value">{progress}%</span>
-                            </div>
-                        </div>
-                        <p className="progress-label">지난주 대비 +5%</p>
-                    </div>
-                </div>
-
                 {/* Center : 오늘의 할 일 + 최근 인기글 */}
                 <div className="dashboard-center">
+                    {/* Left : 이번 주 학습 목표 + 나의 진도율 */}
+                    <div className="dashboard-center-top">
+                        {/* 이번 주 학습 목표 */}
+                        <div className="dashboard-card">
+                            <div className="card-icon purple">
+                                <Target size={24} />
+                            </div>
+                            <h3 className="card-title">이번 주 학습 목표</h3>
+                            <p className="goal-title">{weeklyGoal.title}</p>
+                            <p className="goal-desc">{weeklyGoal.description}</p>
+                        </div>
+
+                        {/* 나의 진도율 */}
+                        <div className="dashboard-card progress-card">
+                            <div className="card-icon green">
+                                <TrendingUp size={24} />
+                            </div>
+                            <h3 className="card-title">나의 진도율</h3>
+                            <div className="progress-row">
+                                <div>
+                                    <p className="progress-value">{progress}%</p>
+                                    <p className="progress-label">지난주 대비 +5%</p>
+                                </div>
+                                <div className="progress-circle">
+                                    <svg width="80" height="80" viewBox="0 0 80 80">
+                                        <circle cx="40" cy="40" r="34" fill="none" stroke="#F3F4F6" strokeWidth="8" />
+                                        <circle
+                                            cx="40" cy="40" r="34" fill="none"
+                                            stroke="#8B5CF6" strokeWidth="8"
+                                            strokeDasharray={`${2 * Math.PI * 34}`}
+                                            strokeDashoffset={`${2 * Math.PI * 34 * (1 - progress / 100)}`}
+                                            strokeLinecap="round"
+                                            transform="rotate(-90 40 40)"
+                                        />
+                                    </svg>
+                                    <div className="progress-text">{progress}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* 오늘의 할 일 */}
                     <section className="dashboard-section">
                         <h2 className="section-title">오늘의 할 일</h2>
