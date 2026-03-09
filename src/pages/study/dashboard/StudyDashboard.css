@@ -1,5 +1,6 @@
 .study-dashboard {
     width: 100%;
+    animation: fadeIn 0.5s ease-in;
 }
 
 /* Alert Banner */

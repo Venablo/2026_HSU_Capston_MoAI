@@ -40,7 +40,6 @@ export default function MainPage() {
                 : [...prev, tag]
         )
     }
-
     return (
         <div className="main-page">
             {/* Header */}
@@ -117,7 +116,7 @@ export default function MainPage() {
                     <div
                         key={study.id}
                         className="study-card"
-                        onClick={() => navigate(`/study/${study.id}`)}
+                        onClick={() => navigate(`/study/${study.id}`)}  //스터디 대시보드로 이동
                     >
                         <div className="card-header">
                             <div className={`study-icon ${study.isPrivate ? 'private' : 'public'}`}>

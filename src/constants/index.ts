@@ -12,3 +12,6 @@ export * from './studyOptions'
 
 // Colors
 export * from './colors'
+
+// Board
+export * from './boarddata'

@@ -85,6 +85,20 @@ export default function CreateStudyModal({ isOpen, onClose }: CreateStudyModalPr
                         />
                     </div>
 
+                    {/* 그룹 한줄 소개 */}
+                    <div className="form-group">
+                        <label htmlFor="description">
+                            그룹 한 줄 소개 <span className="required">*</span>
+                        </label>
+                        <textarea
+                            id="description"
+                            placeholder="스터디를 나타낼 한 문장 소개를 작성해주세요"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            rows={1}
+                        />
+                    </div>
+                    
                     {/* 그룹 설명 */}
                     <div className="form-group">
                         <label htmlFor="description">
