@@ -8,22 +8,24 @@ const api = axios.create({
     },
 });
 
-// 요청
+// Request interceptor — attach JWT from AuthContext (stored under 'accessToken')
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token'); // 변경 필요
+    const token = localStorage.getItem('accessToken');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
 });
 
-// 응답 에러
+// Response interceptor — redirect to login on 401 (token expired / missing)
 api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            // 토큰 만료시 → 로그인 페이지
-            localStorage.removeItem('token');
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('userId');
+            localStorage.removeItem('nickname');
             window.location.href = '/';
         }
         return Promise.reject(error);
