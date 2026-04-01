@@ -1,0 +1,57 @@
+.study-dashboard {
+    padding: 2rem;
+}
+
+.study-header {
+    background-color: #F3E8FF;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.study-header h1 {
+    margin: 0;
+}
+
+.study-header p {
+    margin: 0.5rem 0;
+    color: #666;
+}
+
+.study-info {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.badge {
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+.badge.owner {
+    background-color: #8B5CF6;
+}
+
+.badge.member {
+    background-color: #60A5FA;
+}
+
+.menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.menu-grid button {
+    padding: 1rem;
+    font-size: 1rem;
+}
+
+.now-btn {
+    background-color: #8B5CF6 !important;
+    color: white !important;
+}

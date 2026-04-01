@@ -1,0 +1,91 @@
+.my-studies-page {
+    padding: 2rem;
+}
+
+.studies-section {
+    margin-top: 2rem;
+}
+
+.studies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.study-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.study-card:hover {
+    transform: scale(1.05);
+}
+
+.study-card.completed {
+    opacity: 0.7;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.badge {
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+.badge.owner {
+    background-color: #8B5CF6;
+}
+
+.badge.member {
+    background-color: #60A5FA;
+}
+
+.badge.completed {
+    background-color: #9CA3AF;
+}
+
+.member-count {
+    font-size: 0.875rem;
+    color: #666;
+}
+
+.study-card h3 {
+    margin: 0.5rem 0;
+}
+
+.study-card p {
+    font-size: 0.875rem;
+    color: #666;
+    margin: 0.5rem 0;
+}
+
+.tags {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.tag {
+    font-size: 0.75rem;
+    color: #8B5CF6;
+    background-color: #F3E8FF;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.study-card.completed .tag {
+    color: #666;
+    background-color: #F3F4F6;
+}

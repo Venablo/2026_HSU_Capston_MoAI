@@ -1,0 +1,92 @@
+:root {
+    /* Primary Colors */
+    --color-primary: #8B5CF6;
+    --color-primary-light: #A78BFA;
+    --color-primary-dark: #7C3AED;
+    --color-primary-bg: #F3E8FF;
+
+    /* Secondary Colors */
+    --color-green: #10B981;
+    --color-green-dark: #059669;
+    --color-blue: #3B82F6;
+    --color-red: #EF4444;
+    --color-yellow: #F59E0B;
+    --color-orange: #F97316;
+
+    /* Status Colors */
+    --color-active-bg: #DBEAFE;
+    --color-active-text: #1E40AF;
+    --color-none-bg: #FEE2E2;
+    --color-none-text: #991B1B;
+    --color-success: #10B981;
+    --color-warning: #F59E0B;
+    --color-error: #EF4444;
+
+    /* Text Colors */
+    --color-text-primary: #1F2937;
+    --color-text-secondary: #6B7280;
+    --color-text-tertiary: #9CA3AF;
+    --color-text-disabled: #D1D5DB;
+
+    /* Background Colors */
+    --color-bg-white: #FFFFFF;
+    --color-bg-light: #F9FAFB;
+    --color-bg-gray: #F3F4F6;
+    --color-bg-border: #E5E7EB;
+
+    /* Ranking Colors */
+    --color-gold: #FFD700;
+    --color-silver: #C0C0C0;
+    --color-bronze: #CD7F32;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.15);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-full: 9999px;
+
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+    --spacing-2xl: 3rem;
+
+    /* Font Sizes */
+    --font-xs: 0.75rem;
+    --font-sm: 0.875rem;
+    --font-base: 1rem;
+    --font-lg: 1.125rem;
+    --font-xl: 1.25rem;
+    --font-2xl: 1.5rem;
+    --font-3xl: 2rem;
+
+    /* Font Weights */
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+    --font-extrabold: 800;
+
+    /* Z-Index */
+    --z-base: 1;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-fixed: 300;
+    --z-modal-backdrop: 1000;
+    --z-modal: 1001;
+    --z-popover: 1100;
+    --z-tooltip: 1200;
+}

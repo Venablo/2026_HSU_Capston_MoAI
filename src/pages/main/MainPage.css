@@ -1,0 +1,326 @@
+/* Main */
+.main-page {
+    padding: 0;
+    width: 100%;
+    animation: fadeIn 0.5s ease-in;
+}
+
+/* Header Section */
+.main-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding: 2rem 0;
+}
+
+.main-logo {
+    color: #8B5CF6;
+    margin-bottom: 1rem;
+    animation: float 3s ease-in-out infinite;
+}
+
+.main-header h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #8B5CF6;
+    margin: 0.5rem 0;
+    letter-spacing: -0.02em;
+}
+
+.main-subtitle {
+    font-size: 1.125rem;
+    color: #6B7280;
+    margin: 0.5rem 0;
+}
+
+/* TOP Ranking Section */
+.top-ranking-section {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 3rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #92400E;
+    margin: 0 0 1.5rem 0;
+    text-align: center;
+}
+
+.top-ranking-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+.ranking-card {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.ranking-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    transition: all 0.3s ease;
+}
+
+/* Search Section */
+.search-section {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.search-bar {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon {
+    position: absolute;
+    left: 1rem;
+    color: #9CA3AF;
+    pointer-events: none;
+}
+
+.search-bar input {
+    width: 100%;
+    padding: 0.9rem 1rem 0.9rem 3rem;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    background: white;
+}
+
+.search-bar input:focus {
+    outline: none;
+    border-color: #8B5CF6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.create-group-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.5rem;
+    background: #10B981;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.create-group-btn:hover {
+    background: #059669;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Filter Buttons */
+.filter-buttons {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border: 2px solid #E5E7EB;
+    background: white;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6B7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn:hover {
+    border-color: #8B5CF6;
+    color: #8B5CF6;
+}
+
+.filter-btn.active {
+    background: #8B5CF6;
+    border-color: #8B5CF6;
+    color: white;
+}
+
+/* Tag Filter */
+.tag-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid #E5E7EB;
+}
+
+.tag-filter-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #E5E7EB;
+    background: white;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    color: #6B7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tag-filter-btn:hover {
+    border-color: #8B5CF6;
+    color: #8B5CF6;
+    background: #F3E8FF;
+}
+
+.tag-filter-btn.active {
+    background: #8B5CF6;
+    border-color: #8B5CF6;
+    color: white;
+}
+
+/* Study Grid */
+.study-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+}
+
+.study-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #F3F4F6;
+}
+
+.study-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    border-color: #8B5CF6;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.study-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.study-icon.public {
+    background: linear-gradient(135deg, #10B981, #059669);
+}
+
+.study-icon.private {
+    background: linear-gradient(135deg, #6366F1, #4F46E5);
+}
+
+.study-card h3 {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #1F2937;
+    margin: 0 0 0.75rem 0;
+    line-height: 1.4;
+}
+
+.study-description {
+    font-size: 0.875rem;
+    color: #6B7280;
+    margin: 0 0 1rem 0;
+    line-height: 1.5;
+    flex: 1;
+}
+
+.tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.tag {
+    font-size: 0.75rem;
+    color: #8B5CF6;
+    background: #F3E8FF;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid #F3F4F6;
+}
+
+.member-count {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #6B7280;
+    font-size: 0.875rem;
+}
+
+.status-badge {
+    padding: 0.375rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.status-badge.active {
+    background: #DBEAFE;
+    color: #1E40AF;
+}
+
+.status-badge.none {
+    background: #FEE2E2;
+    color: #991B1B;
+}
+
+/* No Results */
+.no-results {
+    text-align: center;
+    padding: 4rem 0;
+    color: #9CA3AF;
+    font-size: 1.125rem;
+}

@@ -1,0 +1,16 @@
+.main-layout {
+    display: flex;
+    min-height: 100vh;
+    background-color: #F9FAFB;
+}
+
+.main-content {
+    margin-left: 240px;
+    margin-top: 0;
+    flex: 1;
+    min-width: 0;
+    min-height: calc(100vh - 64px);
+    padding: 2rem;
+    background-color: #F9FAFB;
+    overflow-x: clip;
+}
