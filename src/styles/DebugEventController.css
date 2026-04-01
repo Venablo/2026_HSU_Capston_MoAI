@@ -1,0 +1,230 @@
+/* ── Debug Event Controller ── */
+/* Floating test panel — only visible during development / QA */
+
+.debug-controller {
+    position: fixed;
+    bottom: 28px;
+    left: 240px;               /* clears the sidebar */
+    z-index: 600;
+    background: #0f0c29;
+    border: 1px solid rgba(167, 139, 250, 0.35);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    width: 256px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.3s ease both;
+    transition: width 0.2s ease, padding 0.2s ease;
+}
+
+/* Collapsed state — shrink to a small floating icon button */
+.debug-controller--collapsed {
+    width: auto;
+    min-width: 0;
+    padding: 6px;
+}
+
+.debug-controller__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.debug-controller--collapsed .debug-controller__header {
+    margin-bottom: 0;
+}
+
+/* Badge */
+.debug-controller__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 4px;
+    padding: 2px 7px;
+}
+
+.debug-controller__title {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* Collapse/expand toggle button */
+.debug-controller__collapse-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 5px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.debug-controller--collapsed .debug-controller__collapse-btn {
+    margin-left: 0;
+    color: rgba(255, 255, 255, 0.65);
+    padding: 5px;
+}
+
+.debug-controller__collapse-btn:hover {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.debug-controller__desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+/* ── Button list ── */
+
+.debug-controller__btn-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.debug-controller__btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.debug-controller__btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* Rewind variant — purple */
+.debug-controller__btn--rewind {
+    background: rgba(139, 92, 246, 0.12);
+    border-color: rgba(167, 139, 250, 0.28);
+}
+.debug-controller__btn--rewind:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.26);
+    border-color: rgba(167, 139, 250, 0.55);
+}
+
+/* Fast-track variant — amber */
+.debug-controller__btn--fast {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.28);
+}
+.debug-controller__btn--fast:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.22);
+    border-color: rgba(245, 158, 11, 0.55);
+}
+
+/* Reverse-learning variant — teal/green */
+.debug-controller__btn--reverse {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.28);
+}
+.debug-controller__btn--reverse:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.22);
+    border-color: rgba(16, 185, 129, 0.55);
+}
+
+/* Active loading state */
+.debug-controller__btn--loading {
+    opacity: 1 !important;
+    border-color: rgba(167, 139, 250, 0.6) !important;
+}
+
+/* ── Button internals ── */
+
+.debug-controller__btn-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: inherit;
+}
+
+.debug-controller__btn-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.debug-controller__btn-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.2;
+}
+
+.debug-controller__btn-sublabel {
+    font-size: 10px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.4);
+    line-height: 1.2;
+}
+
+/* ── Lucide spinner ── */
+
+@keyframes debug-spin {
+    to { transform: rotate(360deg); }
+}
+
+.debug-controller__spinner {
+    animation: debug-spin 0.7s linear infinite;
+}
+
+/* Quiz correct variant — green */
+.debug-controller__btn--quiz-correct {
+    background: rgba(34, 197, 94, 0.10);
+    border-color: rgba(34, 197, 94, 0.28);
+}
+.debug-controller__btn--quiz-correct:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.22);
+    border-color: rgba(34, 197, 94, 0.55);
+}
+
+/* Quiz wrong variant — red */
+.debug-controller__btn--quiz-wrong {
+    background: rgba(239, 68, 68, 0.10);
+    border-color: rgba(239, 68, 68, 0.28);
+}
+.debug-controller__btn--quiz-wrong:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.22);
+    border-color: rgba(239, 68, 68, 0.55);
+}
+
+/* ── API hint footer ── */
+
+.debug-controller__api-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.25);
+    margin-top: 10px;
+    line-height: 1.5;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    padding-top: 8px;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}

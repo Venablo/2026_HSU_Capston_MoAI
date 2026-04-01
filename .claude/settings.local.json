@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/User/IdeaProjects/**)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(grep -r \"icon\\\\|Icon\\\\|svg\\\\|emoji\" /c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/src --include=*.tsx --include=*.ts -l)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

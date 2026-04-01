@@ -1,0 +1,421 @@
+/* ── Onboarding Wizard Modal ── */
+.wizard-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.wizard {
+    background: #ffffff;
+    border-radius: var(--radius-2xl);
+    width: 540px;
+    max-width: 95vw;
+    box-shadow: 0 25px 60px rgba(109, 40, 217, 0.15);
+    overflow: hidden;
+}
+
+.wizard__header {
+    padding: 24px 28px 0;
+}
+
+.wizard__step-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.wizard__step-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-purple-600);
+    letter-spacing: 1px;
+}
+
+.wizard__close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: 20px;
+    line-height: 1;
+    padding: 0;
+}
+
+.wizard__progress-track {
+    height: 5px;
+    background: var(--color-purple-100);
+    border-radius: 99px;
+    margin-bottom: 4px;
+}
+
+.wizard__progress-fill {
+    height: 100%;
+    background: var(--color-purple-600);
+    border-radius: 99px;
+    transition: width 0.4s ease;
+}
+
+.wizard__progress-pct {
+    text-align: right;
+    font-size: 11px;
+    color: var(--color-purple-400);
+    margin-bottom: 24px;
+}
+
+/* Body */
+.wizard__body {
+    padding: 0 28px 28px;
+}
+
+.wizard__title {
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 8px;
+    color: var(--color-text-primary);
+}
+
+.wizard__subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-bottom: 24px;
+}
+
+/* Goal chips */
+.wizard__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.wizard__chip {
+    padding: 10px 20px;
+    border-radius: 99px;
+    border: 2px solid #e5e7eb;
+    background: #ffffff;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+
+.wizard__chip:hover {
+    border-color: var(--color-purple-400);
+    color: var(--color-purple-600);
+}
+
+.wizard__chip--active {
+    border-color: var(--color-purple-600);
+    background: var(--color-purple-50);
+    color: var(--color-purple-600);
+    font-weight: 700;
+}
+
+.wizard__chip-check {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--color-purple-600);
+    color: #ffffff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+}
+
+.wizard__custom-label {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    margin-bottom: 6px;
+}
+
+.wizard__input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    border: 1.5px solid #e5e7eb;
+    font-size: 14px;
+    outline: none;
+    color: var(--color-text-primary);
+    font-family: inherit;
+    transition: border-color 0.15s;
+}
+
+.wizard__input:focus { border-color: var(--color-purple-600); }
+
+/* Level options */
+.wizard__levels {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wizard__level-btn {
+    padding: 14px 20px;
+    border-radius: 14px;
+    border: 2px solid #f3f4f6;
+    background: #fafafa;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+
+.wizard__level-btn--active {
+    border-color: var(--color-purple-600);
+    background: var(--color-purple-50);
+}
+
+.wizard__level-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.wizard__level-btn--active .wizard__level-badge {
+    background: var(--color-purple-600);
+    color: #ffffff;
+}
+
+.wizard__level-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.wizard__level-btn--active .wizard__level-label {
+    color: var(--color-purple-600);
+    font-weight: 700;
+}
+
+/* Duration / Intensity */
+.wizard__section-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 10px;
+}
+
+.wizard__duration-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.wizard__duration-btn {
+    padding: 8px 18px;
+    border-radius: 99px;
+    border: 2px solid #e5e7eb;
+    background: #ffffff;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+
+.wizard__duration-btn--active {
+    background: var(--color-purple-600);
+    border-color: var(--color-purple-600);
+    color: #ffffff;
+}
+
+.wizard__intensity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wizard__intensity-btn {
+    padding: 11px 16px;
+    border-radius: var(--radius-md);
+    border: 2px solid #f3f4f6;
+    background: #fafafa;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+
+.wizard__intensity-btn--active {
+    border-color: var(--color-purple-600);
+    background: var(--color-purple-50);
+    color: var(--color-purple-600);
+    font-weight: 700;
+}
+
+/* Step 4 – Plan summary */
+.wizard__plan-emoji { font-size: 40px; margin-bottom: 12px; text-align: center; }
+
+.wizard__plan-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-purple-800);
+    text-align: center;
+    margin-bottom: 4px;
+}
+
+.wizard__plan-highlight { color: var(--color-purple-600); }
+
+.wizard__plan-desc {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.wizard__plan-info {
+    background: var(--color-purple-50);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.wizard__plan-info p {
+    font-size: 13px;
+    color: var(--color-purple-800);
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+.wizard__plan-info p:last-child { margin-bottom: 0; }
+
+.wizard__roadmap-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 12px;
+    text-align: left;
+}
+
+.wizard__roadmap-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+}
+
+.wizard__roadmap-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+}
+
+.wizard__roadmap-item {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    border: 1px solid var(--color-border);
+}
+
+.wizard__roadmap-bar-track {
+    height: 6px;
+    background: var(--color-purple-100);
+    border-radius: 99px;
+    margin-top: 8px;
+}
+
+.wizard__roadmap-bar-fill {
+    height: 100%;
+    width: 60%;
+    background: #c4b5fd;
+    border-radius: 99px;
+}
+
+.wizard__roadmap-hint {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    margin-top: 8px;
+}
+
+/* Footer */
+.wizard__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+}
+
+.wizard__back-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+}
+
+.wizard__next-btn {
+    padding: 12px 28px;
+    border-radius: var(--radius-md);
+    border: none;
+    cursor: pointer;
+    background: var(--color-purple-600);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.wizard__next-btn:hover { background: var(--color-purple-700); }
+
+.wizard__finish-btn {
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    border: none;
+    cursor: pointer;
+    background: var(--color-purple-600);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: var(--shadow-btn);
+    transition: background 0.15s;
+}
+
+.wizard__finish-btn:hover { background: var(--color-purple-700); }
+.wizard__finish-btn:disabled { background: var(--color-purple-400); cursor: default; }

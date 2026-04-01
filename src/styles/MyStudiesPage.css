@@ -1,0 +1,191 @@
+/* ── My Studies Page ── */
+.my-studies__content {
+    padding: 32px;
+}
+
+.my-studies__filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.my-studies__filter-btn {
+    padding: 8px 20px;
+    border-radius: 99px;
+    border: 1.5px solid #e5e7eb;
+    background: #ffffff;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+
+.my-studies__filter-btn--active {
+    background: var(--color-purple-600);
+    border-color: var(--color-purple-600);
+    color: #ffffff;
+}
+
+/* Study card grid */
+.study-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.study-card {
+    background: #ffffff;
+    border-radius: var(--radius-xl);
+    padding: 24px;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.study-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-card);
+}
+
+.study-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.study-card__info-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.study-card__emoji-wrap {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: var(--color-purple-50);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.study-card__title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.study-card__week {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    margin-top: 2px;
+}
+
+.study-card__status-badge {
+    padding: 4px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.study-card__status-badge--active {
+    background: var(--color-purple-100);
+    color: var(--color-purple-600);
+}
+
+.study-card__status-badge--done {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.study-card__topic {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+}
+
+.study-card__progress-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.study-card__progress-label {
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.study-card__progress-pct {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.study-card__bar-track {
+    height: 6px;
+    background: #f3f4f6;
+    border-radius: 99px;
+    margin-bottom: 12px;
+}
+
+.study-card__bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.6s ease;
+}
+
+.study-card__tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.study-card__tag {
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--color-purple-50);
+    color: var(--color-purple-600);
+}
+
+/* Add new study card */
+.study-card--add {
+    background: #ffffff;
+    border-radius: var(--radius-xl);
+    padding: 24px;
+    border: 2px dashed #ddd6fe;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    gap: 12px;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.study-card--add:hover {
+    border-color: var(--color-purple-600);
+    background: var(--color-purple-50);
+}
+
+.study-card--add__icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--color-purple-50);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.study-card--add__label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
