@@ -1,6 +1,6 @@
 package com.moai.backend.global.auth;
 
-import io.jsonwebtoken.Claims;
+import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,76 +18,82 @@ import java.util.Date;
 @Component
 public class JwtTokenProvider {
 
-    private final SecretKey key; // 암호 도장
-    private final long validityInMilliseconds;
+    private final SecretKey key;
+    private final long accessTokenExpiration;
+    private final long refreshTokenExpiration;
 
     public JwtTokenProvider(
             @Value("${jwt.secret}") String secretKey,
-            @Value("${jwt.expiration}") long validityInMilliseconds) {
-        // 실제 암호화 알고리즘(HMAC-SHA)에 쓸 수 있는 전용 키 규격으로 변환
+            @Value("${jwt.access-expiration}") long accessTokenExpiration,
+            @Value("${jwt.refresh-expiration}") long refreshTokenExpiration) {
         this.key = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
-        this.validityInMilliseconds = validityInMilliseconds;
+        this.accessTokenExpiration = accessTokenExpiration;
+        this.refreshTokenExpiration = refreshTokenExpiration;
     }
 
-    // 토큰 생성(문자열)
-    public String createToken(String email, String role) {
+    public UserTokenResponseDto createToken(String email, String userId, String nickname) {
         Date now = new Date();
-        Date validity = new Date(now.getTime() + validityInMilliseconds);
 
-        return Jwts.builder()
-                .subject(email) // 주인 식별자
-                .claim("role", role) // 추가 정보
-                .issuedAt(now) // 토큰 발급 시간
-                .expiration(validity) // 토큰 유효 기간
-                .signWith(key) // 암호 도장
-                .compact(); // 압축
+        String accessToken = Jwts.builder()
+                .subject(email)
+                .claim("userId", userId)
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + accessTokenExpiration))
+                .signWith(key)
+                .compact();
+
+        String refreshToken = Jwts.builder()
+                .subject(email)
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + refreshTokenExpiration))
+                .signWith(key)
+                .compact();
+
+        return new UserTokenResponseDto(accessToken, refreshToken, accessTokenExpiration / 1000, userId, nickname);
     }
 
-   // 토큰에서 이메일(Subject) 추출
     public String getEmail(String token) {
-        return Jwts.parser() // 암호화된 긴 문자열(토큰)을 다시 우리가 읽을 수 있는 정보(이메일, 권한 등)로 분해하는 도구
-                .verifyWith(key) // 유저가 가져온 토큰의 암호 도장이 우리 서버의 암호 도장과 일치하는지 검사
-                .build() // 해석기 조립 완료
-                .parseSignedClaims(token) // 해석기에 토큰 주입
-                .getPayload() // Data 추출
-                .getSubject(); // Subject 추출
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
     }
 
-    // 토큰 유효성 검증 (만료 여부 등)
     public boolean validateToken(String token) {
         try {
             Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
             return true;
         } catch (Exception e) {
-            return false; // 위조되었거나 만료된 경우
+            return false;
         }
     }
 
     public Authentication getAuthentication(String token) {
-        // 토큰 알맹이에서 이메일(Subject)을 꺼내기
         String email = getEmail(token);
 
-        // 스프링 시큐리티가 이해할 수 있는 유저 정보 객체(UserDetails)
         UserDetails userDetails = User.builder()
                 .username(email)
-                .password("") // 비밀번호는 이미 토큰으로 검증됐으니 필요 없음
-                .authorities(Collections.emptyList()) // Null 방지(스터디에 따라 권한이 바뀔 수 있음)
+                .password("")
+                .authorities(Collections.emptyList())
                 .build();
 
-        // 3. 표준 신분증인 UsernamePasswordAuthenticationToken을 만들어서 리턴
         return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
     }
 
-    // 토큰에서 남은 유효 시간을 밀리초(ms) 단위로 추출
+    public long getRefreshExpirationTime() {
+        return refreshTokenExpiration;
+    }
+
     public Long getExpiration(String accessToken) {
         Date expiration = Jwts.parser()
-                .verifyWith(key)  // 유저가 가져온 토큰의 암호 도장이 우리 서버의 암호 도장과 일치하는지 검사
-                .build() // 해석기 조립 완료
-                .parseSignedClaims(accessToken) // 해석기에 토큰 주입
-                .getPayload()  // Data 추출
-                .getExpiration(); // 만료 시간 추출
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(accessToken)
+                .getPayload()
+                .getExpiration();
 
-        // 2. (만료 시간 - 현재 시간) 계산
         long now = new Date().getTime();
         return (expiration.getTime() - now);
     }

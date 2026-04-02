@@ -23,5 +23,23 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET_KEY}
-  # 유효시간: 3600000ms = 1시간
-  expiration: 3600000
+  access-expiration: 1800000 # 30분 (ms)
+  refresh-expiration: 1209600000 # 14일 (ms)
+
+llm:
+  api-key: ${LLM_API_KEY}
+  api-url: https://generativelanguage.googleapis.com/v1beta/models
+  model: gemini-3.1-flash-lite-preview
+
+youtube:
+  api-key: ${YOUTUBE_API_KEY}
+
+cloud:
+  aws:
+    s3:
+      bucket: ${AWS_S3_BUCKET}
+    region:
+      static: ${AWS_REGION}
+
+subtitle:
+  script-path: src/main/resources/scripts/subtitle_scraper.py

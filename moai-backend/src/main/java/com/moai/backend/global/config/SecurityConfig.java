@@ -13,6 +13,11 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -30,6 +35,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // 0. CORS 설정 적용
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
                 // 1. CSRF 보안 기능 끄기 (로컬 개발 시에는 번거롭기 때문)
                 .csrf(AbstractHttpConfigurer::disable)
 
@@ -44,9 +52,8 @@ public class SecurityConfig {
 
                 // 4. 요청 권한 설정
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/auth/**").permitAll() // 로그인, 로그아웃은 티켓 없이 통과
-                        .requestMatchers("/api/user/**").permitAll() // 회원가입은 티켓 없이 통과
-                        .anyRequest().authenticated()               // 나머지는 무조건 토큰 검사
+                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll() // 공개 API
+                        .anyRequest().authenticated()               // 로그아웃 포함 나머지는 JWT 필요
                 )
 
                 // 5. JWT 필터를 기존 시큐리티 필터 체인에 끼워 넣기
@@ -54,5 +61,19 @@ public class SecurityConfig {
                 UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(List.of("Authorization", "Authorization-Refresh"));
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
     }
 }

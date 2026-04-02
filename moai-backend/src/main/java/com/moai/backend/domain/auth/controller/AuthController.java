@@ -1,57 +1,75 @@
 package com.moai.backend.domain.auth.controller;
 
 import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
-import com.moai.backend.domain.auth.dto.UserLoginResponseDto;
+import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
 import com.moai.backend.domain.auth.dto.UserLogoutRequestDto;
-import com.moai.backend.domain.auth.dto.UserLogoutResponseDto;
+import com.moai.backend.domain.auth.dto.UserRefreshRequestDto;
 import com.moai.backend.domain.auth.service.AuthService;
-import com.moai.backend.domain.user.service.UserService;
+import com.moai.backend.domain.users.dto.UserSignUpRequestDto;
+import com.moai.backend.domain.users.dto.UserSignUpResponseDto;
+import com.moai.backend.domain.users.entity.User;
+import com.moai.backend.domain.users.service.UserService;
+import com.moai.backend.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequiredArgsConstructor // final이 붙은 필드를 자동으로 주입
+@RequiredArgsConstructor
 @RequestMapping("/api/auth")
 public class AuthController {
+
     private final AuthService authService;
-    private final RedisTemplate<String, String> redisTemplate;
+    private final UserService userService;
 
-    // 로그인 API
-    // POST http://localhost:8080/api/auth/login
+    // 회원가입 POST /api/auth/register
+    @PostMapping("/register")
+    public ResponseEntity<ApiResponse<UserSignUpResponseDto>> register(@Valid @RequestBody UserSignUpRequestDto requestDto) {
+
+        User user = userService.join(requestDto);
+
+        UserSignUpResponseDto responseDto = new UserSignUpResponseDto(
+                user.getId(),
+                user.getNickname(),
+                "환영합니다, " + user.getName() + " 님!"
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(201, "회원가입 성공", responseDto));
+    }
+
+    // 로그인 POST /api/auth/login
     @PostMapping("/login")
-    public ResponseEntity<UserLoginResponseDto> login(@Valid @RequestBody UserLoginRequestDto requestDto) {
+    public ResponseEntity<ApiResponse<UserTokenResponseDto>> login(@Valid @RequestBody UserLoginRequestDto requestDto) {
 
-        String token = authService.login(requestDto);
+        UserTokenResponseDto token = authService.login(requestDto);
 
-        // LoginResponseDto(토큰)와 함께 "200 OK" 응답 반환
-        return ResponseEntity.ok(new UserLoginResponseDto(token));
+        return ResponseEntity.ok(ApiResponse.success(200, "로그인 성공", token));
     }
 
-    // 로그아웃 API
-    // POST http://localhost:8080/api/auth/logout
-
+    // 로그아웃 POST /api/auth/logout
     @PostMapping("/logout")
-    public ResponseEntity<UserLogoutResponseDto> logout(@RequestBody UserLogoutRequestDto requestDto) {
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestHeader("Authorization") String accessToken,
+            @RequestBody UserLogoutRequestDto requestDto) {
 
-        authService.logout(requestDto);
+        String actualToken = accessToken.startsWith("Bearer ")
+                ? accessToken.substring(7)
+                : accessToken;
 
-        return ResponseEntity.ok(new UserLogoutResponseDto("로그아웃 되었습니다."));
+        authService.logout(actualToken, requestDto.getRefreshToken());
+
+        return ResponseEntity.ok(ApiResponse.success(200, "로그아웃되었습니다."));
     }
 
-    // [개발 확인용] Redis에 블랙리스트 토큰이 잘 들어갔는지 조회
+    // 토큰 갱신 POST /api/auth/refresh
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<UserTokenResponseDto>> refresh(@RequestBody UserRefreshRequestDto requestDto) {
 
-    @GetMapping("/debug/blacklist")
-    public ResponseEntity<String> checkBlacklist(@RequestParam String token) {
-        // Redis에서 해당 토큰(Key)으로 저장된 값이 있는지 확인
-        String status = redisTemplate.opsForValue().get(token);
+        UserTokenResponseDto newTokenDto = authService.reissue(requestDto.getRefreshToken());
 
-        if (status != null) {
-            return ResponseEntity.ok("상태: [블랙리스트] - " + status + " 처리된 토큰입니다.");
-        } else {
-            return ResponseEntity.ok("상태: [정상] - 현재 블랙리스트에 존재하지 않는 토큰입니다.");
-        }
+        return ResponseEntity.ok(ApiResponse.success(200, "토큰 재발급 성공", newTokenDto));
     }
 }

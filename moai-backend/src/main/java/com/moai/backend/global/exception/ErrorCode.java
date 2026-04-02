@@ -1,0 +1,35 @@
+package com.moai.backend.global.exception;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+@Getter
+@AllArgsConstructor
+public enum ErrorCode {
+
+    // Common
+    INVALID_INPUT(400, "COMMON_001", "입력값이 올바르지 않습니다."),
+
+    // Auth
+    AUTH_INVALID_CREDENTIALS(400, "AUTH_001", "이메일 또는 비밀번호가 일치하지 않습니다."),
+    AUTH_DUPLICATE_LOGIN_ID(409, "AUTH_006", "이미 사용 중인 로그인 아이디입니다."),
+    AUTH_DUPLICATE_EMAIL(409, "AUTH_002", "이미 가입된 이메일입니다."),
+    AUTH_DUPLICATE_NICKNAME(409, "AUTH_003", "이미 사용 중인 닉네임입니다."),
+    AUTH_INVALID_TOKEN(401, "AUTH_004", "유효하지 않거나 이미 로그아웃된 토큰입니다."),
+    AUTH_TOKEN_MISMATCH(401, "AUTH_005", "토큰 정보가 일치하지 않습니다."),
+
+    // User
+    USER_NOT_FOUND(404, "USER_001", "사용자를 찾을 수 없습니다."),
+
+    // LLM
+    LLM_API_CALL_FAILED(502, "LLM_001", "LLM API 호출에 실패했습니다."),
+    LLM_RESPONSE_PARSE_ERROR(502, "LLM_002", "LLM 응답을 파싱할 수 없습니다."),
+
+    // S3
+    S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),
+    S3_PRESIGN_FAILED(500, "S3_002", "Presigned URL 생성에 실패했습니다.");
+
+    private final int status;
+    private final String code;
+    private final String message;
+}

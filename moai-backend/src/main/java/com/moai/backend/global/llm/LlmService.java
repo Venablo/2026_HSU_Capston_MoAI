@@ -1,0 +1,139 @@
+package com.moai.backend.global.llm;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.moai.backend.global.exception.CustomException;
+import com.moai.backend.global.exception.ErrorCode;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class LlmService {
+
+    private final WebClient llmWebClient;
+    private final ObjectMapper objectMapper;
+
+    @Value("${llm.api-key}")
+    private String apiKey;
+
+    @Value("${llm.model}")
+    private String model;
+
+    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
+            "```(?:json)?\\s*\\n?(.*?)\\n?\\s*```", Pattern.DOTALL
+    );
+
+    /**
+     * Gemini API를 호출하고 응답 텍스트를 반환한다.
+     */
+    public LlmResponseDto call(LlmRequestDto request) {
+        String text = callGemini(request);
+        return new LlmResponseDto(text);
+    }
+
+    /**
+     * Gemini API를 호출하고 응답을 JSON으로 파싱하여 반환한다.
+     * 마크다운 코드블록(```json ... ```)이 감싸져 있으면 자동으로 제거한 뒤 파싱한다.
+     */
+    public <T> T callJson(LlmRequestDto request, Class<T> responseType) {
+        String text = callGemini(request);
+        String json = stripCodeBlock(text);
+        try {
+            return objectMapper.readValue(json, responseType);
+        } catch (JsonProcessingException e) {
+            log.error("LLM 응답 JSON 파싱 실패: {}", json, e);
+            throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
+        }
+    }
+
+    /**
+     * Gemini REST API 호출 — 공통 내부 메서드
+     */
+    private String callGemini(LlmRequestDto request) {
+        Map<String, Object> body = buildRequestBody(request);
+
+        try {
+            String response = llmWebClient.post()
+                    .uri("/{model}:generateContent?key={key}", model, apiKey)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            return extractContent(response);
+        } catch (WebClientResponseException e) {
+            log.error("Gemini API 호출 실패 [{}]: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
+        }
+    }
+
+    /**
+     * Gemini API 요청 바디 구성
+     */
+    private Map<String, Object> buildRequestBody(LlmRequestDto request) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+
+        if (request.getSystemPrompt() != null && !request.getSystemPrompt().isBlank()) {
+            body.put("systemInstruction", Map.of(
+                    "parts", List.of(Map.of("text", request.getSystemPrompt()))
+            ));
+        }
+
+        body.put("contents", List.of(
+                Map.of(
+                        "role", "user",
+                        "parts", List.of(Map.of("text", request.getUserMessage()))
+                )
+        ));
+
+        return body;
+    }
+
+    /**
+     * Gemini 응답 JSON에서 텍스트 콘텐츠를 추출한다.
+     * 경로: candidates[0].content.parts[0].text
+     */
+    private String extractContent(String responseBody) {
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode textNode = root
+                    .path("candidates").path(0)
+                    .path("content").path("parts").path(0)
+                    .path("text");
+
+            if (textNode.isMissingNode()) {
+                log.error("Gemini 응답에서 텍스트를 찾을 수 없음: {}", responseBody);
+                throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
+            }
+
+            return textNode.asText();
+        } catch (JsonProcessingException e) {
+            log.error("Gemini 응답 파싱 실패: {}", responseBody, e);
+            throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
+        }
+    }
+
+    /**
+     * 마크다운 코드블록(```json ... ``` 또는 ``` ... ```)을 제거하고 내부 JSON만 반환한다.
+     * 코드블록이 없으면 원본 텍스트를 그대로 반환한다.
+     */
+    private String stripCodeBlock(String text) {
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(text.trim());
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return text.trim();
+    }
+}

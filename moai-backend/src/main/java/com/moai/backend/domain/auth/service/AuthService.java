@@ -1,11 +1,12 @@
 package com.moai.backend.domain.auth.service;
 
 import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
-import com.moai.backend.domain.auth.dto.UserLogoutRequestDto;
-import com.moai.backend.domain.user.entity.User;
-import com.moai.backend.domain.user.repository.UserRepository;
+import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
+import com.moai.backend.domain.users.entity.User;
+import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.auth.JwtTokenProvider;
 import com.moai.backend.global.exception.CustomException;
+import com.moai.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -15,8 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.concurrent.TimeUnit;
 
 @Service
-@RequiredArgsConstructor // final이 붙은 필드를 자동으로 주입
-@Transactional(readOnly = true) // 기본적으로 조회 성능 최적화
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AuthService {
 
     private final UserRepository userRepository;
@@ -25,36 +26,73 @@ public class AuthService {
     private final RedisTemplate<String, String> redisTemplate;
 
     @Transactional(readOnly = true)
-    public String login(UserLoginRequestDto requestDto) {
+    public UserTokenResponseDto login(UserLoginRequestDto requestDto) {
 
-        // 1. 이메일 존재 확인
-        User user = userRepository.findByEmail(requestDto.getEmail())
-                .orElseThrow(() -> new CustomException(400, "AUTH_001", "이메일 또는 비밀번호가 일치하지 않습니다."));
+        // 1. 로그인 아이디로 사용자 조회
+        User user = userRepository.findByLoginId(requestDto.getLoginId())
+                .orElseThrow(() -> new CustomException(ErrorCode.AUTH_INVALID_CREDENTIALS));
 
         // 2. 비밀번호 일치 확인
-        if (!passwordEncoder.matches(requestDto.getPassword(), user.getPassword())) {
-            throw new CustomException(400, "AUTH_001", "이메일 또는 비밀번호가 일치하지 않습니다.");
+        if (!passwordEncoder.matches(requestDto.getPassword(), user.getPasswordHash())) {
+            throw new CustomException(ErrorCode.AUTH_INVALID_CREDENTIALS);
         }
 
-        // 3. 로그인 성공(토큰 발급)
-        return jwtTokenProvider.createToken(user.getEmail(), user.getUserRole().getKey());
+        UserTokenResponseDto tokens = jwtTokenProvider.createToken(user.getEmail(), user.getId(), user.getNickname());
+
+        // 3. Refresh Token을 Redis에 저장
+        redisTemplate.opsForValue().set(
+                "RT:" + user.getEmail(),
+                tokens.getRefreshToken(),
+                jwtTokenProvider.getRefreshExpirationTime(),
+                TimeUnit.MILLISECONDS
+        );
+
+        return tokens;
     }
 
     @Transactional
-    public void logout(UserLogoutRequestDto requestDto) {
-        String accessToken = requestDto.getAccessToken();
-
-        // 1. 토큰 유효성 검사 (이미 만료된 토큰이면 굳이 블랙리스트에 넣을 필요 없음)
+    public void logout(String accessToken, String refreshToken) {
         if (!jwtTokenProvider.validateToken(accessToken)) {
-            throw new CustomException(401, "AUTH_004", "유효하지 않거나 이미 로그아웃된 토큰입니다.");
+            throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
         }
 
-        // 2. 토큰의 남은 유효 시간(Expiration) 계산
+        String email = jwtTokenProvider.getEmail(accessToken);
+
+        if (redisTemplate.opsForValue().get("RT:" + email) != null) {
+            redisTemplate.delete("RT:" + email);
+        }
+
         Long expiration = jwtTokenProvider.getExpiration(accessToken);
 
-        // 3. Redis에 블랙리스트 등록 (키: 토큰값 / 값: "logout" / 만료시간: 토큰의 남은 시간)
-        // 이렇게 하면 토큰의 원래 만료 시간이 지나면 Redis에서도 자동으로 삭제
         redisTemplate.opsForValue()
                 .set(accessToken, "logout", expiration, TimeUnit.MILLISECONDS);
+    }
+
+    @Transactional
+    public UserTokenResponseDto reissue(String refreshToken) {
+        if (!jwtTokenProvider.validateToken(refreshToken)) {
+            throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
+        }
+
+        String email = jwtTokenProvider.getEmail(refreshToken);
+
+        String savedToken = redisTemplate.opsForValue().get("RT:" + email);
+        if (savedToken == null || !savedToken.equals(refreshToken)) {
+            throw new CustomException(ErrorCode.AUTH_TOKEN_MISMATCH);
+        }
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        UserTokenResponseDto newTokens = jwtTokenProvider.createToken(user.getEmail(), user.getId(), user.getNickname());
+
+        redisTemplate.opsForValue().set(
+                "RT:" + email,
+                newTokens.getRefreshToken(),
+                jwtTokenProvider.getRefreshExpirationTime(),
+                TimeUnit.MILLISECONDS
+        );
+
+        return newTokens;
     }
 }
