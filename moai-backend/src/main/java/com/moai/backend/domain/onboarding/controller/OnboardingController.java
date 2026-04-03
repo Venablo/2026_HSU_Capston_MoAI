@@ -24,6 +24,6 @@ public class OnboardingController {
 
         OnboardingKeywordResponseDto responseDto = onboardingService.getRecommendedKeywords(userDetails.getUsername());
 
-        return ResponseEntity.ok(ApiResponse.success(200, "추천 키워드 조회 성공", responseDto));
+        return ResponseEntity.ok(ApiResponse.success("추천 키워드 조회 성공", responseDto));
     }
 }

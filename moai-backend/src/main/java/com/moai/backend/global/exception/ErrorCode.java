@@ -25,6 +25,18 @@ public enum ErrorCode {
     LLM_API_CALL_FAILED(502, "LLM_001", "LLM API 호출에 실패했습니다."),
     LLM_RESPONSE_PARSE_ERROR(502, "LLM_002", "LLM 응답을 파싱할 수 없습니다."),
 
+    // Learning Room
+    LEARNING_ROOM_NOT_FOUND(404, "ROOM_001", "학습실을 찾을 수 없습니다."),
+
+    // Curriculum
+    CURRICULUM_NOT_FOUND(404, "CURRICULUM_001", "주차 커리큘럼을 찾을 수 없습니다."),
+
+    // Material
+    MATERIAL_NOT_FOUND(404, "MATERIAL_001", "학습 자료를 찾을 수 없습니다."),
+
+    // Quiz
+    QUIZ_ATTEMPT_NOT_FOUND(404, "QUIZ_001", "퀴즈 응시 기록을 찾을 수 없습니다."),
+
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),
     S3_PRESIGN_FAILED(500, "S3_002", "Presigned URL 생성에 실패했습니다.");

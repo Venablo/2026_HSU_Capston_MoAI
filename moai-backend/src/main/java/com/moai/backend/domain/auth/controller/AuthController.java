@@ -37,7 +37,7 @@ public class AuthController {
         );
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(201, "회원가입 성공", responseDto));
+                .body(ApiResponse.success("회원가입 성공", responseDto));
     }
 
     // 로그인 POST /api/auth/login
@@ -46,7 +46,7 @@ public class AuthController {
 
         UserTokenResponseDto token = authService.login(requestDto);
 
-        return ResponseEntity.ok(ApiResponse.success(200, "로그인 성공", token));
+        return ResponseEntity.ok(ApiResponse.success("로그인 성공", token));
     }
 
     // 로그아웃 POST /api/auth/logout
@@ -61,7 +61,7 @@ public class AuthController {
 
         authService.logout(actualToken, requestDto.getRefreshToken());
 
-        return ResponseEntity.ok(ApiResponse.success(200, "로그아웃되었습니다."));
+        return ResponseEntity.ok(ApiResponse.success("로그아웃되었습니다."));
     }
 
     // 토큰 갱신 POST /api/auth/refresh
@@ -70,6 +70,6 @@ public class AuthController {
 
         UserTokenResponseDto newTokenDto = authService.reissue(requestDto.getRefreshToken());
 
-        return ResponseEntity.ok(ApiResponse.success(200, "토큰 재발급 성공", newTokenDto));
+        return ResponseEntity.ok(ApiResponse.success("토큰 재발급 성공", newTokenDto));
     }
 }

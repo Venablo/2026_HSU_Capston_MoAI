@@ -24,16 +24,16 @@
 - [x] @Async Step D: LLM 학습 자료 생성 → PDF 변환 (PDFBox) → S3 업로드 → resources JSON 추가, 독립 실패 처리
 ## PHASE 3
 
-- [ ] GET /api/learning-rooms — 내 학습실 목록, LearningRoomListResponseDto
-- [ ] GET /api/learning-rooms/{roomId}/curriculum — 전체 주차 목록, CurriculumListResponseDto
-- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId} — 주차 상세, CurriculumDetailResponseDto (mainVideoId 포함)
-- [ ] PATCH /api/learning-rooms/{roomId}/curriculum/{weekId}/progress — 진척도 업데이트, 주차 평균으로 학습실 completionRate 자동 갱신
-- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/recommended-videos — resources에서 youtube 타입 추출
-- [ ] domain/material/entity/CustomMaterial.java — db_schema 17번 참조
-- [ ] CustomMaterialRepository — findByRoomIdOrderByCreatedAtDesc
-- [ ] GET /api/learning-rooms/{roomId}/materials — 요약 자료 목록
-- [ ] GET /api/learning-rooms/{roomId}/materials/{materialId} — 요약 자료 상세 (summaryItems 포함)
-- [ ] domain/quiz/entity/Quiz.java, QuizQuestion.java, QuizAttempt.java, QuizReport.java — db_schema 07~10번
-- [ ] QuizRepository, QuizQuestionRepository, QuizAttemptRepository, QuizReportRepository
-- [ ] GET /api/learning-rooms/{roomId}/quiz-attempts — 퀴즈 응시 이력 목록
-- [ ] GET /api/quiz-attempts/{attemptId} — 퀴즈 상세 (AI 해설 포함)
+- [x] GET /api/learning-rooms — 내 학습실 목록, LearningRoomListResponseDto
+- [x] GET /api/learning-rooms/{roomId}/curriculum — 전체 주차 목록, CurriculumListResponseDto
+- [x] GET /api/learning-rooms/{roomId}/curriculum/{weekId} — 주차 상세, CurriculumDetailResponseDto (mainVideoId 포함)
+- [x] PATCH /api/learning-rooms/{roomId}/curriculum/{weekId}/progress — 진척도 업데이트, 주차 평균으로 학습실 completionRate 자동 갱신
+- [x] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/recommended-videos — resources에서 youtube 타입 추출
+- [x] domain/material/entity/CustomMaterial.java — db_schema 17번 참조
+- [x] CustomMaterialRepository — findByRoomIdOrderByCreatedAtDesc
+- [x] GET /api/learning-rooms/{roomId}/materials — 요약 자료 목록
+- [x] GET /api/learning-rooms/{roomId}/materials/{materialId} — 요약 자료 상세 (summaryItems 포함)
+- [x] domain/quiz/entity/Quiz.java, QuizQuestion.java, QuizAttempt.java, QuizReport.java — db_schema 07~10번
+- [x] QuizRepository, QuizQuestionRepository, QuizAttemptRepository, QuizReportRepository
+- [x] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts — 주차별 퀴즈 응시 이력
+- [x] GET /api/quiz-attempts/{attemptId} — 퀴즈 상세 (AI 해설 포함)

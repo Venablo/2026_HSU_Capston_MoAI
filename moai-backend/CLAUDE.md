@@ -143,4 +143,5 @@ graph TB
 - **YouTube 영상 추천**: LLM이 주차별 topic 기반으로 YouTube video_id를 직접 추천.
     YouTube Data API 미사용.
     자막 스크래핑 실패 시 해당 주차 resources는 빈 배열로 저장하고 계속 진행.
+- **퀴즈 응시 이력 조회**: api_spec의 GET /api/learning-rooms/{roomId}/quiz-attempts는 GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts로 변경.
 

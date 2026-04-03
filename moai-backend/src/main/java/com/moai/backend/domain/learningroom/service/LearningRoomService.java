@@ -6,6 +6,7 @@ import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateRequestDto;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateResponseDto;
+import com.moai.backend.domain.learningroom.dto.LearningRoomListResponseDto;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
 import com.moai.backend.domain.users.entity.User;
@@ -35,6 +36,18 @@ public class LearningRoomService {
     private final UserRepository userRepository;
     private final LlmService llmService;
     private final CurriculumEnrichmentService curriculumEnrichmentService;
+
+    public LearningRoomListResponseDto getMyRooms(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        List<LearningRoomListResponseDto.RoomSummary> rooms =
+                learningRoomRepository.findByUserId(user.getId()).stream()
+                        .map(LearningRoomListResponseDto.RoomSummary::from)
+                        .toList();
+
+        return new LearningRoomListResponseDto(rooms);
+    }
 
     @Transactional
     public LearningRoomCreateResponseDto createRoom(String email, LearningRoomCreateRequestDto requestDto) {

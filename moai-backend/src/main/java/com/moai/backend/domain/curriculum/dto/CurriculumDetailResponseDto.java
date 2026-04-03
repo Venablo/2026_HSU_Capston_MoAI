@@ -1,0 +1,48 @@
+package com.moai.backend.domain.curriculum.dto;
+
+import com.moai.backend.domain.curriculum.entity.CurriculumResource;
+import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+@Getter
+@Builder
+@AllArgsConstructor
+public class CurriculumDetailResponseDto {
+
+    private String weekId;
+    private int weekNumber;
+    private String topic;
+    private String description;
+    private List<String> keywords;
+    private String mainVideoId;
+    private List<CurriculumResource> resources;
+    private BigDecimal completionRate;
+
+    public static CurriculumDetailResponseDto from(WeeklyCurriculum curriculum) {
+        // resources에서 youtube 타입의 첫 번째 videoId를 mainVideoId로 추출
+        String mainVideoId = null;
+        if (curriculum.getResources() != null) {
+            mainVideoId = curriculum.getResources().stream()
+                    .filter(r -> "youtube".equals(r.getType()))
+                    .map(CurriculumResource::getVideoId)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        return CurriculumDetailResponseDto.builder()
+                .weekId(curriculum.getId())
+                .weekNumber(curriculum.getWeekNumber())
+                .topic(curriculum.getTopic())
+                .description(curriculum.getDescription())
+                .keywords(curriculum.getKeywords())
+                .mainVideoId(mainVideoId)
+                .resources(curriculum.getResources())
+                .completionRate(curriculum.getCompletionRate())
+                .build();
+    }
+}

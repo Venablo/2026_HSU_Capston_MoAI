@@ -67,4 +67,8 @@ public class LearningRoom extends BaseTimeEntity {
         this.completionRate = BigDecimal.ZERO;
         this.status = "active";
     }
+
+    public void updateCompletionRate(BigDecimal completionRate) {
+        this.completionRate = completionRate;
+    }
 }

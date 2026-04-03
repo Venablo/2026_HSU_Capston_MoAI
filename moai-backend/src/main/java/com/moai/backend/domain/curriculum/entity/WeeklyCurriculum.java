@@ -89,4 +89,8 @@ public class WeeklyCurriculum {
     public void updateKeywords(List<String> keywords) {
         this.keywords = keywords;
     }
+
+    public void updateCompletionRate(BigDecimal completionRate) {
+        this.completionRate = completionRate;
+    }
 }

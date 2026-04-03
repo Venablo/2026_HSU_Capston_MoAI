@@ -23,6 +23,6 @@ public class UserController {
 
         UserProfileResponseDto profile = userService.getProfile(userDetails.getUsername());
 
-        return ResponseEntity.ok(ApiResponse.success(200, "프로필 조회 성공", profile));
+        return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profile));
     }
 }
