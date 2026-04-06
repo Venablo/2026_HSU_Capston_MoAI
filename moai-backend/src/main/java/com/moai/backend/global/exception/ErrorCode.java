@@ -36,6 +36,12 @@ public enum ErrorCode {
 
     // Quiz
     QUIZ_ATTEMPT_NOT_FOUND(404, "QUIZ_001", "퀴즈 응시 기록을 찾을 수 없습니다."),
+    QUIZ_NOT_FOUND(404, "QUIZ_002", "퀴즈를 찾을 수 없습니다."),
+    QUIZ_QUESTION_NOT_FOUND(404, "QUIZ_003", "퀴즈 문항을 찾을 수 없습니다."),
+
+    // Event
+    EVENT_UNSUPPORTED_TYPE(400, "EVENT_001", "지원하지 않는 이벤트 타입입니다."),
+    EVENT_TRANSCRIPT_NOT_FOUND(404, "EVENT_002", "해당 구간의 자막을 찾을 수 없습니다."),
 
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),

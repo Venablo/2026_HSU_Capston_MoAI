@@ -10,4 +10,8 @@ public interface VideoTranscriptRepository extends JpaRepository<VideoTranscript
 
     List<VideoTranscript> findByCurriculumIdAndStartSecLessThanEqualAndEndSecGreaterThanEqual(
             String curriculumId, BigDecimal startSec, BigDecimal endSec);
+
+    // 패턴1/2/3/4 공통: 범위와 겹치는 자막 조회 (start_sec <= toSec AND end_sec >= fromSec)
+    List<VideoTranscript> findByCurriculumIdAndVideoIdAndStartSecLessThanEqualAndEndSecGreaterThanEqualOrderByChunkIndex(
+            String curriculumId, String videoId, BigDecimal toSec, BigDecimal fromSec);
 }

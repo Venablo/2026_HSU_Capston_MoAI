@@ -35,6 +35,10 @@ public class Quiz {
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
+    // 돌발 퀴즈 생성 시 되감기 대상 초 (nullable — weekly 퀴즈는 사용하지 않음)
+    @Column(name = "rewind_to_sec")
+    private Integer rewindToSec;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -47,9 +51,10 @@ public class Quiz {
     }
 
     @Builder
-    public Quiz(WeeklyCurriculum curriculum, String quizType, String title) {
+    public Quiz(WeeklyCurriculum curriculum, String quizType, String title, Integer rewindToSec) {
         this.curriculum = curriculum;
         this.quizType = quizType;
         this.title = title;
+        this.rewindToSec = rewindToSec;
     }
 }
