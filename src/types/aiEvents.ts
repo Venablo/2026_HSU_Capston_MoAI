@@ -1,76 +1,42 @@
-import type { SummaryItem } from '../components/modals/SummaryDetailModal'
+import type { SummaryItem } from '../components/modals/monitoring/SummaryDetailModal'
 
-// ─── Pattern type ─────────────────────────────────────────────────────────────
-
-/**
- * The two learning patterns the AI can detect.
- * Sent as { patternType } in the POST /api/ai/analyze request body.
- */
-export type PatternType = 'REWIND' | 'FAST_TRACK'
-
-// ─── Backend response shapes ──────────────────────────────────────────────────
+// ─── Meta-cognition evaluation ────────────────────────────────────────────────
 
 /**
- * Discriminated union returned by POST /api/ai/analyze.
- * The actionType field drives which modal the UI opens next.
+ * Comprehension result shown in MetaEvaluationModal.
  *
- * REWIND     → user rewound 3+ times → MonitoringModal (suggest summary)
- * FAST_TRACK → user completed section faster than average → FastTrackModal (suggest challenge)
- */
-export type PatternAnalysisResponse =
-    | {
-        patternType:  'REWIND'
-        actionType:   'monitoring'
-        conceptName:  string
-        reason:       string
-      }
-    | {
-        patternType:    'FAST_TRACK'
-        actionType:     'fast-track'
-        conceptName:    string
-        reason:         string
-        /** How much faster than the average learner, e.g. 240 = 2.4× faster */
-        completionRate: number
-        challengeLevel: 'intermediate' | 'advanced'
-      }
-
-/**
- * Shape returned by GET /api/ai/summary/:conceptName
- * Used by ClassroomModals when the user agrees to view the concept breakdown.
- */
-export interface AISummaryResponse {
-    conceptName: string
-    summaryItems: SummaryItem[]
-}
-
-// ─── Meta-cognition flow types ────────────────────────────────────────────────
-
-/**
- * Returned by POST /api/ai/meta-evaluate after user submits their explanation.
- * Drives the MetaEvaluationModal display.
+ * Mapped from EndFlippedResponse (api.ts) inside ClassroomModals.handleSessionEnd:
+ *   EndFlippedResponse.score          → comprehensionScore
+ *   EndFlippedResponse.gainedKeywords → strongKeywords
+ *   EndFlippedResponse.weakKeywords   → weakKeywords
  */
 export interface MetaEvaluationResponse {
-    /** Comprehension percentage, e.g. 95 */
     comprehensionScore: number
-    /** Keywords the user explained well (shown as purple tags) */
     strongKeywords: string[]
-    /** Keywords that need reinforcement (shown as red tags) */
     weakKeywords: string[]
 }
 
+// ─── Study partner matching ───────────────────────────────────────────────────
+
 /**
- * Returned by POST /api/ai/match after evaluation completes.
- * Drives the StudyMatchingModal display.
+ * Partner data shown in StudyMatchingModal.
+ *
+ * Mapped from StudySuggestion (api.ts) inside aiSummaryService.fetchStudyMatch:
+ *   matchScore * 100           → matchRate
+ *   partner.nickname           → partnerName
+ *   partner.strengthKeyword    → partnerStrengths[0]
+ *   suggestedRole              → partnerRole
+ *
+ * TODO: replace fetchStudyMatch mock with real getStudySuggestions() call.
  */
 export interface StudyMatchResponse {
     partnerId: string
     partnerName: string
-    /** Single emoji or initials used as avatar */
+    /** Single emoji or initials rendered as the avatar */
     partnerAvatar: string
     partnerRole: 'mentor' | 'mentee'
-    /** AI-computed match percentage, e.g. 98 */
+    /** matchScore (0–1) × 100, e.g. 98 */
     matchRate: number
-    /** Strengths the partner brings (shown as tags) */
     partnerStrengths: string[]
 }
 
@@ -79,17 +45,46 @@ export interface StudyMatchResponse {
 /**
  * Typed payload attached to each open modal.
  * The 'type' discriminant always matches the ModalKey it belongs to,
- * so ClassroomModals can narrow without casting.
+ * so ClassroomModals can narrow the union without casting.
+ *
+ * 'monitoring' note:
+ *   summaryItems are pre-fetched from getMaterialDetail() in StudyClassroom
+ *   before this modal is opened, so SummaryDetailModal can display them
+ *   instantly with no additional network call.
  */
 export type ModalData =
-    | { type: 'monitoring';       conceptName: string; reason: string }
-    | { type: 'summary-detail';   conceptName: string; summaryItems: SummaryItem[] }
-    | { type: 'fast-track';       conceptName: string; reason: string
-                                  completionRate: number; challengeLevel: 'intermediate' | 'advanced' }
+    | {
+        type: 'monitoring'
+        conceptName: string
+        reason: string
+        /** Mapped from MaterialDetail.summaryItems: { label→letter, desc→description } */
+        summaryItems: SummaryItem[]
+      }
+    | { type: 'summary-detail';  conceptName: string; summaryItems: SummaryItem[] }
+    | {
+        type: 'fast-track'
+        conceptName: string
+        reason: string
+        completionRate: number
+        challengeLevel: 'intermediate' | 'advanced'
+      }
     | { type: 'quiz-pass' }
     | { type: 'flipped' }
-    | { type: 'reverse-learning'; conceptName: string }
-    | { type: 'meta-evaluation';  evaluation: MetaEvaluationResponse }
-    | { type: 'study-matching';   match: StudyMatchResponse }
-    | { type: 'quiz-correct';     conceptName: string }
-    | { type: 'quiz-incorrect';   conceptName: string; correctConcept: string; explanation: string }
+    | {
+        type: 'reverse-learning'
+        conceptName: string
+        /** roomId for startFlippedSession / streamFlipped / endFlippedSession */
+        roomId?: string
+        /** curriculum_id for startFlippedSession body */
+        weekId?: string
+      }
+    | { type: 'meta-evaluation'; evaluation: MetaEvaluationResponse }
+    | { type: 'study-matching';  match: StudyMatchResponse }
+    | { type: 'quiz-correct';    conceptName: string }
+    | { type: 'quiz-incorrect';  conceptName: string; correctConcept: string; explanation: string }
+    | {
+        type: 'final-quiz'
+        /** Used by FinalQuizModal for getFinalQuiz / submitFinalQuiz / polling */
+        roomId: string
+        weekId: string
+      }

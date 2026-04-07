@@ -29,8 +29,11 @@ export interface RegisterRequest {
   name: string
   nickname: string
   email: string
-  birth_date: string           // "YYYY-MM-DD"
+  birth_date: string                  // "YYYY-MM-DD"
   interest_keywords: string[]
+  // 백엔드 POST /api/auth/register — 스터디 매칭 허용 여부
+  // 미전송 시 서버 기본값 true 적용. 마이페이지에서 나중에 변경 가능.
+  study_suggestion_enabled?: boolean
 }
 
 export interface RegisterResponse {
@@ -148,10 +151,13 @@ export interface UpdateProgressResponse {
 export interface RecommendedVideo {
   videoId: string
   title: string
-  channelName: string
   durationSec: number
-  thumbnailUrl: string
-  youtubeUrl: string
+  viewCount: number
+}
+
+/** Wrapper shape returned by GET …/recommended-videos */
+export interface RecommendedVideosData {
+  videos: RecommendedVideo[]
 }
 
 export interface MaterialListItem {

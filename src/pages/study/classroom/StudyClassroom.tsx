@@ -1,5 +1,29 @@
+/**
+ * ============================================================================
+ * StudyClassroom.tsx  —  핵심 학습 화면
+ * ============================================================================
+ *
+ * 주요 변경 사항:
+ *   1. YouTube IFrame API 통합
+ *      - useYouTubePlayer 훅으로 영상 재생 + 사용자 행동 폴링
+ *      - 되감기/스킵/장시간 정지/탭 이탈 패턴 자동 감지
+ *
+ *   2. 실제 API 연동 (sendEventLog)
+ *      - 패턴 감지 시 POST /learning-rooms/{roomId}/events 호출
+ *      - aiTriggered: true 시 응답에 따라 모달 자동 오픈
+ *
+ *   3. 커리큘럼 데이터 로드
+ *      - URL의 :studyId를 roomId로 사용
+ *      - getCurriculumWeek()로 주차별 mainVideoId, keywords 조회
+ *
+ *   4. 파이널 퀴즈 연결
+ *      - "퀴즈 도전하기" → 돌발 퀴즈(quiz-pass) 대신 파이널 퀴즈(final-quiz) 모달 오픈
+ * ============================================================================
+ */
+
 import type { ReactNode } from 'react'
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams } from 'react-router-dom'
 import {
     Search, Bell, ChevronLeft, ChevronRight,
     FileText, FileEdit, Package,
@@ -10,17 +34,28 @@ import {
     UserCircle, ArrowRight,
 } from 'lucide-react'
 import '../../../styles/StudyClassroom.css'
+import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
-import ClassroomModals from '../../../components/modals/ClassroomModals'
-import DebugEventController from '../../../components/modals/DebugEventController'
+import ClassroomModals from '../../../components/modals/common/ClassroomModals'
+import DebugEventController from '../../../components/modals/common/DebugEventController'
+import DebugToast from '../../../components/modals/common/DebugToast'
+import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
+import { useDebugToast } from '../../../hooks/useDebugToast'
+import {
+    sendEventLog,
+    getMaterialDetail,
+    getInstantQuiz,
+} from '../../../services/apiService'
+import type { EventType, LearningEventPayload } from '../../../types/api'
 
-// ── Types & constants ───────────────────────────────────────────────────────
+// ── 타입 정의 ─────────────────────────────────────────────────────────────────
 type TabKey = 'docs' | 'videos' | 'summary' | 'quiz'
 
 interface Doc   { icon: ReactNode; name: string; size: string; type: string }
 interface Vid   { thumb: ReactNode; title: string; channel: string; views: string; duration: string }
 interface Tab   { key: TabKey; icon: ReactNode; label: string }
 
+// ── Mock 정적 데이터 (백엔드 연결 전 화면 구성용) ─────────────────────────────
 const DOCS: Doc[] = [
     { icon: <FileText size={20} strokeWidth={1.5} />,  name: 'Week 1 데이터베이스 기초 완벽 정리.pdf', size: '2.4MB', type: 'PDF Document'       },
     { icon: <FileEdit size={20} strokeWidth={1.5} />,  name: '기출문제 풀이집 및 해설.docx',            size: '1.1MB', type: 'Microsoft Word'      },
@@ -52,17 +87,117 @@ const TABS: Tab[] = [
     { key: 'quiz',    icon: <MessageSquare size={14} strokeWidth={1.5} />, label: '퀴즈 내역'       },
 ]
 
-// ── Inner component (must live inside ClassroomModalProvider) ────────────────
+// ── Mock 주차 데이터 (getCurriculumWeek 응답 형식과 동일) ─────────────────────
+// 실제 구현 시 getCurriculumWeek(roomId, weekId)로 교체한다.
+const MOCK_WEEK = {
+    weekId:         'w3000000-0000-0000-0000-000000000001',
+    weekNumber:     1,
+    topic:          'DB Foundation',
+    description:    'DB의 기본 구조와 ACID 원리를 마스터합니다.',
+    completionRate: 30,
+    keywords:       ['ACID', '트랜잭션', 'COMMIT', 'ROLLBACK', '원자성'],
+    // 실제 YouTube 영상 ID — 백엔드 연결 전 테스트용 공개 DB 강의
+    mainVideoId:    'HXV3zeQKqGY',
+}
+
+// ── 핵심 컴포넌트 (ClassroomModalProvider 내부에서 렌더링) ─────────────────────
 function StudyClassroomContent() {
+    // URL 파라미터에서 roomId(=studyId) 추출
+    // 라우트: /study/:studyId/classroom
+    const { studyId: roomId = 'mock-room' } = useParams<{ studyId: string }>()
+
     const [rightCollapsed, setRightCollapsed] = useState(false)
     const [tab, setTab] = useState<TabKey>('docs')
-    const progress = 30
 
-    const { open, metacogComplete, partnerConnected } = useClassroomModal()
+    // 현재 주차 데이터 — 실제 구현 시 getCurriculumWeek로 대체
+    const [weekData] = useState(MOCK_WEEK)
+
+    const { open, metacogComplete, partnerConnected, setCurrentWeekId } = useClassroomModal()
+    const { toasts, addToast, resolveToast } = useDebugToast()
+
+    // 학습실 진입 시 weekId를 Context에 저장하여 모달들이 참조할 수 있게 함
+    useEffect(() => {
+        setCurrentWeekId(weekData.weekId)
+    }, [weekData.weekId, setCurrentWeekId])
+
+    // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
+    /**
+     * useYouTubePlayer 훅이 패턴을 감지할 때마다 이 함수가 호출된다.
+     *
+     * 처리 흐름:
+     *   1. POST /learning-rooms/{roomId}/events 호출
+     *   2. aiTriggered: false → 아무것도 하지 않음
+     *   3. aiTriggered: true  → eventType에 따라 모달 오픈
+     *      - video_rewind / video_pause / tab_departure:
+     *          getMaterialDetail(materialId) → MonitoringModal
+     *      - video_skip:
+     *          getInstantQuiz(weekId) → QuizPassModal
+     */
+    const handlePatternDetected = useCallback(async (
+        eventType: EventType,
+        payload: LearningEventPayload,
+    ) => {
+        // Show blue "Sending" toast immediately when a pattern is detected
+        const toastId = addToast(eventType)
+
+        try {
+            const result = await sendEventLog(roomId, {
+                event_type:    eventType,
+                curriculum_id: weekData.weekId,
+                payload,
+            })
+
+            // Update toast: purple if AI modal will open, dim blue otherwise
+            resolveToast(toastId, result.aiTriggered)
+
+            if (!result.aiTriggered) return  // 임계값 미달 → 패턴 미발동
+
+            // ── AI 트리거 발동 → 이벤트 타입별 모달 오픈 ───────────────────
+            if (
+                result.eventType === 'video_rewind' ||
+                result.eventType === 'video_pause'  ||
+                result.eventType === 'tab_departure'
+            ) {
+                // 패턴1/2: materialId로 요약 자료 조회 후 MonitoringModal 표시
+                if (result.materialId) {
+                    const material = await getMaterialDetail(roomId, result.materialId)
+                    open('monitoring', {
+                        type:        'monitoring',
+                        conceptName: material.title,
+                        reason:      `${eventType} 패턴 감지 — 보충 자료를 준비했어요.`,
+                        // Map API field names (label/desc) to modal field names (letter/description).
+                        // Stored here so SummaryDetailModal opens instantly with no second fetch.
+                        summaryItems: material.summaryItems.map(s => ({
+                            letter:      s.label,
+                            title:       s.title,
+                            description: s.desc,
+                        })),
+                    })
+                }
+            } else if (result.eventType === 'video_skip') {
+                // 패턴3: 스킵 감지 → 돌발 퀴즈 조회 (InstantQuizResponse는 QuizPassModal에서 사용)
+                // TODO: getInstantQuiz 응답을 QuizPassModal로 전달하는 로직 추가
+                await getInstantQuiz(roomId, weekData.weekId)
+                open('quiz-pass')
+            }
+        } catch {
+            // API 미연결 상태(개발 환경)에서는 오류 무시 — DebugEventController로 수동 테스트
+            resolveToast(toastId, false)
+        }
+    }, [roomId, weekData.weekId, open, addToast, resolveToast])
+
+    // ── YouTube IFrame API 훅 연결 ────────────────────────────────────────────
+    // playerDivId: <div id={playerDivId} />에 YouTube 플레이어가 마운트됨
+    const { playerDivId } = useYouTubePlayer({
+        videoId:           weekData.mainVideoId,
+        onPatternDetected: handlePatternDetected,
+    })
+
+    const progress = weekData.completionRate
 
     return (
         <>
-            {/* Topbar */}
+            {/* ── Topbar ── */}
             <header className="topbar">
                 <h2 className="topbar__title">AI 상세 학습실</h2>
                 <div className="topbar__actions">
@@ -78,21 +213,21 @@ function StudyClassroomContent() {
                 </div>
             </header>
 
-            {/* Body */}
+            {/* ── Body ── */}
             <div className="classroom">
-                {/* ── Main panel ── */}
+                {/* ── 메인 패널 ── */}
                 <div className="classroom__main">
-                    {/* Week selector */}
+                    {/* 주차 선택 버튼 */}
                     <button
                         className="classroom__week-btn"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
                         <Calendar size={14} strokeWidth={1.5} />
-                        Week 1: DB Foundation
+                        Week {weekData.weekNumber}: {weekData.topic}
                         <ChevronRight size={14} strokeWidth={1.5} style={{ transform: 'rotate(90deg)' }} />
                     </button>
 
-                    {/* Progress */}
+                    {/* 진행률 바 */}
                     <div className="classroom__progress-label">
                         COURSE PROGRESS: {progress}%
                     </div>
@@ -100,35 +235,31 @@ function StudyClassroomContent() {
                         <div className="classroom__progress-fill" style={{ width: `${progress}%` }} />
                     </div>
 
-                    {/* Lesson info */}
+                    {/* 강의 정보 */}
                     <h1 className="classroom__lesson-title">
                         데이터베이스 아키텍처 및 트랜잭션 이해
                     </h1>
                     <p className="classroom__lesson-desc">
-                        이번 주차에는 DB의 기본 구조와 ACID 원리를 마스터합니다.
+                        {weekData.description}
                     </p>
 
-                    {/* Video player */}
+                    {/* ── YouTube IFrame 플레이어 ─────────────────────────────
+                     *   useYouTubePlayer가 playerDivId의 div를 IFrame으로 교체한다.
+                     *   API가 로드되기 전까지는 빈 div가 표시된다.
+                     *
+                     *   동작 중인 패턴 감지:
+                     *     - 1초 폴링으로 재생 위치 추적 → 되감기/스킵 감지
+                     *     - 일시정지 3분 → video_pause 발생
+                     *     - visibilitychange → tab_departure 발생
+                     * ──────────────────────────────────────────────────────── */}
                     <div className="classroom__video">
-                        <div className="classroom__video-bg">
-                            <pre className="classroom__video-code">{
-`BEGIN TRANSACTION;
-  SELECT * FROM accounts WHERE id = 1;
-  UPDATE accounts SET balance = balance - 100;
-  UPDATE accounts SET balance = balance + 100;
-COMMIT;
-
--- ACID Properties:
--- Atomicity | Consistency | Isolation | Durability`
-                            }</pre>
-                        </div>
-                        <div className="classroom__video-play">
-                            <span style={{ color: 'white', fontSize: '28px', marginLeft: '4px' }}>▶</span>
-                        </div>
-                        <div className="classroom__video-duration">12:34</div>
+                        <div
+                            id={playerDivId}
+                            style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+                        />
                     </div>
 
-                    {/* Tabs */}
+                    {/* 탭 */}
                     <div className="classroom__tabs">
                         {TABS.map(t => (
                             <button
@@ -143,7 +274,7 @@ COMMIT;
                         ))}
                     </div>
 
-                    {/* Tab: docs */}
+                    {/* 탭: 문서 */}
                     {tab === 'docs' && (
                         <div className="classroom__doc-list">
                             {DOCS.map((doc, i) => (
@@ -161,7 +292,7 @@ COMMIT;
                         </div>
                     )}
 
-                    {/* Tab: videos */}
+                    {/* 탭: 영상 */}
                     {tab === 'videos' && (
                         <div className="classroom__video-grid">
                             {VIDEOS.map((v, i) => (
@@ -181,7 +312,7 @@ COMMIT;
                         </div>
                     )}
 
-                    {/* Tab: summary */}
+                    {/* 탭: AI 핵심 요약 */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
                             <div
@@ -200,7 +331,7 @@ COMMIT;
                         </div>
                     )}
 
-                    {/* Tab: quiz history */}
+                    {/* 탭: 퀴즈 내역 */}
                     {tab === 'quiz' && (
                         <div className="classroom__quiz-history">
                             <div
@@ -225,7 +356,7 @@ COMMIT;
                     )}
                 </div>
 
-                {/* ── Right aside ── */}
+                {/* ── 우측 사이드 패널 ── */}
                 <aside className={`classroom__aside${rightCollapsed ? ' classroom__aside--collapsed' : ''}`}>
                     <div className="classroom__aside-header">
                         <button
@@ -239,7 +370,7 @@ COMMIT;
                         </button>
                     </div>
                     <div className="classroom__aside-scroll">
-                        {/* Metacognition card */}
+                        {/* 메타인지 확인 카드 */}
                         {!metacogComplete ? (
                             <div className="metacog-card">
                                 <div
@@ -254,7 +385,13 @@ COMMIT;
                                 </p>
                                 <button
                                     className="metacog-card__btn"
-                                    onClick={() => open('reverse-learning', { type: 'reverse-learning', conceptName: 'ACID' })}
+                                    onClick={() => open('reverse-learning', {
+                                        type:       'reverse-learning',
+                                        conceptName: 'ACID',
+                                        // roomId와 weekId를 모달에 전달하여 실제 SSE API 호출 가능
+                                        roomId,
+                                        weekId:     weekData.weekId,
+                                    })}
                                 >
                                     AI에게 설명하기
                                 </button>
@@ -278,7 +415,7 @@ COMMIT;
                             </div>
                         )}
 
-                        {/* Weekly Final Quiz */}
+                        {/* 주간 파이널 퀴즈 카드 */}
                         <div className={`weekly-quiz-card${metacogComplete ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
                             <div
                                 className="weekly-quiz-card__title"
@@ -298,7 +435,13 @@ COMMIT;
                                 <button
                                     className="weekly-quiz-card__btn"
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                                    onClick={() => open('quiz-pass')}
+                                    onClick={() => open('final-quiz', {
+                                        // 파이널 퀴즈 모달에 roomId, weekId 전달
+                                        // → FinalQuizModal이 getFinalQuiz → submitFinalQuiz → 폴링 수행
+                                        type:   'final-quiz',
+                                        roomId,
+                                        weekId: weekData.weekId,
+                                    })}
                                 >
                                     퀴즈 도전하기
                                     <ArrowRight size={13} strokeWidth={1.5} />
@@ -306,7 +449,7 @@ COMMIT;
                             )}
                         </div>
 
-                        {/* Connected Study Partner */}
+                        {/* 연결된 스터디 파트너 */}
                         {partnerConnected && (
                             <div className="partner-widget">
                                 <div
@@ -339,14 +482,15 @@ COMMIT;
                 </aside>
             </div>
 
-            {/* ── Modals + debug panel ── */}
+            {/* ── 모달 + 디버그 패널 ── */}
             <DebugEventController />
             <ClassroomModals />
+            <DebugToast toasts={toasts} />
         </>
     )
 }
 
-// ── Default export: wraps inner component with the global modal provider ──────
+// ── 기본 export: ClassroomModalProvider로 내부 컴포넌트를 감싼다 ────────────────
 export default function StudyClassroom() {
     return (
         <ClassroomModalProvider>

@@ -14,6 +14,7 @@ export type ModalKey =
     | 'study-matching'
     | 'quiz-correct'
     | 'quiz-incorrect'
+    | 'final-quiz'  // 주간 파이널 퀴즈 + AI 분석 리포트 플로우
     | null
 
 // ── Context shape ─────────────────────────────────────────────────────────────
@@ -33,6 +34,13 @@ interface ClassroomModalContextValue {
     partnerConnected: boolean
     setMetacogComplete: (v: boolean) => void
     setPartnerConnected: (v: boolean) => void
+    /**
+     * 현재 학습 중인 주차 ID (weekId).
+     * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
+     * ClassroomModals에서 reverse-learning / final-quiz 모달에 전달된다.
+     */
+    currentWeekId: string | null
+    setCurrentWeekId: (weekId: string) => void
 }
 
 // ── Context + provider ────────────────────────────────────────────────────────
@@ -44,6 +52,8 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const [modalData,        setModalData]        = useState<ModalData | null>(null)
     const [metacogComplete,  setMetacogComplete]  = useState(false)
     const [partnerConnected, setPartnerConnected] = useState(false)
+    // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
+    const [currentWeekId,    setCurrentWeekId]    = useState<string | null>(null)
 
     const open = (key: NonNullable<ModalKey>, data?: ModalData) => {
         setModalData(data ?? null)
@@ -60,6 +70,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             modal, modalData, open, close,
             metacogComplete,  setMetacogComplete,
             partnerConnected, setPartnerConnected,
+            currentWeekId,    setCurrentWeekId,
         }}>
             {children}
         </ClassroomModalContext.Provider>
