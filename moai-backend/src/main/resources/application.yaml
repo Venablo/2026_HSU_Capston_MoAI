@@ -7,8 +7,6 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:
-      maximum-pool-size: 20
 
   jpa:
     hibernate:
@@ -23,10 +21,13 @@ spring:
       host: localhost
       port: 6379
 
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
 jwt:
   secret: ${JWT_SECRET_KEY}
-  access-expiration: 1800000 # 30분 (ms)
-  refresh-expiration: 1209600000 # 14일 (ms)
+  access-expiration: 1800000
+  refresh-expiration: 1209600000
 
 llm:
   api-key: ${LLM_API_KEY}
@@ -45,3 +46,12 @@ cloud:
 
 subtitle:
   script-path: src/main/resources/scripts/subtitle_scraper.py
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
