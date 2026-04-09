@@ -101,3 +101,113 @@
 ### 4-7. 후순위 (추후 구현)
 - [ ] 패턴2.1 (일시정지) — pause_duration_sec≥180이면 즉시 발동
 - [ ] 패턴2.2 (탭이탈) — INCR 후 카운트≥3이면 발동
+## PHASE 5
+
+### 5-1. Entity 생성
+- [x] domain/flipped/entity/AiInteraction.java — db_schema 15번 참조
+- [x] domain/flipped/entity/FlippedSession.java — 16번 참조. gained_keywords, weak_keywords는 JSON 타입
+- [x] AiInteractionRepository — findBySessionIdOrderByCreatedAtAsc
+- [x] FlippedSessionRepository — findBySessionId, findByUserIdAndRoomId
+
+### 5-2. 거꾸로 학습 세션 시작 API
+- [x] domain/flipped/controller/FlippedLearningController.java
+- [x] POST /api/learning-rooms/{roomId}/flipped/start
+- [x] FlippedStartRequestDto (curriculum_id)
+- [x] FlippedStartResponseDto: keywords, currentKeywordIndex(0), totalKeywords 필드 추가
+- [x] firstMessage는 첫 번째 키워드만 대상으로 생성 (예: "첫 번째 키워드는 '원자성'입니다. 원자성에 대해 설명해주세요!")
+- [x] Redis 키 초기화: moai:flipped:{sessionId}:keywordIndex=0, exchangeCount=0 (TTL 1시간)
+- [x] completionRate >= 40 검증: 영상 시청 미완료 시 FLIPPED_VIDEO_NOT_COMPLETED(400) 예외
+- [x] 사용자 조회 수정: userDetails.getUsername()은 email 반환 → findById를 findByEmail로 변경 (startSession, streamChat, endSession, getResult 전체 적용)
+- [x] 로직:
+  1. sessionId(UUID) 발급
+  2. WeeklyCurriculum.keywords 조회
+  3. LlmService 호출 → 첫 번째 키워드 기반 firstMessage 생성
+  4. AiInteraction INSERT (role="assistant", session_id, content=firstMessage)
+  5. Redis 세션 상태 초기화
+  6. 응답: sessionId, firstMessage, keywords, currentKeywordIndex, totalKeywords
+
+### 5-3. SSE 스트리밍 API (키워드 순차 진행 방식)
+- [x] SSE /api/learning-rooms/{roomId}/flipped/stream
+- [x] FlippedStreamRequestDto (sessionId, message)
+- [x] LlmService에 callStream() 스트리밍 메서드 추가 (Gemini streamGenerateContent)
+- [x] SseEmitter 기반 구현:
+  1. 사용자 메시지를 AiInteraction INSERT (role="user")
+  2. Redis에서 keywordIndex, exchangeCount 조회 후 exchangeCount INCR
+  3. sessionId로 전체 대화 이력 SELECT → LLM messages 배열 구성
+  4. 시스템 프롬프트: 전체 키워드 목록 + 현재 키워드 인덱스 포함
+  5. LLM 스트리밍 호출 → 토큰 단위로 SseEmitter.send()
+  6. 태그 감지: [COUNTER_QUESTION], [NEXT_KEYWORD]
+  7. 키워드 전환 규칙 (하이브리드):
+     - 최소 2회 교환: 2회 미만이면 [NEXT_KEYWORD] 무시
+     - 2회 이상이면 LLM 판단에 맡김 ([NEXT_KEYWORD] 태그로 전환)
+     - 최대 5회 교환: 5회 도달 시 강제 키워드 전환
+  8. SSE 이벤트 타입: token, counter_question, next_keyword, session_complete, done
+  9. 키워드 전환 시: {type:"next_keyword", keyword:"고립성", keywordIndex:2}
+  10. 마지막 키워드 완료 시: {type:"session_complete", content:"모든 키워드를 다뤘습니다!"}
+  11. 완료 시 AI 전체 응답을 AiInteraction INSERT (role="assistant")
+- [x] Redis 키: moai:flipped:{sessionId}:keywordIndex, moai:flipped:{sessionId}:exchangeCount
+- [x] LazyInitializationException 수정: TX1에서 curriculum lazy 프록시의 keywords/topic을 즉시 로드하여 SavedContext에 전달, TX2에서는 saved.keywords()/saved.topic() 사용 — 세션 경계를 넘는 lazy 프록시 접근 제거
+- [x] LLM 태그: [COUNTER_QUESTION] 역질문, [NEXT_KEYWORD] 키워드 전환
+- [x] DB 커넥션 풀 점유 방지:
+  - streamChat()에서 @Transactional 제거 → TransactionTemplate으로 개별 짧은 트랜잭션 분리
+  - 트랜잭션 1: 사용자 메시지 저장 (즉시 커밋 — SSE 실패와 무관하게 메시지 보존)
+  - 트랜잭션 2: 대화 이력 로드 + LLM 컨텍스트 구성 (읽기 전용) → 즉시 커넥션 반환
+  - LLM 스트리밍 + Redis 구간: DB 커넥션 미점유
+  - 트랜잭션 3: 스트리밍 완료 후 AI 응답 저장
+  - HikariCP maximum-pool-size=20 (application.yaml)
+- [x] 사용자 메시지 유실 방지: 메시지 저장을 별도 트랜잭션으로 분리하여 LLM 스트리밍/SSE 연결 실패 시에도 메시지 보존
+- [x] Spring Security 비동기 디스패치 수정: SecurityConfig에 dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll() 추가 — SSE 완료 시 Access Denied 방지
+- [x] REQUIRES_NEW 트랜잭션 전파 수정: 클래스 레벨 @Transactional(readOnly=true)가 streamChat()의 TransactionTemplate에 합류하여 쓰기가 무시되는 버그 수정. TransactionTemplate → PlatformTransactionManager 주입으로 변경, PROPAGATION_REQUIRES_NEW로 독립 트랜잭션 생성하여 사용자 메시지 저장 및 AI 응답 저장이 정상 커밋되도록 수정
+
+### 5-4. 세션 종료 + 최종 평가 API
+- [x] POST /api/learning-rooms/{roomId}/flipped/end
+- [x] FlippedEndRequestDto (sessionId)
+- [x] 로직:
+  1. sessionId로 전체 대화 이력 조회
+  2. LlmService 호출 → 최종 평가 프롬프트 (score, gainedKeywords, weakKeywords, feedback, flippedResult를 JSON으로 반환 요청)
+  3. FlippedSession INSERT
+  4. UserKeyword 처리 — gainedKeywords: 기존 weakness resolve + strength INSERT (미존재 시), weakKeywords: weakness count 증가 또는 INSERT
+  5. 매칭 엔진 실행 (PHASE 7에서 구현할 MatchingEngineService.tryMatch() 호출) — TODO 주석
+  6. WeeklyCurriculum.completionRate += 30% (거꾸로 학습 완료 반영, 100% 초과 방지)
+  7. LearningRoom.completionRate 재계산 (전체 주차 평균)
+  8. Redis 세션 상태 정리 (keywordIndex, exchangeCount 삭제)
+- [x] FlippedEndResponseDto (sessionId, flippedResult, score, gainedKeywords, weakKeywords, feedback)
+
+### 5-5. 평가 결과 조회 API
+- [x] GET /api/learning-rooms/{roomId}/flipped/result/{sessionId}
+- [x] FlippedSession + AiInteraction 조인 조회
+- [x] FlippedResultResponseDto (score, gainedKeywords, weakKeywords, feedback, conversations 배열)
+## PHASE6
+
+### 6-1. 키워드 API
+- [ ] domain/keyword/controller/KeywordController.java (UserKeyword 엔티티/레포지토리는 PHASE 4에서 구현 완료)
+- [ ] GET /api/learning-rooms/{roomId}/keywords — 강점/약점 키워드 목록
+- [ ] KeywordListResponseDto (strengths 배열, weaknesses 배열)
+
+### 6-2. 파이널 퀴즈 조회 API
+- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final
+- [ ] completionRate >= 70 검증: 거꾸로 학습 미완료 시 예외
+- [ ] 로직: Quiz(quiz_type="weekly") + QuizQuestion(question_type="essay") 조회
+- [ ] 퀴즈가 없으면 LlmService로 5문제 자동 생성 → Quiz + QuizQuestion INSERT 후 반환
+- [ ] FinalQuizResponseDto (quizId, title, questions 배열)
+
+### 6-3. 파이널 퀴즈 제출 API (비동기)
+- [ ] POST /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final/submit
+- [ ] FinalQuizSubmitRequestDto (quizId, answers 배열)
+- [ ] 로직:
+  1. QuizReport INSERT (status="analyzing", estimated_sec=15)
+  2. 즉시 202 Accepted 응답 반환
+  3. @Async 비동기 처리:
+     a. 문항별 LlmService 호출 → 채점
+     b. QuizAttempt INSERT (각 문항)
+     c. 전체 점수 합산 → finalScore 계산
+     d. radarData JSON 생성
+     e. QuizReport UPDATE (status="completed")
+     f. UserKeyword UPSERT — 정답: 기존 weakness resolve + strength INSERT, 오답: weakness count 증가 또는 INSERT
+     g. WeeklyCurriculum.completionRate += 30% (100% 초과 방지)
+     h. LearningRoom.completionRate 재계산
+
+### 6-4. AI 분석 리포트 조회 API
+- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-report
+- [ ] QuizReportResponseDto (finalScore, radarData, questions 배열)
+- [ ] status="analyzing"이면 그대로 반환 (프론트가 폴링으로 재요청)

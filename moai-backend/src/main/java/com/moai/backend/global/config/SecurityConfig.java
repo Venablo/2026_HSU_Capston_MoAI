@@ -17,6 +17,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import jakarta.servlet.DispatcherType;
+
 import java.util.List;
 
 @Configuration
@@ -52,7 +54,9 @@ public class SecurityConfig {
 
                 // 4. 요청 권한 설정
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll() // 공개 API
+                        // SSE 비동기 디스패치 시 Security 재필터링 방지
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
+                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/actuator/health").permitAll() // 공개 API
                         .anyRequest().authenticated()               // 로그아웃 포함 나머지는 JWT 필요
                 )
 

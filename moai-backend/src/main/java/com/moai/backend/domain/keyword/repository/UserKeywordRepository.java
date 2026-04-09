@@ -8,4 +8,7 @@ import java.util.Optional;
 public interface UserKeywordRepository extends JpaRepository<UserKeyword, String> {
 
     Optional<UserKeyword> findByUserIdAndRoomIdAndKeyword(String userId, String roomId, String keyword);
+
+    Optional<UserKeyword> findByUserIdAndRoomIdAndKeywordAndKeywordType(
+            String userId, String roomId, String keyword, String keywordType);
 }

@@ -43,6 +43,10 @@ public enum ErrorCode {
     EVENT_UNSUPPORTED_TYPE(400, "EVENT_001", "지원하지 않는 이벤트 타입입니다."),
     EVENT_TRANSCRIPT_NOT_FOUND(404, "EVENT_002", "해당 구간의 자막을 찾을 수 없습니다."),
 
+    // Flipped Learning
+    FLIPPED_SESSION_NOT_FOUND(404, "FLIPPED_001", "거꾸로 학습 세션을 찾을 수 없습니다."),
+    FLIPPED_VIDEO_NOT_COMPLETED(400, "FLIPPED_002", "영상 시청을 완료해야 거꾸로 학습을 시작할 수 있습니다."),
+
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),
     S3_PRESIGN_FAILED(500, "S3_002", "Presigned URL 생성에 실패했습니다.");

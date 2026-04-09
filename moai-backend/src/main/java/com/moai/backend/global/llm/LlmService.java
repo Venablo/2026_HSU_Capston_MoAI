@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import reactor.core.publisher.Flux;
+
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -123,6 +126,46 @@ public class LlmService {
             log.error("Gemini 응답 파싱 실패: {}", responseBody, e);
             throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
         }
+    }
+
+    /**
+     * Gemini streamGenerateContent API를 호출하여 토큰 단위 Flux를 반환한다.
+     * 거꾸로 학습 SSE 스트리밍에서 사용 — 대화 이력(contents)을 직접 전달받는다.
+     *
+     * @param systemPrompt 시스템 프롬프트
+     * @param contents     Gemini contents 배열 (role + parts 형태의 대화 이력)
+     * @return 토큰 텍스트를 하나씩 방출하는 Flux
+     */
+    public Flux<String> callStream(String systemPrompt, List<Map<String, Object>> contents) {
+        Map<String, Object> body = new LinkedHashMap<>();
+
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            body.put("systemInstruction", Map.of(
+                    "parts", List.of(Map.of("text", systemPrompt))
+            ));
+        }
+        body.put("contents", contents);
+
+        // Gemini streamGenerateContent는 JSON 배열을 SSE 스트림으로 반환
+        // 각 청크에서 candidates[0].content.parts[0].text를 추출
+        return llmWebClient.post()
+                .uri("/{model}:streamGenerateContent?alt=sse&key={key}", model, apiKey)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .mapNotNull(chunk -> {
+                    try {
+                        JsonNode root = objectMapper.readTree(chunk);
+                        JsonNode textNode = root
+                                .path("candidates").path(0)
+                                .path("content").path("parts").path(0)
+                                .path("text");
+                        return textNode.isMissingNode() ? null : textNode.asText();
+                    } catch (Exception e) {
+                        log.debug("스트리밍 청크 파싱 스킵: {}", chunk);
+                        return null;
+                    }
+                });
     }
 
     /**

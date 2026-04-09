@@ -92,4 +92,12 @@ public class UserKeyword {
     public void incrementWeaknessCount() {
         this.weaknessCount = (short) (this.weaknessCount + 1);
     }
+
+    /**
+     * 약점 키워드를 해소 처리한다. (거꾸로 학습에서 gainedKeywords로 판정된 경우)
+     */
+    public void resolve() {
+        this.isResolved = true;
+        this.resolvedAt = LocalDateTime.now();
+    }
 }
