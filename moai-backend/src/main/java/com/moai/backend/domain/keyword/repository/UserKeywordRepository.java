@@ -3,6 +3,7 @@ package com.moai.backend.domain.keyword.repository;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserKeywordRepository extends JpaRepository<UserKeyword, String> {
@@ -11,4 +12,6 @@ public interface UserKeywordRepository extends JpaRepository<UserKeyword, String
 
     Optional<UserKeyword> findByUserIdAndRoomIdAndKeywordAndKeywordType(
             String userId, String roomId, String keyword, String keywordType);
+
+    List<UserKeyword> findByUserIdAndRoomId(String userId, String roomId);
 }

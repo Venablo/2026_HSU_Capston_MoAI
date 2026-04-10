@@ -38,7 +38,7 @@ public class QuizAttempt {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "selected", length = 5)
+    @Column(name = "selected", columnDefinition = "TEXT")
     private String selected;
 
     @Column(name = "is_correct", nullable = false)

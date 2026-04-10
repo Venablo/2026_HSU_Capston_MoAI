@@ -11,4 +11,6 @@ public interface FlippedSessionRepository extends JpaRepository<FlippedSession, 
     Optional<FlippedSession> findBySessionId(String sessionId);
 
     List<FlippedSession> findByUserIdAndRoomId(String userId, String roomId);
+
+    Optional<FlippedSession> findByUserIdAndCurriculumId(String userId, String curriculumId);
 }

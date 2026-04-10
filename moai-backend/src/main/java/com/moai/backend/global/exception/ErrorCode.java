@@ -43,9 +43,15 @@ public enum ErrorCode {
     EVENT_UNSUPPORTED_TYPE(400, "EVENT_001", "지원하지 않는 이벤트 타입입니다."),
     EVENT_TRANSCRIPT_NOT_FOUND(404, "EVENT_002", "해당 구간의 자막을 찾을 수 없습니다."),
 
+    // Final Quiz
+    FINAL_QUIZ_NOT_READY(400, "QUIZ_004", "거꾸로 학습을 완료해야 파이널 퀴즈를 시작할 수 있습니다."),
+    QUIZ_REPORT_NOT_FOUND(404, "QUIZ_005", "퀴즈 리포트를 찾을 수 없습니다."),
+    FINAL_QUIZ_ALREADY_SUBMITTED(409, "QUIZ_006", "이미 파이널 퀴즈를 제출하였습니다."),
+
     // Flipped Learning
     FLIPPED_SESSION_NOT_FOUND(404, "FLIPPED_001", "거꾸로 학습 세션을 찾을 수 없습니다."),
     FLIPPED_VIDEO_NOT_COMPLETED(400, "FLIPPED_002", "영상 시청을 완료해야 거꾸로 학습을 시작할 수 있습니다."),
+    FLIPPED_SESSION_ALREADY_COMPLETED(409, "FLIPPED_003", "이미 해당 주차의 거꾸로 학습을 완료하였습니다."),
 
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),

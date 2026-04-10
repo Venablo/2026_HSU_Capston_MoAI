@@ -7,6 +7,8 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
 
   jpa:
     hibernate:
@@ -26,8 +28,8 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET_KEY}
-  access-expiration: 1800000
-  refresh-expiration: 1209600000
+  access-expiration: 1800000 # 30분 (ms)
+  refresh-expiration: 1209600000 # 14일 (ms)
 
 llm:
   api-key: ${LLM_API_KEY}

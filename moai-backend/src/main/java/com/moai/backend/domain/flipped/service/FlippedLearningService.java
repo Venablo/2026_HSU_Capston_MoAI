@@ -86,6 +86,11 @@ public class FlippedLearningService {
             throw new CustomException(ErrorCode.FLIPPED_VIDEO_NOT_COMPLETED);
         }
 
+        // 중복 세션 검사
+        if (flippedSessionRepository.findByUserIdAndCurriculumId(user.getId(), curriculum.getId()).isPresent()) {
+            throw new CustomException(ErrorCode.FLIPPED_SESSION_ALREADY_COMPLETED);
+        }
+
         String sessionId = UUID.randomUUID().toString();
 
         List<String> keywords = curriculum.getKeywords();

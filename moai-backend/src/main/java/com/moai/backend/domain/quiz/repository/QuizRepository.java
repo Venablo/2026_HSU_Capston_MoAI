@@ -12,4 +12,7 @@ public interface QuizRepository extends JpaRepository<Quiz, String> {
 
     // 특정 주차의 돌발 퀴즈 중 가장 최근 생성된 1개 조회
     Optional<Quiz> findTopByCurriculumIdAndQuizTypeOrderByCreatedAtDesc(String curriculumId, String quizType);
+
+    // 특정 주차의 퀴즈 타입별 조회 (weekly 파이널 퀴즈 등)
+    Optional<Quiz> findByCurriculumIdAndQuizType(String curriculumId, String quizType);
 }

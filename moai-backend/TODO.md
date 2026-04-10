@@ -180,34 +180,41 @@
 ## PHASE6
 
 ### 6-1. 키워드 API
-- [ ] domain/keyword/controller/KeywordController.java (UserKeyword 엔티티/레포지토리는 PHASE 4에서 구현 완료)
-- [ ] GET /api/learning-rooms/{roomId}/keywords — 강점/약점 키워드 목록
-- [ ] KeywordListResponseDto (strengths 배열, weaknesses 배열)
+- [x] domain/keyword/controller/KeywordController.java (UserKeyword 엔티티/레포지토리는 PHASE 4에서 구현 완료)
+- [x] GET /api/learning-rooms/{roomId}/keywords — 강점/약점 키워드 목록
+- [x] KeywordListResponseDto (strengths 배열, weaknesses 배열)
 
 ### 6-2. 파이널 퀴즈 조회 API
-- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final
-- [ ] completionRate >= 70 검증: 거꾸로 학습 미완료 시 예외
-- [ ] 로직: Quiz(quiz_type="weekly") + QuizQuestion(question_type="essay") 조회
-- [ ] 퀴즈가 없으면 LlmService로 5문제 자동 생성 → Quiz + QuizQuestion INSERT 후 반환
-- [ ] FinalQuizResponseDto (quizId, title, questions 배열)
+- [x] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final
+- [x] completionRate >= 70 검증: 거꾸로 학습 미완료 시 예외
+- [x] 로직: Quiz(quiz_type="weekly") + QuizQuestion(question_type="essay") 조회
+- [x] 퀴즈가 없으면 LlmService로 5문제 자동 생성 → Quiz + QuizQuestion INSERT 후 반환
+- [x] FinalQuizResponseDto (quizId, title, questions 배열)
 
 ### 6-3. 파이널 퀴즈 제출 API (비동기)
-- [ ] POST /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final/submit
-- [ ] FinalQuizSubmitRequestDto (quizId, answers 배열)
-- [ ] 로직:
+- [x] POST /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final/submit
+- [x] FinalQuizSubmitRequestDto (quizId, answers 배열)
+- [x] QuizAttempt.selected 컬럼 VARCHAR(5) → TEXT 변경 (서술형 답변 저장용)
+- [x] 로직:
   1. QuizReport INSERT (status="analyzing", estimated_sec=15)
   2. 즉시 202 Accepted 응답 반환
   3. @Async 비동기 처리:
-     a. 문항별 LlmService 호출 → 채점
+     a. 문항별 LlmService 호출 → 채점 (weaknessKeywords 네이밍 통일, 커리큘럼 키워드 목록 제약 적용)
      b. QuizAttempt INSERT (각 문항)
      c. 전체 점수 합산 → finalScore 계산
-     d. radarData JSON 생성
+     d. radarData JSON 생성 (LLM이 전체 채점 결과 종합하여 역량 카테고리별 점수 생성)
      e. QuizReport UPDATE (status="completed")
      f. UserKeyword UPSERT — 정답: 기존 weakness resolve + strength INSERT, 오답: weakness count 증가 또는 INSERT
      g. WeeklyCurriculum.completionRate += 30% (100% 초과 방지)
      h. LearningRoom.completionRate 재계산
 
 ### 6-4. AI 분석 리포트 조회 API
-- [ ] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-report
-- [ ] QuizReportResponseDto (finalScore, radarData, questions 배열)
-- [ ] status="analyzing"이면 그대로 반환 (프론트가 폴링으로 재요청)
+- [x] GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-report
+- [x] QuizReportResponseDto (finalScore, radarData, questions 배열)
+- [x] status="analyzing"이면 그대로 반환 (프론트가 폴링으로 재요청)
+- [x] QuizReport questions JSON 키 missingKeywords → weakKeywords 네이밍 통일
+
+### 6-5. 중복 제출 방어
+- [x] submitFinalQuiz() — QuizReport 존재 시 FINAL_QUIZ_ALREADY_SUBMITTED(409) 예외
+- [x] flipped/start — FlippedSession 존재 시 FLIPPED_SESSION_ALREADY_COMPLETED(409) 예외
+- [x] FlippedSessionRepository.findByUserIdAndCurriculumId() 추가
