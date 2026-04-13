@@ -11,6 +11,7 @@ import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
+import com.moai.backend.domain.study.service.MatchingEngineService;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
@@ -54,6 +55,7 @@ public class FlippedLearningService {
     private final LlmService llmService;
     private final RedisTemplate<String, String> redisTemplate;
     private final PlatformTransactionManager transactionManager;
+    private final MatchingEngineService matchingEngineService;
 
     // Redis 키 접두사
     private static final String REDIS_PREFIX = "moai:flipped:";
@@ -226,6 +228,20 @@ public class FlippedLearningService {
         // 2. LLM 최종 평가 호출 — 대화 내용 기반 score/keywords/feedback/result 생성
         LlmFlippedEvaluationResult evaluation = evaluateSession(history, curriculum);
 
+        // 커리큘럼 키워드 목록과 교집합 필터 — LLM이 목록 외 키워드를 반환하는 경우 방어
+        List<String> curriculumKeywords = curriculum.getKeywords();
+        if (curriculumKeywords != null && !curriculumKeywords.isEmpty()) {
+            Set<String> allowed = new HashSet<>(curriculumKeywords);
+            evaluation.setGainedKeywords(
+                    evaluation.getGainedKeywords() != null
+                            ? evaluation.getGainedKeywords().stream().filter(allowed::contains).toList()
+                            : List.of());
+            evaluation.setWeakKeywords(
+                    evaluation.getWeakKeywords() != null
+                            ? evaluation.getWeakKeywords().stream().filter(allowed::contains).toList()
+                            : List.of());
+        }
+
         // 3. FlippedSession 저장
         FlippedSession session = FlippedSession.builder()
                 .sessionId(sessionId)
@@ -246,8 +262,10 @@ public class FlippedLearningService {
         // weakKeywords: 기존 weakness count 증가 또는 새 weakness INSERT
         upsertWeaknesses(user, room, curriculum, evaluation.getWeakKeywords());
 
-        // 5. 매칭 엔진 실행 (PHASE 7에서 구현 예정)
-        // TODO: matchingEngineService.tryMatch(user, room, evaluation.getWeakKeywords());
+        // 5. 매칭 엔진 실행
+        if (Boolean.TRUE.equals(user.getStudySuggestionEnabled())) {
+            matchingEngineService.tryMatch(user, room, curriculum);
+        }
 
         // 6. 주차 진척도 += 30%, 학습실 전체 진척도 재계산
         updateCompletionRates(curriculum, room);
@@ -279,7 +297,7 @@ public class FlippedLearningService {
                 ? String.join(", ", curriculum.getKeywords())
                 : curriculum.getTopic();
 
-        String systemPrompt = """
+        String systemPrompt = String.format("""
                 당신은 거꾸로 학습 평가 AI입니다.
                 학생과 AI 튜터의 대화 내용을 분석하여 학생의 이해도를 평가합니다.
                 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.
@@ -291,7 +309,9 @@ public class FlippedLearningService {
                   "weakKeywords": ["학생이 부족한 키워드 목록"],
                   "feedback": "학생에게 전달할 종합 피드백 (한국어, 2~3문장)"
                 }
-                """;
+
+                CRITICAL: gainedKeywords와 weakKeywords에는 반드시 아래 목록에 있는 키워드만 사용하세요. 키워드를 임의로 만들거나 바꾸지 말고, 목록에 있는 그대로 반환하세요: [%s]
+                """, keywordList);
 
         String userMessage = String.format(
                 "주차 키워드: [%s]\n\n대화 내용:\n%s",
@@ -622,8 +642,10 @@ public class FlippedLearningService {
             }
             tokenBuffer.set(new StringBuilder());
         } else if (buffered.contains(TAG_NEXT_KEYWORD)) {
-            // 최소 교환 횟수 미달이면 태그 무시
-            if (exchangeCount >= MIN_EXCHANGES_PER_KEYWORD) {
+            // 같은 응답에서 역질문이 감지된 경우 키워드 전환 무시 — 학생이 역질문에 답한 뒤 다음 교환에서 처리
+            if (counterQuestionMode.get()) {
+                log.info("COUNTER_QUESTION과 NEXT_KEYWORD 동시 감지 — NEXT_KEYWORD 무시");
+            } else if (exchangeCount >= MIN_EXCHANGES_PER_KEYWORD) {
                 nextKeywordDetected.set(true);
             }
             // 태그 이후 텍스트 추출하여 전송
@@ -692,15 +714,18 @@ public class FlippedLearningService {
                 - 현재 교환 횟수: %d회
 
                 ## 태그 사용 규칙
-                1. 역질문을 할 때는 반드시 [COUNTER_QUESTION] 태그를 역질문 텍스트 바로 앞에 붙여주세요.
+                1. IMPORTANT: 학생에게 질문을 할 때는 — 역질문, 후속 질문, 마무리 질문 등 종류에 관계없이 — 반드시 [COUNTER_QUESTION] 태그를 질문 텍스트 바로 앞에 붙여주세요. 질문하면서 이 태그를 빠뜨리지 마세요.
                 2. 학생이 현재 키워드를 충분히 이해했다고 판단되면 [NEXT_KEYWORD] 태그를 응답 끝에 붙여주세요.
                    - 단, 현재 교환 횟수가 2회 미만이면 [NEXT_KEYWORD]를 사용하지 마세요.
+                   - 마지막 키워드에서 [NEXT_KEYWORD]를 사용할 때는, 지금까지 다룬 모든 키워드를 요약하고 학생을 격려하는 자연스러운 마무리 메시지와 함께 출력하세요. [NEXT_KEYWORD]만 단독으로 출력하지 마세요.
+                     예시: '오늘 원자성, 일관성, 고립성, 지속성까지 모두 살펴봤는데 정말 잘 따라와주셨어요! 특히 원자성 설명이 인상적이었습니다. [NEXT_KEYWORD]'
                 3. 태그는 텍스트 내에 자연스럽게 포함시키되, 태그 자체를 학생에게 보여주지는 마세요.
 
                 ## 응답 규칙
                 - 응답은 한국어로 작성합니다.
                 - 현재 키워드('%s')에 집중하여 대화합니다.
                 - 칭찬 → 보충 설명 또는 역질문 순서로 응답합니다.
+                - CRITICAL: [COUNTER_QUESTION]을 사용한 응답에서는 절대 [NEXT_KEYWORD]를 함께 사용하지 마세요. 학생의 답변을 먼저 기다린 후, 다음 응답에서 키워드 전환 여부를 결정하세요.
                 """,
                 keywordList, currentKeyword, keywordIndex + 1, keywords.size(),
                 exchangeCount, currentKeyword

@@ -148,6 +148,8 @@
 - [x] Redis 키: moai:flipped:{sessionId}:keywordIndex, moai:flipped:{sessionId}:exchangeCount
 - [x] LazyInitializationException 수정: TX1에서 curriculum lazy 프록시의 keywords/topic을 즉시 로드하여 SavedContext에 전달, TX2에서는 saved.keywords()/saved.topic() 사용 — 세션 경계를 넘는 lazy 프록시 접근 제거
 - [x] LLM 태그: [COUNTER_QUESTION] 역질문, [NEXT_KEYWORD] 키워드 전환
+- [x] 버그 수정: [COUNTER_QUESTION]과 [NEXT_KEYWORD]가 동일 응답에서 동시 감지될 때 역질문 직후 session_complete가 전송되는 문제 — processTokenBuffer()에서 counterQuestionMode=true일 때 NEXT_KEYWORD 무시 + 시스템 프롬프트에 동시 사용 금지 규칙 추가
+- [x] 시스템 프롬프트 강화: [COUNTER_QUESTION] 태그를 모든 종류의 질문(역질문, 후속 질문, 마무리 질문)에 필수 사용하도록 변경 + 마지막 키워드에서 [NEXT_KEYWORD] 사용 시 전체 키워드 요약 및 격려 마무리 메시지와 함께 출력하도록 규칙 추가 (예시 포함)
 - [x] DB 커넥션 풀 점유 방지:
   - streamChat()에서 @Transactional 제거 → TransactionTemplate으로 개별 짧은 트랜잭션 분리
   - 트랜잭션 1: 사용자 메시지 저장 (즉시 커밋 — SSE 실패와 무관하게 메시지 보존)
@@ -172,6 +174,7 @@
   7. LearningRoom.completionRate 재계산 (전체 주차 평균)
   8. Redis 세션 상태 정리 (keywordIndex, exchangeCount 삭제)
 - [x] FlippedEndResponseDto (sessionId, flippedResult, score, gainedKeywords, weakKeywords, feedback)
+- [x] 버그 수정: LLM이 커리큘럼 키워드 목록 외의 키워드를 반환하는 문제 — evaluateSession() 프롬프트에 커리큘럼 키워드 목록 제약 추가 + endSession()에서 gainedKeywords/weakKeywords를 WeeklyCurriculum.keywords와 교집합 필터링 (PHASE 4 EventProcessingService와 동일 패턴)
 
 ### 5-5. 평가 결과 조회 API
 - [x] GET /api/learning-rooms/{roomId}/flipped/result/{sessionId}
@@ -218,3 +221,162 @@
 - [x] submitFinalQuiz() — QuizReport 존재 시 FINAL_QUIZ_ALREADY_SUBMITTED(409) 예외
 - [x] flipped/start — FlippedSession 존재 시 FLIPPED_SESSION_ALREADY_COMPLETED(409) 예외
 - [x] FlippedSessionRepository.findByUserIdAndCurriculumId() 추가
+##  PHASE 7
+
+### 7-1. Entity 생성
+- [x] domain/study/entity/StudyGroup.java — db_schema 11번, activate() 편의 메서드
+- [x] domain/study/entity/StudyMember.java — 12번. UNIQUE(group_id, user_id)
+- [x] domain/study/entity/StudySuggestion.java — 13번. UNIQUE(group_id, suggested_to). accept()/reject() 편의 메서드 추가
+- [x] domain/notification/entity/Notification.java — db_schema 18번 (PHASE 8 선행 생성). markAsRead() 편의 메서드
+- [x] StudyGroupRepository, StudyMemberRepository, StudySuggestionRepository
+- [x] domain/notification/repository/NotificationRepository.java — findByUserIdAndIsReadFalseOrderByCreatedAtDesc
+
+### 7-2. 매칭 엔진 서비스
+- [x] domain/study/service/MatchingEngineService.java
+- [x] UserKeywordRepository에 매칭용 메서드 추가:
+  - 약점 조회: findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc (curriculumId 필터, 7일 필터 제거 — curriculumId로 이미 주차 스코프 한정)
+  - 강점 보유자 조회: findByKeywordAndKeywordTypeAndUserIdNot
+  - 후보자 강점 전체 조회: findByUserIdAndKeywordTypeAndCreatedAtAfter (최근 7일 강점 키워드 목록)
+- [x] StudySuggestionRepository에 중복 매칭 방지 쿼리 추가:
+  - existsActiveOrPendingBetween(userId, partnerId) — 두 사용자 간 active/pending_acceptance 그룹 존재 여부 확인
+- [x] LlmMatchingResult DTO 생성 (selectedIndex, matchScore, matchReason)
+- [x] tryMatch()를 @Async로 변경 — LLM 호출이 포함되므로 flipped/end 응답을 차단하지 않도록 비동기 실행
+- [x] tryMatch(User user, LearningRoom room, WeeklyCurriculum curriculum) 메서드:
+  1. UserKeyword에서 현재 사용자의 약점 키워드 조회 (curriculumId 필터, weakness_count >= 3, is_resolved=false, weakness_count DESC 정렬)
+  2. 동일 키워드를 strength로 가진 다른 사용자 조회 — 후보자 최대 5명 수집 (중복 제거)
+  3. 후보자별 필터: studySuggestionEnabled == true, Redis 온라인 확인, active/pending 그룹 중복 제외
+  4. 후보자별 최근 7일 전체 강점 키워드 조회
+  5. LLM 호출: 학생의 약점 + 후보 멘토들의 강점 목록 전달 → 최적 멘토 1명 선택, matchScore/matchReason 생성
+  6. LLM 실패 시 폴백: 첫 번째 후보 선택, 수식 기반 matchScore (min(0.6 + weaknessCount * 0.05, 0.990)), 하드코딩 matchReason
+  7. 선택된 멘토로 매칭 결과 생성:
+     a. StudyGroup INSERT (type="mentor_mentee", status="pending_acceptance", match_keyword, match_reason, match_score)
+     b. StudySuggestion INSERT x 2 (양측에 각각, suggested_role="mentee"/"mentor")
+     c. Notification INSERT x 2 (type="study_match", reference_id=suggestion.id)
+     d. SSE 알림 푸시는 TODO 주석 처리 — PHASE 8에서 NotificationService.pushSse() 연동
+  8. 매칭 대상 미발견 시 아무 동작 없음
+- [x] 전체 tryMatch()를 try-catch로 감싸 매칭 실패가 호출자를 방해하지 않도록 처리. 실패 시 log.error
+
+### 7-3. 기존 FlippedLearningService 매칭 엔진 연동
+- [x] PHASE 5의 POST /flipped/end에서 TODO로 남겨둔 매칭 엔진 호출 활성화
+- [x] MatchingEngineService 주입 → endSession()에서 user.studySuggestionEnabled 확인 후 matchingEngineService.tryMatch(user, room, curriculum) 호출
+
+### 7-4. 매칭 제안 API
+- [x] domain/study/service/StudyGroupService.java
+- [x] domain/study/controller/StudyGroupController.java
+- [x] GET /api/study-groups/suggestions — pending 상태 제안 목록. SuggestionListResponseDto
+  - 같은 그룹의 상대방 suggestion 조회 → 상대방 User 정보 (nickname, profileImageUrl)
+  - strengthKeyword 필드 제거 — top-level matchKeyword와 중복이며 멘토 시점에서 부정확. 프론트는 matchKeyword 사용
+- [x] POST /api/study-groups/suggestions/{id}/accept — 수락 로직:
+  1. 본인 제안인지 검증 (suggested_to == userId), pending 상태 검증
+  2. suggestion.accept() — status="accepted", responded_at 갱신
+  3. 양측 모두 accepted인지 확인
+  4. 양측 수락 시: StudyGroup.status = "active" UPDATE + StudyMember INSERT x 2
+  5. Notification INSERT — 상대방에게 type="study_accepted", reference_id=group.id
+  6. SSE 알림은 TODO 주석 처리
+  7. 버그 수정: SuggestionAcceptResponseDto에 groupId 필드 추가 — active 전환 시 클라이언트가 스터디 그룹 상세/채팅방으로 이동할 수 있도록
+- [x] POST /api/study-groups/suggestions/{id}/reject — 거절 로직:
+  1. 본인 제안인지 검증, pending 상태 검증
+  2. suggestion.reject() — status="rejected", responded_at 갱신
+  3. StudyGroup.disband() — status="disbanded"로 변경하여 그룹이 pending_acceptance 상태로 남지 않도록 처리
+  4. Notification INSERT — 상대방에게 type="study_rejected", reference_id=suggestion.id
+  5. SSE 알림은 TODO 주석 처리
+
+### 7-5. 스터디 그룹 상세 API
+- [x] GET /api/study-groups/{groupId} — 그룹 상세 + 파트너 정보
+- [x] StudyGroupDetailResponseDto (groupId, matchKeyword, status, partner 객체 [userId, nickname, profileImageUrl, role, isOnline]) — matchKeyword는 top-level에만 배치, PartnerDetail에서 제거
+- [x] 현재 사용자가 멤버인지 검증 (active→StudyMember, pending→StudySuggestion, 둘 다 아니면 403)
+- [x] isOnline은 Redis에서 RT:{email} 토큰 존재 여부로 판단
+
+### 7-6. ErrorCode 추가
+- [x] SUGGESTION_NOT_FOUND(404, "스터디 제안을 찾을 수 없습니다.")
+- [x] SUGGESTION_ALREADY_RESPONDED(409, "이미 응답한 스터디 제안입니다.")
+- [x] STUDY_GROUP_NOT_FOUND(404, "스터디 그룹을 찾을 수 없습니다.")
+- [x] STUDY_GROUP_ACCESS_DENIED(403, "스터디 그룹에 접근 권한이 없습니다.")
+## PHASE 8
+
+### 8-1. Entity / Repository
+- [] Notification 엔티티, NotificationRepository는 PHASE 7에서 선행 생성 완료 — 이미 존재하면 스킵
+- []  Notification 엔티티에 message (TEXT) 컬럼 없으면 추가 — SSE 이벤트와 알림 목록에서 표시할 메시지 필요. api_spec 참조: "완벽한 상호 보완 파트너를 찾았습니다!" 등
+
+### 8-2. SSE 알림 인프라
+- [] domain/notification/service/NotificationService.java
+- [] SseEmitter 관리: ConcurrentHashMap<String, SseEmitter> — userId별 emitter 저장
+- [] subscribe(String userId) — SseEmitter 생성 (타임아웃 30분), Map에 저장, 완료/타임아웃/에러 시 Map에서 제거하는 콜백 등록
+- [] pushSse(String userId, Object event) — 해당 userId의 emitter로 이벤트 전송. emitter 없으면(오프라인) 무시 (Notification은 호출자가 이미 DB에 저장)
+- [] SecurityConfig에 /api/notifications/stream SSE 경로 비동기 디스패치 허용 — PHASE 5에서 추가한 dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll() 존재 확인
+
+### 8-3. SSE 알림 스트림 API
+- [] domain/notification/controller/NotificationController.java
+- [] GET /api/notifications/stream — SseEmitter 반환 (Content-Type: text/event-stream, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+- [] JWT에서 userId 추출 → NotificationService.subscribe(userId) 호출
+
+### 8-4. 알림 목록/읽음 API
+- [] GET /api/notifications — 읽지 않은 알림 목록
+- [] NotificationListResponseDto (notificationId, type, message, referenceId, isRead, createdAt)
+- [] PATCH /api/notifications/{id}/read — notification.markAsRead()
+- [] NotificationReadResponseDto (notificationId, isRead)
+- [] 본인 알림인지 검증 (notification.user.id == userId, 아니면 403)
+
+### 8-5. PHASE 7 TODO 주석 활성화
+- [] MatchingEngineService.createMatchGroup()에서 TODO 주석으로 남겨둔 pushSse() 호출 활성화
+  - NotificationService 주입
+  - 매칭 생성 후: notificationService.pushSse(mentee.getId(), matchEvent), notificationService.pushSse(mentor.getId(), matchEvent)
+- [] StudyGroupService.acceptSuggestion()에서 TODO 주석 활성화
+  - 수락 시: 상대방에게 pushSse(partnerId, acceptedEvent)
+- [] StudyGroupService.rejectSuggestion()에서 TODO 주석 활성화
+  - 거절 시: 상대방에게 pushSse(partnerId, rejectedEvent)
+
+### 8-6. SSE 이벤트 데이터 형식
+- [] study_match: {type, message, suggestionId, partner: {nickname, role}, matchScore, matchKeyword}
+- [] study_accepted: {type, message, groupId}
+- [] study_rejected: {type, message, suggestionId}
+- [] chat_message: {type, message, groupId, sender: {nickname, profileImageUrl}, preview}
+
+### 8-7. ErrorCode 추가
+- [] NOTIFICATION_NOT_FOUND(404, "알림을 찾을 수 없습니다.")
+- [] NOTIFICATION_ACCESS_DENIED(403, "알림에 접근 권한이 없습니다.")
+## PHASE 9
+
+### 9-1. Entity 생성
+- [] domain/chat/entity/StudyMessage.java — db_schema 14번 참조
+  - id (CHAR(36) PK), group_id (FK→study_groups.id), sender_id (FK→users.id, nullable — AI 발언 시 NULL), sender_type (VARCHAR(5) CHECK "user"|"ai"), content (TEXT), is_ai_correction (TINYINT(1) 기본값 FALSE), sent_at (DATETIME)
+- [] domain/chat/repository/StudyMessageRepository.java — findByGroupIdOrderBySentAtDesc (페이지네이션: Pageable 파라미터)
+
+### 9-2. WebSocket/STOMP 설정
+- [] global/config/WebSocketConfig.java — WebSocketMessageBrokerConfigurer 구현
+  - registerStompEndpoints: /ws/study-groups (SockJS fallback 허용)
+  - configureMessageBroker: application prefix /pub, broker prefix /sub
+- [] global/config/StompChannelInterceptor.java — ChannelInterceptor 구현
+  - CONNECT 프레임에서 Authorization 헤더 추출 → JWT 토큰 검증
+  - 검증 실패 시 연결 거부
+  - 검증 성공 시 Principal에 userId 설정 (StompHeaderAccessor.setUser)
+
+### 9-3. 채팅 이력 조회 API (REST)
+- [] domain/chat/service/ChatService.java
+- [] domain/chat/controller/ChatController.java
+- []  GET /api/study-groups/{groupId}/messages?page=0&size=50 — 이전 채팅 이력
+- [] 현재 사용자가 해당 그룹의 StudyMember인지 검증 (아니면 403)
+- [] ChatMessageResponseDto (messageId, senderType, senderId, senderNickname, content, isAiCorrection, sentAt)
+
+### 9-4. WebSocket 메시지 핸들러
+- [] domain/chat/controller/ChatWebSocketController.java
+- [] @MessageMapping("/chat/{groupId}") — 메시지 수신 핸들러
+- [] ChatSendRequestDto (content)
+- [] 처리 로직:
+  1. Principal에서 userId 추출
+  2. 해당 그룹의 StudyMember인지 검증
+  3. StudyMessage INSERT (sender_type="user", sender_id=userId, content, is_ai_correction=false)
+  4. ChatMessageResponseDto 구성 (senderNickname은 User에서 조회)
+  5. /sub/chat/{groupId}로 메시지 브로드캐스트 (SimpMessagingTemplate.convertAndSend)
+  6. 상대방이 WebSocket 미연결 상태면: Notification INSERT (type="chat_message", reference_id=group.id) + NotificationService.pushSse() 호출
+
+### 9-5. WebSocket 연결 상태 추적 (상대방 오프라인 판단용)
+- [] WebSocket 세션 관리: ConcurrentHashMap<String, Set<String>> — groupId별 연결된 userId 추적
+- [] STOMP SUBSCRIBE 시 Map에 추가, DISCONNECT 시 제거
+- [] 메시지 전송 시 상대방이 Map에 없으면 → 오프라인으로 판단 → 알림 발송
+
+### 9-6. SecurityConfig 경로 추가
+- [] /ws/** 경로 permitAll (WebSocket 핸드셰이크 허용, 실제 인증은 StompChannelInterceptor에서 처리)
+
+### 9-7. ErrorCode 추가
+- [] CHAT_GROUP_ACCESS_DENIED(403, "채팅방에 접근 권한이 없습니다.")
