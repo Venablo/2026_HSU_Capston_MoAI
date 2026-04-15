@@ -4,8 +4,10 @@ import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
+import com.moai.backend.domain.notification.dto.SseStudyMatchEvent;
 import com.moai.backend.domain.notification.entity.Notification;
 import com.moai.backend.domain.notification.repository.NotificationRepository;
+import com.moai.backend.domain.notification.service.NotificationService;
 import com.moai.backend.domain.study.dto.LlmMatchingResult;
 import com.moai.backend.domain.study.entity.StudyGroup;
 import com.moai.backend.domain.study.entity.StudySuggestion;
@@ -36,6 +38,7 @@ public class MatchingEngineService {
     private final StudyGroupRepository studyGroupRepository;
     private final StudySuggestionRepository studySuggestionRepository;
     private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
     private final RedisTemplate<String, String> redisTemplate;
     private final LlmService llmService;
 
@@ -192,9 +195,13 @@ public class MatchingEngineService {
                 .build();
         studySuggestionRepository.save(mentorSuggestion);
 
+        String menteeMessage = "회원님의 약점을 완벽히 보완해줄 멘토를 찾았습니다!";
+        String mentorMessage = "회원님의 강점을 필요로 하는 멘티를 찾았습니다!";
+
         Notification menteeNotification = Notification.builder()
                 .user(mentee)
                 .type("study_match")
+                .message(menteeMessage)
                 .referenceId(menteeSuggestion.getId())
                 .build();
         notificationRepository.save(menteeNotification);
@@ -202,11 +209,22 @@ public class MatchingEngineService {
         Notification mentorNotification = Notification.builder()
                 .user(mentor)
                 .type("study_match")
+                .message(mentorMessage)
                 .referenceId(mentorSuggestion.getId())
                 .build();
         notificationRepository.save(mentorNotification);
 
-        // TODO PHASE 8: NotificationService.pushSse() 연동
+        SseStudyMatchEvent menteeEvent = new SseStudyMatchEvent(
+                "study_match", menteeMessage, menteeSuggestion.getId(),
+                new SseStudyMatchEvent.PartnerInfo(mentor.getNickname(), "mentor"),
+                matchScore, matchKeyword);
+        notificationService.pushSse(mentee.getId(), menteeEvent);
+
+        SseStudyMatchEvent mentorEvent = new SseStudyMatchEvent(
+                "study_match", mentorMessage, mentorSuggestion.getId(),
+                new SseStudyMatchEvent.PartnerInfo(mentee.getNickname(), "mentee"),
+                matchScore, matchKeyword);
+        notificationService.pushSse(mentor.getId(), mentorEvent);
 
         log.info("매칭 성공 - mentee: {}, mentor: {}, keyword: {}, score: {}",
                 mentee.getId(), mentor.getId(), matchKeyword, matchScore);

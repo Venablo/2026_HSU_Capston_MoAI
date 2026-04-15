@@ -295,46 +295,46 @@
 ## PHASE 8
 
 ### 8-1. Entity / Repository
-- [] Notification 엔티티, NotificationRepository는 PHASE 7에서 선행 생성 완료 — 이미 존재하면 스킵
-- []  Notification 엔티티에 message (TEXT) 컬럼 없으면 추가 — SSE 이벤트와 알림 목록에서 표시할 메시지 필요. api_spec 참조: "완벽한 상호 보완 파트너를 찾았습니다!" 등
+- [x] Notification 엔티티, NotificationRepository는 PHASE 7에서 선행 생성 완료 — 이미 존재하면 스킵
+- [x]  Notification 엔티티에 message (TEXT) 컬럼 없으면 추가 — SSE 이벤트와 알림 목록에서 표시할 메시지 필요. api_spec 참조: "완벽한 상호 보완 파트너를 찾았습니다!" 등
 
 ### 8-2. SSE 알림 인프라
-- [] domain/notification/service/NotificationService.java
-- [] SseEmitter 관리: ConcurrentHashMap<String, SseEmitter> — userId별 emitter 저장
-- [] subscribe(String userId) — SseEmitter 생성 (타임아웃 30분), Map에 저장, 완료/타임아웃/에러 시 Map에서 제거하는 콜백 등록
-- [] pushSse(String userId, Object event) — 해당 userId의 emitter로 이벤트 전송. emitter 없으면(오프라인) 무시 (Notification은 호출자가 이미 DB에 저장)
-- [] SecurityConfig에 /api/notifications/stream SSE 경로 비동기 디스패치 허용 — PHASE 5에서 추가한 dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll() 존재 확인
+- [x] domain/notification/service/NotificationService.java
+- [x] SseEmitter 관리: ConcurrentHashMap<String, SseEmitter> — userId별 emitter 저장
+- [x] subscribe(String userId) — SseEmitter 생성 (타임아웃 30분), Map에 저장, 완료/타임아웃/에러 시 Map에서 제거하는 콜백 등록
+- [x] pushSse(String userId, Object event) — 해당 userId의 emitter로 이벤트 전송. emitter 없으면(오프라인) 무시 (Notification은 호출자가 이미 DB에 저장)
+- [x] SecurityConfig에 /api/notifications/stream SSE 경로 비동기 디스패치 허용 — PHASE 5에서 추가한 dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll() 존재 확인
 
 ### 8-3. SSE 알림 스트림 API
-- [] domain/notification/controller/NotificationController.java
-- [] GET /api/notifications/stream — SseEmitter 반환 (Content-Type: text/event-stream, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-- [] JWT에서 userId 추출 → NotificationService.subscribe(userId) 호출
+- [x] domain/notification/controller/NotificationController.java
+- [x] GET /api/notifications/stream — SseEmitter 반환 (Content-Type: text/event-stream, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+- [x] JWT에서 userId 추출 → NotificationService.subscribe(userId) 호출
 
 ### 8-4. 알림 목록/읽음 API
-- [] GET /api/notifications — 읽지 않은 알림 목록
-- [] NotificationListResponseDto (notificationId, type, message, referenceId, isRead, createdAt)
-- [] PATCH /api/notifications/{id}/read — notification.markAsRead()
-- [] NotificationReadResponseDto (notificationId, isRead)
-- [] 본인 알림인지 검증 (notification.user.id == userId, 아니면 403)
+- [x] GET /api/notifications — 읽지 않은 알림 목록
+- [x] NotificationListResponseDto (notificationId, type, message, referenceId, isRead, createdAt)
+- [x] PATCH /api/notifications/{id}/read — notification.markAsRead()
+- [x] NotificationReadResponseDto (notificationId, isRead)
+- [x] 본인 알림인지 검증 (notification.user.id == userId, 아니면 403)
 
 ### 8-5. PHASE 7 TODO 주석 활성화
-- [] MatchingEngineService.createMatchGroup()에서 TODO 주석으로 남겨둔 pushSse() 호출 활성화
+- [x] MatchingEngineService.createMatchGroup()에서 TODO 주석으로 남겨둔 pushSse() 호출 활성화
   - NotificationService 주입
   - 매칭 생성 후: notificationService.pushSse(mentee.getId(), matchEvent), notificationService.pushSse(mentor.getId(), matchEvent)
-- [] StudyGroupService.acceptSuggestion()에서 TODO 주석 활성화
+- [x] StudyGroupService.acceptSuggestion()에서 TODO 주석 활성화
   - 수락 시: 상대방에게 pushSse(partnerId, acceptedEvent)
-- [] StudyGroupService.rejectSuggestion()에서 TODO 주석 활성화
+- [x] StudyGroupService.rejectSuggestion()에서 TODO 주석 활성화
   - 거절 시: 상대방에게 pushSse(partnerId, rejectedEvent)
 
 ### 8-6. SSE 이벤트 데이터 형식
-- [] study_match: {type, message, suggestionId, partner: {nickname, role}, matchScore, matchKeyword}
-- [] study_accepted: {type, message, groupId}
-- [] study_rejected: {type, message, suggestionId}
-- [] chat_message: {type, message, groupId, sender: {nickname, profileImageUrl}, preview}
+- [x] study_match: {type, message, suggestionId, partner: {nickname, role}, matchScore, matchKeyword}
+- [x] study_accepted: {type, message, groupId}
+- [x] study_rejected: {type, message, suggestionId}
+- [] chat_message: {type, message, groupId, sender: {nickname, profileImageUrl}, preview} — PHASE 9에서 구현
 
 ### 8-7. ErrorCode 추가
-- [] NOTIFICATION_NOT_FOUND(404, "알림을 찾을 수 없습니다.")
-- [] NOTIFICATION_ACCESS_DENIED(403, "알림에 접근 권한이 없습니다.")
+- [x] NOTIFICATION_NOT_FOUND(404, "알림을 찾을 수 없습니다.")
+- [x] NOTIFICATION_ACCESS_DENIED(403, "알림에 접근 권한이 없습니다.")
 ## PHASE 9
 
 ### 9-1. Entity 생성

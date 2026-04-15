@@ -1,7 +1,10 @@
 package com.moai.backend.domain.study.service;
 
+import com.moai.backend.domain.notification.dto.SseStudyAcceptedEvent;
+import com.moai.backend.domain.notification.dto.SseStudyRejectedEvent;
 import com.moai.backend.domain.notification.entity.Notification;
 import com.moai.backend.domain.notification.repository.NotificationRepository;
+import com.moai.backend.domain.notification.service.NotificationService;
 import com.moai.backend.domain.study.dto.StudyGroupDetailResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionAcceptResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionListResponseDto;
@@ -32,6 +35,7 @@ public class StudyGroupService {
     private final StudySuggestionRepository studySuggestionRepository;
     private final StudyMemberRepository studyMemberRepository;
     private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -93,13 +97,18 @@ public class StudyGroupService {
 
         StudySuggestion partnerSuggestion = findPartnerSuggestion(group.getId(), suggestionId);
 
+        String acceptedMessage = user.getNickname() + "님이 스터디 제안을 수락했습니다.";
+
         notificationRepository.save(Notification.builder()
                 .user(partnerSuggestion.getSuggestedTo())
                 .type("study_accepted")
+                .message(acceptedMessage)
                 .referenceId(group.getId())
                 .build());
 
-        // TODO PHASE 8: NotificationService.pushSse() 연동
+        notificationService.pushSse(
+                partnerSuggestion.getSuggestedTo().getId(),
+                new SseStudyAcceptedEvent("study_accepted", acceptedMessage, group.getId()));
 
         return new SuggestionAcceptResponseDto(
                 suggestion.getId(),
@@ -126,13 +135,18 @@ public class StudyGroupService {
         StudySuggestion partnerSuggestion = findPartnerSuggestion(
                 suggestion.getGroup().getId(), suggestionId);
 
+        String rejectedMessage = user.getNickname() + "님이 스터디 제안을 거절했습니다.";
+
         notificationRepository.save(Notification.builder()
                 .user(partnerSuggestion.getSuggestedTo())
                 .type("study_rejected")
+                .message(rejectedMessage)
                 .referenceId(suggestion.getId())
                 .build());
 
-        // TODO PHASE 8: NotificationService.pushSse() 연동
+        notificationService.pushSse(
+                partnerSuggestion.getSuggestedTo().getId(),
+                new SseStudyRejectedEvent("study_rejected", rejectedMessage, suggestion.getId()));
 
         return new SuggestionRejectResponseDto(suggestion.getStatus());
     }

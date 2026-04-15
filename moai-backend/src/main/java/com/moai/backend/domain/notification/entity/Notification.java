@@ -32,6 +32,9 @@ public class Notification {
     @Column(name = "type", nullable = false, length = 20)
     private String type;
 
+    @Column(name = "message", columnDefinition = "TEXT")
+    private String message;
+
     @Column(name = "reference_id", length = 36)
     private String referenceId;
 
@@ -50,9 +53,10 @@ public class Notification {
     }
 
     @Builder
-    public Notification(User user, String type, String referenceId) {
+    public Notification(User user, String type, String message, String referenceId) {
         this.user = user;
         this.type = type;
+        this.message = message;
         this.referenceId = referenceId;
         this.isRead = false;
     }

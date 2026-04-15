@@ -59,6 +59,10 @@ public enum ErrorCode {
     STUDY_GROUP_NOT_FOUND(404, "STUDY_003", "스터디 그룹을 찾을 수 없습니다."),
     STUDY_GROUP_ACCESS_DENIED(403, "STUDY_004", "스터디 그룹에 접근 권한이 없습니다."),
 
+    // Notification
+    NOTIFICATION_NOT_FOUND(404, "NOTI_001", "알림을 찾을 수 없습니다."),
+    NOTIFICATION_ACCESS_DENIED(403, "NOTI_002", "알림에 접근 권한이 없습니다."),
+
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),
     S3_PRESIGN_FAILED(500, "S3_002", "Presigned URL 생성에 실패했습니다.");
