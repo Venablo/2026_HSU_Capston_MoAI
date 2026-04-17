@@ -48,6 +48,9 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
 
+	// WebSocket (STOMP)
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
 	// PDF 생성 (Apache PDFBox)
 	implementation 'org.apache.pdfbox:pdfbox:3.0.4'
 

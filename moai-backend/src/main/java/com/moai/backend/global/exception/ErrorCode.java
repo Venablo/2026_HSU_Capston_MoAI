@@ -59,6 +59,9 @@ public enum ErrorCode {
     STUDY_GROUP_NOT_FOUND(404, "STUDY_003", "스터디 그룹을 찾을 수 없습니다."),
     STUDY_GROUP_ACCESS_DENIED(403, "STUDY_004", "스터디 그룹에 접근 권한이 없습니다."),
 
+    // Chat
+    CHAT_GROUP_ACCESS_DENIED(403, "CHAT_001", "채팅방에 접근 권한이 없습니다."),
+
     // Notification
     NOTIFICATION_NOT_FOUND(404, "NOTI_001", "알림을 찾을 수 없습니다."),
     NOTIFICATION_ACCESS_DENIED(403, "NOTI_002", "알림에 접근 권한이 없습니다."),

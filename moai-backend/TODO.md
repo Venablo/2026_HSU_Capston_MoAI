@@ -330,7 +330,7 @@
 - [x] study_match: {type, message, suggestionId, partner: {nickname, role}, matchScore, matchKeyword}
 - [x] study_accepted: {type, message, groupId}
 - [x] study_rejected: {type, message, suggestionId}
-- [] chat_message: {type, message, groupId, sender: {nickname, profileImageUrl}, preview} — PHASE 9에서 구현
+- [x] chat_message: {type, message, groupId, sender: {nickname, profileImageUrl}, preview} — PHASE 9에서 구현
 
 ### 8-7. ErrorCode 추가
 - [x] NOTIFICATION_NOT_FOUND(404, "알림을 찾을 수 없습니다.")
@@ -338,45 +338,87 @@
 ## PHASE 9
 
 ### 9-1. Entity 생성
-- [] domain/chat/entity/StudyMessage.java — db_schema 14번 참조
+- [x] domain/chat/entity/StudyMessage.java — db_schema 14번 참조
   - id (CHAR(36) PK), group_id (FK→study_groups.id), sender_id (FK→users.id, nullable — AI 발언 시 NULL), sender_type (VARCHAR(5) CHECK "user"|"ai"), content (TEXT), is_ai_correction (TINYINT(1) 기본값 FALSE), sent_at (DATETIME)
-- [] domain/chat/repository/StudyMessageRepository.java — findByGroupIdOrderBySentAtDesc (페이지네이션: Pageable 파라미터)
+- [x] domain/chat/repository/StudyMessageRepository.java — findByGroupIdOrderBySentAtDesc (페이지네이션: Pageable 파라미터)
 
 ### 9-2. WebSocket/STOMP 설정
-- [] global/config/WebSocketConfig.java — WebSocketMessageBrokerConfigurer 구현
+- [x] global/config/WebSocketConfig.java — WebSocketMessageBrokerConfigurer 구현
   - registerStompEndpoints: /ws/study-groups (SockJS fallback 허용)
   - configureMessageBroker: application prefix /pub, broker prefix /sub
-- [] global/config/StompChannelInterceptor.java — ChannelInterceptor 구현
+- [x] global/config/StompChannelInterceptor.java — ChannelInterceptor 구현
   - CONNECT 프레임에서 Authorization 헤더 추출 → JWT 토큰 검증
   - 검증 실패 시 연결 거부
-  - 검증 성공 시 Principal에 userId 설정 (StompHeaderAccessor.setUser)
+  - 검증 성공 시 Principal에 email 설정 (StompHeaderAccessor.setUser)
+  - 버그 수정: getUserId()는 Access Token 전용 "userId" 클레임을 읽어 Refresh Token에서 null 반환 → getEmail()로 변경 (subject는 모든 토큰에 존재)
 
 ### 9-3. 채팅 이력 조회 API (REST)
-- [] domain/chat/service/ChatService.java
-- [] domain/chat/controller/ChatController.java
-- []  GET /api/study-groups/{groupId}/messages?page=0&size=50 — 이전 채팅 이력
-- [] 현재 사용자가 해당 그룹의 StudyMember인지 검증 (아니면 403)
-- [] ChatMessageResponseDto (messageId, senderType, senderId, senderNickname, content, isAiCorrection, sentAt)
+- [x] domain/chat/service/ChatService.java
+- [x] domain/chat/controller/ChatController.java
+- [x]  GET /api/study-groups/{groupId}/messages?page=0&size=50 — 이전 채팅 이력
+- [x] 현재 사용자가 해당 그룹의 StudyMember인지 검증 (아니면 403)
+- [x] ChatMessageResponseDto (messageId, senderType, senderId, senderNickname, content, isAiCorrection, sentAt)
 
 ### 9-4. WebSocket 메시지 핸들러
-- [] domain/chat/controller/ChatWebSocketController.java
-- [] @MessageMapping("/chat/{groupId}") — 메시지 수신 핸들러
-- [] ChatSendRequestDto (content)
-- [] 처리 로직:
-  1. Principal에서 userId 추출
+- [x] domain/chat/controller/ChatWebSocketController.java
+- [x] @MessageMapping("/chat/{groupId}") — 메시지 수신 핸들러
+- [x] ChatSendRequestDto (content)
+- [x] 처리 로직:
+  1. Principal에서 email 추출 (Principal.getName()은 JWT 기반으로 email 반환)
   2. 해당 그룹의 StudyMember인지 검증
   3. StudyMessage INSERT (sender_type="user", sender_id=userId, content, is_ai_correction=false)
   4. ChatMessageResponseDto 구성 (senderNickname은 User에서 조회)
   5. /sub/chat/{groupId}로 메시지 브로드캐스트 (SimpMessagingTemplate.convertAndSend)
   6. 상대방이 WebSocket 미연결 상태면: Notification INSERT (type="chat_message", reference_id=group.id) + NotificationService.pushSse() 호출
+- [x] 버그 수정: ChatService.sendMessage()에서 Principal.getName()이 email을 반환하는데 findById()로 조회하던 버그 → findByEmail()로 변경, validateMembership()에 sender.getId() 전달
 
 ### 9-5. WebSocket 연결 상태 추적 (상대방 오프라인 판단용)
-- [] WebSocket 세션 관리: ConcurrentHashMap<String, Set<String>> — groupId별 연결된 userId 추적
-- [] STOMP SUBSCRIBE 시 Map에 추가, DISCONNECT 시 제거
-- [] 메시지 전송 시 상대방이 Map에 없으면 → 오프라인으로 판단 → 알림 발송
+- [x] WebSocket 세션 관리: ConcurrentHashMap<String, Set<String>> — groupId별 연결된 userId 추적
+- [x] STOMP SUBSCRIBE 시 Map에 추가, DISCONNECT 시 제거
+- [x] 메시지 전송 시 상대방이 Map에 없으면 → 오프라인으로 판단 → 알림 발송
 
 ### 9-6. SecurityConfig 경로 추가
-- [] /ws/** 경로 permitAll (WebSocket 핸드셰이크 허용, 실제 인증은 StompChannelInterceptor에서 처리)
+- [x] /ws/study-groups/** 경로 permitAll (WebSocket 핸드셰이크 허용, 실제 인증은 StompChannelInterceptor에서 처리)
 
 ### 9-7. ErrorCode 추가
-- [] CHAT_GROUP_ACCESS_DENIED(403, "채팅방에 접근 권한이 없습니다.")
+- [x] CHAT_GROUP_ACCESS_DENIED(403, "채팅방에 접근 권한이 없습니다.")
+## PHASE 10
+  
+### 10-1. 프로필 전체 조회 API
+- [] GET /api/users/me — 기존 홈 화면용 API가 이미 구현되어 있으면 스킵. 없으면 추가
+- [] UserProfileResponseDto (userId, loginId, name, nickname, email, birthDate, profileImageUrl, interestKeywords, studySuggestionEnabled, themePreference, status)
+
+### 10-2. 프로필 수정 API
+- [] domain/users/controller/UserController.java (기존 컨트롤러에 추가)
+- [] domain/users/service/UserService.java (기존 서비스에 추가)
+- [] PATCH /api/users/me — 닉네임, 프로필 사진, 테마 수정
+- [] UserUpdateRequestDto (nickname, profileImageUrl, themePreference) — 모든 필드 nullable, 전달된 필드만 업데이트 (부분 수정)
+- [] UserUpdateResponseDto (nickname, profileImageUrl, themePreference)
+- [] User 엔티티에 updateProfile() 편의 메서드 추가 (null이 아닌 필드만 업데이트)
+
+### 10-3. 관심 키워드 수정 API
+- [] PATCH /api/users/me/keywords — 관심 키워드 수정
+- [] KeywordUpdateRequestDto (interestKeywords 배열)
+- [] KeywordUpdateResponseDto (interestKeywords 배열)
+- [] User.interestKeywords UPDATE (JSON)
+
+### 10-4. 회원 탈퇴 API
+- [] DELETE /api/users/me — 비밀번호 확인 후 탈퇴
+- [] UserDeleteRequestDto (password)
+- [] 로직:
+  1. BCrypt 비밀번호 검증 — 불일치 시 400 에러
+  2. User.status = "inactive" UPDATE (논리 삭제)
+  3. Redis에서 RefreshToken 삭제 (RT:{email} 키)
+  4. 응답: "회원 탈퇴가 완료되었습니다."
+
+### 10-5. 학습실 이력 API
+- [] GET /api/users/me/learning-history — 학습실 이력 목록
+- [] LearningRoomRepository에 findByUserIdOrderByCreatedAtDesc 메서드 추가 (없으면)
+- [] LearningHistoryResponseDto (roomId, subject, level, completionRate, status, createdAt)
+
+### 10-6. ErrorCode 추가
+- [] PASSWORD_MISMATCH(400, "비밀번호가 일치하지 않습니다.")
+- [] USER_ALREADY_INACTIVE(409, "이미 탈퇴한 사용자입니다.")
+
+## PHASE 11
+- [ ] JWT 토큰 타입 구분 — 현재 Access/Refresh Token 구분 없이 모든 JWT가 인증 통과됨. 토큰 생성 시 type 클레임 추가 ("access"/"refresh") + validateToken()에서 type 검증 추가 필요
