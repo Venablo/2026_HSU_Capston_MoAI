@@ -1,15 +1,19 @@
 package com.moai.backend.domain.users.service;
 
-import com.moai.backend.domain.users.dto.UserProfileResponseDto;
-import com.moai.backend.domain.users.dto.UserSignUpRequestDto;
+import com.moai.backend.domain.learningroom.entity.LearningRoom;
+import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
+import com.moai.backend.domain.users.dto.*;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
 import com.moai.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -17,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final LearningRoomRepository learningRoomRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Transactional
     public User join(UserSignUpRequestDto requestDto) {
@@ -43,6 +49,72 @@ public class UserService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
         return UserProfileResponseDto.from(user);
+    }
+
+    @Transactional
+    public UserUpdateResponseDto updateProfile(String email, UserUpdateRequestDto requestDto) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        // 닉네임 변경 시 중복 검증 (본인의 현재 닉네임과 동일한 경우 제외)
+        if (requestDto.getNickname() != null && !requestDto.getNickname().equals(user.getNickname())) {
+            validateDuplicateNickname(requestDto.getNickname());
+        }
+
+        user.updateProfile(
+                requestDto.getNickname(),
+                requestDto.getProfileImageUrl(),
+                requestDto.getThemePreference()
+        );
+
+        return new UserUpdateResponseDto(
+                user.getNickname(),
+                user.getProfileImageUrl(),
+                user.getThemePreference()
+        );
+    }
+
+    @Transactional
+    public KeywordUpdateResponseDto updateKeywords(String email, KeywordUpdateRequestDto requestDto) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        user.updateInterestKeywords(requestDto.getInterestKeywords());
+
+        return new KeywordUpdateResponseDto(user.getInterestKeywords());
+    }
+
+    @Transactional
+    public void deleteUser(String email, UserDeleteRequestDto requestDto) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        // 이미 탈퇴한 사용자 확인
+        if ("inactive".equals(user.getStatus())) {
+            throw new CustomException(ErrorCode.USER_ALREADY_INACTIVE);
+        }
+
+        // BCrypt 비밀번호 검증
+        if (!passwordEncoder.matches(requestDto.getPassword(), user.getPasswordHash())) {
+            throw new CustomException(ErrorCode.PASSWORD_MISMATCH);
+        }
+
+        // 논리 삭제
+        user.deactivate();
+
+        // Redis에서 RefreshToken 삭제
+        redisTemplate.delete("RT:" + email);
+    }
+
+    public List<LearningHistoryResponseDto> getLearningHistory(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        List<LearningRoom> rooms = learningRoomRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+
+        return rooms.stream()
+                .map(LearningHistoryResponseDto::from)
+                .toList();
     }
 
     private void validateDuplicateLoginId(String loginId) {

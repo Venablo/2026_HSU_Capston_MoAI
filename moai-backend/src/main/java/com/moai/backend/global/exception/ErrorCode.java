@@ -58,6 +58,7 @@ public enum ErrorCode {
     SUGGESTION_ALREADY_RESPONDED(409, "STUDY_002", "이미 응답한 스터디 제안입니다."),
     STUDY_GROUP_NOT_FOUND(404, "STUDY_003", "스터디 그룹을 찾을 수 없습니다."),
     STUDY_GROUP_ACCESS_DENIED(403, "STUDY_004", "스터디 그룹에 접근 권한이 없습니다."),
+    STUDY_GROUP_EXPIRED(403, "STUDY_005", "스터디 기간이 만료되었습니다."),
 
     // Chat
     CHAT_GROUP_ACCESS_DENIED(403, "CHAT_001", "채팅방에 접근 권한이 없습니다."),
@@ -65,6 +66,11 @@ public enum ErrorCode {
     // Notification
     NOTIFICATION_NOT_FOUND(404, "NOTI_001", "알림을 찾을 수 없습니다."),
     NOTIFICATION_ACCESS_DENIED(403, "NOTI_002", "알림에 접근 권한이 없습니다."),
+
+    // User - 회원 탈퇴
+    PASSWORD_MISMATCH(400, "USER_002", "비밀번호가 일치하지 않습니다."),
+    USER_ALREADY_INACTIVE(409, "USER_003", "이미 탈퇴한 사용자입니다."),
+    USER_INACTIVE(403, "USER_004", "탈퇴한 사용자입니다."),
 
     // S3
     S3_UPLOAD_FAILED(500, "S3_001", "파일 업로드에 실패했습니다."),

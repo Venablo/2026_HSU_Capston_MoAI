@@ -151,11 +151,16 @@ public class StudyGroupService {
         return new SuggestionRejectResponseDto(suggestion.getStatus());
     }
 
+    @Transactional
     public StudyGroupDetailResponseDto getGroupDetail(String email, String groupId) {
         User user = findUserByEmail(email);
 
         StudyGroup group = studyGroupRepository.findById(groupId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STUDY_GROUP_NOT_FOUND));
+
+        if (group.isExpired() && "active".equals(group.getStatus())) {
+            group.complete();
+        }
 
         List<StudyMember> members = studyMemberRepository.findByGroupId(groupId);
         boolean isMember = members.stream()

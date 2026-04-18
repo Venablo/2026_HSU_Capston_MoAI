@@ -385,40 +385,60 @@
 ## PHASE 10
   
 ### 10-1. 프로필 전체 조회 API
-- [] GET /api/users/me — 기존 홈 화면용 API가 이미 구현되어 있으면 스킵. 없으면 추가
-- [] UserProfileResponseDto (userId, loginId, name, nickname, email, birthDate, profileImageUrl, interestKeywords, studySuggestionEnabled, themePreference, status)
+- [x] GET /api/users/me — 기존 구현 확인 완료 (UserController + UserService.getProfile + UserProfileResponseDto). 스펙과 동일하여 스킵
+- [x] UserProfileResponseDto (userId, loginId, name, nickname, email, birthDate, profileImageUrl, interestKeywords, studySuggestionEnabled, themePreference, status)
 
 ### 10-2. 프로필 수정 API
-- [] domain/users/controller/UserController.java (기존 컨트롤러에 추가)
-- [] domain/users/service/UserService.java (기존 서비스에 추가)
-- [] PATCH /api/users/me — 닉네임, 프로필 사진, 테마 수정
-- [] UserUpdateRequestDto (nickname, profileImageUrl, themePreference) — 모든 필드 nullable, 전달된 필드만 업데이트 (부분 수정)
-- [] UserUpdateResponseDto (nickname, profileImageUrl, themePreference)
-- [] User 엔티티에 updateProfile() 편의 메서드 추가 (null이 아닌 필드만 업데이트)
+- [x] domain/users/controller/UserController.java (기존 컨트롤러에 추가)
+- [x] domain/users/service/UserService.java (기존 서비스에 추가)
+- [x] PATCH /api/users/me — 닉네임, 프로필 사진, 테마 수정
+- [x] UserUpdateRequestDto (nickname, profileImageUrl, themePreference) — 모든 필드 nullable, 전달된 필드만 업데이트 (부분 수정)
+- [x] UserUpdateResponseDto (nickname, profileImageUrl, themePreference)
+- [x] User 엔티티에 updateProfile() 편의 메서드 추가 (null이 아닌 필드만 업데이트)
 
 ### 10-3. 관심 키워드 수정 API
-- [] PATCH /api/users/me/keywords — 관심 키워드 수정
-- [] KeywordUpdateRequestDto (interestKeywords 배열)
-- [] KeywordUpdateResponseDto (interestKeywords 배열)
-- [] User.interestKeywords UPDATE (JSON)
+- [x] PATCH /api/users/me/keywords — 관심 키워드 수정
+- [x] KeywordUpdateRequestDto (interestKeywords 배열)
+- [x] KeywordUpdateResponseDto (interestKeywords 배열)
+- [x] User.interestKeywords UPDATE (JSON)
 
 ### 10-4. 회원 탈퇴 API
-- [] DELETE /api/users/me — 비밀번호 확인 후 탈퇴
-- [] UserDeleteRequestDto (password)
-- [] 로직:
+- [x] DELETE /api/users/me — 비밀번호 확인 후 탈퇴
+- [x] UserDeleteRequestDto (password)
+- [x] 로직:
   1. BCrypt 비밀번호 검증 — 불일치 시 400 에러
   2. User.status = "inactive" UPDATE (논리 삭제)
   3. Redis에서 RefreshToken 삭제 (RT:{email} 키)
   4. 응답: "회원 탈퇴가 완료되었습니다."
 
 ### 10-5. 학습실 이력 API
-- [] GET /api/users/me/learning-history — 학습실 이력 목록
-- [] LearningRoomRepository에 findByUserIdOrderByCreatedAtDesc 메서드 추가 (없으면)
-- [] LearningHistoryResponseDto (roomId, subject, level, completionRate, status, createdAt)
+- [x] GET /api/users/me/learning-history — 학습실 이력 목록
+- [x] LearningRoomRepository에 findByUserIdOrderByCreatedAtDesc 메서드 추가
+- [x] LearningHistoryResponseDto (roomId, subject, level, completionRate, status, createdAt)
 
 ### 10-6. ErrorCode 추가
-- [] PASSWORD_MISMATCH(400, "비밀번호가 일치하지 않습니다.")
-- [] USER_ALREADY_INACTIVE(409, "이미 탈퇴한 사용자입니다.")
-
+- [x] PASSWORD_MISMATCH(400, "비밀번호가 일치하지 않습니다.")
+- [x] USER_ALREADY_INACTIVE(409, "이미 탈퇴한 사용자입니다.")
+- [x] USER_INACTIVE(403, "탈퇴한 사용자입니다.") — 탈퇴 사용자 로그인 차단용. AuthService.login()에서 status 검증 추가
 ## PHASE 11
-- [ ] JWT 토큰 타입 구분 — 현재 Access/Refresh Token 구분 없이 모든 JWT가 인증 통과됨. 토큰 생성 시 type 클레임 추가 ("access"/"refresh") + validateToken()에서 type 검증 추가 필요
+
+### 11-1. 스터디 그룹 7일 자동 만료
+- [x] DB 변경: STUDY_GROUPS 테이블에 expires_at (DATETIME, nullable) 컬럼 추가
+- [x] StudyGroup 엔티티: expiresAt 필드 추가. activate() 시 expiresAt = now + 7일 설정
+- [x] StudyGroupScheduler 생성: @Scheduled(cron = "0 0 * * * *") — 매시간 만료된 그룹 status="completed"로 변경
+- [x] StudyGroupRepository: findByStatusAndExpiresAtBefore() 메서드 추가
+- [x] 접근 제어: ChatService.sendMessage()에서 만료 확인 → 403 "스터디 기간이 만료되었습니다."
+- [x] StudyGroupService.getGroupDetail()에서 lazy 만료 처리 (만료 시 status="completed" 업데이트 후 반환)
+- [x] WebSocket SEND 차단: 만료된 그룹에 메시지 전송 시 에러 반환, @MessageExceptionHandler로 클라이언트에 에러 전달
+- [x] GET /api/study-groups/{groupId}/messages — completed 상태에서도 읽기 전용 조회 허용
+- [x] GET /api/study-groups/{groupId} — completed 상태 반환하여 프론트에서 만료 상태 표시 가능
+- [x] ErrorCode 추가: STUDY_GROUP_EXPIRED(403, "STUDY_005", "스터디 기간이 만료되었습니다.")
+- [x] @EnableScheduling 활성화 (MoAiApplication.java)
+
+### 11-2. JWT 토큰 타입 구분
+- [x] JWT 토큰 타입 구분 — 토큰 생성 시 type 클레임 추가 ("access"/"refresh")
+- [x] JwtTokenProvider.getTokenType() 메서드 추가
+- [x] JwtAuthenticationFilter: Access Token만 API 인증 허용 (Refresh Token으로 API 접근 차단)
+- [x] StompChannelInterceptor: Access Token만 WebSocket 연결 허용
+- [x] AuthService.logout(): Access Token인지 검증
+- [x] AuthService.reissue(): Refresh Token인지 검증

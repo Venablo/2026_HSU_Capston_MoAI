@@ -38,6 +38,12 @@ public class StompChannelInterceptor implements ChannelInterceptor {
                 throw new MessageDeliveryException("Invalid JWT token");
             }
 
+            // Access Token만 WebSocket 연결에 사용
+            String tokenType = jwtTokenProvider.getTokenType(token);
+            if (!"access".equals(tokenType)) {
+                throw new MessageDeliveryException("Access token required for WebSocket connection");
+            }
+
             String email = jwtTokenProvider.getEmail(token);
             accessor.setUser(new UsernamePasswordAuthenticationToken(email, null, Collections.emptyList()));
         }

@@ -29,6 +29,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요�
         // 토큰 존재 여부, 유효성 검사
         if (token != null && jwtTokenProvider.validateToken(token)) {
 
+            // Access Token만 API 인증에 사용 (Refresh Token으로 API 접근 차단)
+            String tokenType = jwtTokenProvider.getTokenType(token);
+            if (!"access".equals(tokenType)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             // Redis에서 해당 토큰이 로그아웃된 상태인지 확인
             String isLogout = redisTemplate.opsForValue().get(token);
 

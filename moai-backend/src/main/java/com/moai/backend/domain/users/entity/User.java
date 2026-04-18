@@ -81,4 +81,27 @@ public class User extends BaseTimeEntity {
         this.studySuggestionEnabled = true;
         this.themePreference = "light";
     }
+
+    // 회원 탈퇴 (논리 삭제)
+    public void deactivate() {
+        this.status = "inactive";
+    }
+
+    // 관심 키워드 수정
+    public void updateInterestKeywords(List<String> interestKeywords) {
+        this.interestKeywords = interestKeywords;
+    }
+
+    // null이 아닌 필드만 업데이트하는 부분 수정 메서드
+    public void updateProfile(String nickname, String profileImageUrl, String themePreference) {
+        if (nickname != null) {
+            this.nickname = nickname;
+        }
+        if (profileImageUrl != null) {
+            this.profileImageUrl = profileImageUrl;
+        }
+        if (themePreference != null) {
+            this.themePreference = themePreference;
+        }
+    }
 }

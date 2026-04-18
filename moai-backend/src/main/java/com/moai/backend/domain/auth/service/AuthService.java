@@ -37,6 +37,11 @@ public class AuthService {
             throw new CustomException(ErrorCode.AUTH_INVALID_CREDENTIALS);
         }
 
+        // 3. 탈퇴한 사용자 로그인 차단
+        if (!"active".equals(user.getStatus())) {
+            throw new CustomException(ErrorCode.USER_INACTIVE);
+        }
+
         UserTokenResponseDto tokens = jwtTokenProvider.createToken(user.getEmail(), user.getId(), user.getNickname());
 
         // 3. Refresh Token을 Redis에 저장
@@ -56,6 +61,11 @@ public class AuthService {
             throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
         }
 
+        // Access Token인지 확인
+        if (!"access".equals(jwtTokenProvider.getTokenType(accessToken))) {
+            throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
+        }
+
         String email = jwtTokenProvider.getEmail(accessToken);
 
         if (redisTemplate.opsForValue().get("RT:" + email) != null) {
@@ -71,6 +81,11 @@ public class AuthService {
     @Transactional
     public UserTokenResponseDto reissue(String refreshToken) {
         if (!jwtTokenProvider.validateToken(refreshToken)) {
+            throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
+        }
+
+        // Refresh Token인지 확인
+        if (!"refresh".equals(jwtTokenProvider.getTokenType(refreshToken))) {
             throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
         }
 

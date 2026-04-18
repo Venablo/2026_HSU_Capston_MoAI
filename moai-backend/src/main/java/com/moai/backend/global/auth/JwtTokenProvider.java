@@ -37,6 +37,7 @@ public class JwtTokenProvider {
         String accessToken = Jwts.builder()
                 .subject(email)
                 .claim("userId", userId)
+                .claim("type", "access")
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + accessTokenExpiration))
                 .signWith(key)
@@ -44,6 +45,7 @@ public class JwtTokenProvider {
 
         String refreshToken = Jwts.builder()
                 .subject(email)
+                .claim("type", "refresh")
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + refreshTokenExpiration))
                 .signWith(key)
@@ -68,6 +70,16 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get("userId", String.class);
+    }
+
+    // 토큰에서 type 클레임 추출 ("access" 또는 "refresh")
+    public String getTokenType(String token) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("type", String.class);
     }
 
     public boolean validateToken(String token) {

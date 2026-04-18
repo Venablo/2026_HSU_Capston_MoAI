@@ -11,4 +11,6 @@ public interface LearningRoomRepository extends JpaRepository<LearningRoom, Stri
     List<LearningRoom> findByUserId(String userId);
 
     Optional<LearningRoom> findByIdAndUserId(String id, String userId);
+
+    List<LearningRoom> findByUserIdOrderByCreatedAtDesc(String userId);
 }

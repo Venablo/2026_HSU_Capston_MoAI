@@ -61,6 +61,13 @@ public class ChatService {
         StudyGroup group = studyGroupRepository.findById(groupId)
                 .orElseThrow(() -> new CustomException(ErrorCode.STUDY_GROUP_NOT_FOUND));
 
+        if ("completed".equals(group.getStatus()) || group.isExpired()) {
+            if (group.isExpired() && "active".equals(group.getStatus())) {
+                group.complete();
+            }
+            throw new CustomException(ErrorCode.STUDY_GROUP_EXPIRED);
+        }
+
         StudyMessage message = StudyMessage.builder()
                 .group(group)
                 .sender(sender)

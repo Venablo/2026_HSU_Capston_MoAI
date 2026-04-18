@@ -244,6 +244,7 @@ AI 매칭 엔진이 생성하는 멘토-멘티 스터디 그룹. 양측 모두 �
 | match_reason | TEXT | | AI 매칭 이유 요약 |
 | match_score | DECIMAL(4,3) | | AI 산출 매칭 점수. 0.000~1.000 |
 | status | VARCHAR(20) | | CHECK: "pending_acceptance" \| "active" \| "completed" \| "disbanded" |
+| expires_at | DATETIME | | 스터디 만료 일시. active 전환 시 현재 시각 + 7일로 설정. NULL 허용 |
 | created_at | DATETIME | | 생성 일시 |
 
 ---
