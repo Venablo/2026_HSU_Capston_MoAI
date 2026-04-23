@@ -390,7 +390,8 @@ export interface QuizReportQuestionResult {
   isCorrect: boolean
   myAnswer: string
   gainedKeywords: string[]
-  missingKeywords: string[]
+  // 백엔드 스펙 변경: missingKeywords → weakKeywords (API Spec v3.0 최종 반영)
+  weakKeywords: string[]
   aiComment: string
 }
 

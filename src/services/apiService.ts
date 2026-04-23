@@ -759,7 +759,7 @@ export async function submitFinalQuiz(
  * 반환값:
  *   finalScore  - 최종 점수 (예: 92)
  *   radarData   - 레이더 차트 데이터 { 개념이해도: 90, 응용력: 85, 논리력: 95, 키워드적중률: 88 }
- *   questions   - 문항별 AI 해설 (gainedKeywords, missingKeywords, aiComment 포함)
+ *   questions   - 문항별 AI 해설 (gainedKeywords, weakKeywords, aiComment 포함)
  */
 export async function getQuizReport(roomId: string, weekId: string): Promise<QuizReportResponse> {
   // 퀴즈 제출 후 AI 분석 리포트가 완료될 때까지 주기적으로 상태 확인(Polling).

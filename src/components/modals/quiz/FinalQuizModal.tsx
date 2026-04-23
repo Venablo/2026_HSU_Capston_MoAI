@@ -32,7 +32,7 @@
  *  ⑥ AI 종합 분석 리포트 표시
  *     - 총점 (finalScore)
  *     - 레이더 차트 (radarData: 개념이해도, 응용력, 논리력, 키워드적중률)
- *     - 문항별 AI 해설 (gainedKeywords, missingKeywords, aiComment)
+ *     - 문항별 AI 해설 (gainedKeywords, weakKeywords, aiComment)
  *
  * 백엔드 미연결 상태에서는 MOCK 데이터로 동작한다.
  * ============================================================================
@@ -106,35 +106,35 @@ const MOCK_REPORT: QuizReportResponse = {
             order: 1, question: 'ACID 속성 설명', score: 9, maxScore: 10,
             isCorrect: true, myAnswer: '(작성 내용)',
             gainedKeywords:   ['원자성', '일관성', '고립성', '지속성'],
-            missingKeywords:  [],
+            weakKeywords:  [],
             aiComment: 'ACID 속성 모두를 정확하게 설명했습니다. 실제 DB에서의 중요성까지 언급한 점이 훌륭합니다.',
         },
         {
             order: 2, question: '원자성 문제 예시', score: 8, maxScore: 10,
             isCorrect: true, myAnswer: '(작성 내용)',
             gainedKeywords:   ['원자성', 'ROLLBACK'],
-            missingKeywords:  ['부분 커밋'],
+            weakKeywords:  ['부분 커밋'],
             aiComment: '은행 예시를 잘 활용했지만, \'부분 커밋\' 용어를 더 명확히 사용하면 완벽합니다.',
         },
         {
             order: 3, question: 'COMMIT/ROLLBACK 차이', score: 9, maxScore: 10,
             isCorrect: true, myAnswer: '(작성 내용)',
             gainedKeywords:   ['COMMIT', 'ROLLBACK', '트랜잭션'],
-            missingKeywords:  [],
+            weakKeywords:  [],
             aiComment: '두 명령어의 차이를 명확하게 구분하여 설명했습니다.',
         },
         {
             order: 4, question: '동시성 제어', score: 7, maxScore: 10,
             isCorrect: false, myAnswer: '(작성 내용)',
             gainedKeywords:   ['격리 수준'],
-            missingKeywords:  ['dirty read', 'phantom read', 'serializable'],
+            weakKeywords:  ['dirty read', 'phantom read', 'serializable'],
             aiComment: '격리 수준의 종류를 더 구체적으로 설명하면 좋겠습니다. dirty read, phantom read 등을 언급해 보세요.',
         },
         {
             order: 5, question: 'NULL 값 처리', score: 9, maxScore: 10,
             isCorrect: true, myAnswer: '(작성 내용)',
             gainedKeywords:   ['NULL', '빈 문자열'],
-            missingKeywords:  [],
+            weakKeywords:  [],
             aiComment: 'NULL과 빈 문자열의 차이를 정확히 이해하고 있습니다.',
         },
     ],
@@ -411,7 +411,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                                         {q.gainedKeywords.map(kw => (
                                             <span key={kw} className="fq-report__kw fq-report__kw--gain">{kw}</span>
                                         ))}
-                                        {q.missingKeywords.map(kw => (
+                                        {q.weakKeywords.map(kw => (
                                             <span key={kw} className="fq-report__kw fq-report__kw--miss">{kw}</span>
                                         ))}
                                     </div>
