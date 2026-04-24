@@ -27,11 +27,6 @@
  *  ⑤ POST /flipped/end
  *      → score, gainedKeywords, weakKeywords, feedback 수신
  *      → onSessionEnd 콜백 호출 → MetaEvaluationModal로 전환
- *
- * 백엔드 미연결 상태에서는 MOCK_MODE로 동작:
- *   - startFlippedSession 실패 시 로컬 mock firstMessage 사용
- *   - streamFlipped 대신 setTimeout으로 가짜 스트리밍 시뮬레이션
- *   - endFlippedSession 실패 시 mock 평가 결과 사용
  * ============================================================================
  */
 
@@ -44,25 +39,6 @@ import {
     endFlippedSession,
 } from '../../../services/apiService'
 import type { EndFlippedResponse, FlippedStreamEvent } from '../../../types/api'
-
-// ── Mock 모드 설정 ────────────────────────────────────────────────────────────
-// 백엔드가 준비되기 전 UI 테스트용 Mock 응답 데이터
-const MOCK_FIRST_MESSAGE =
-    "이번 주차에서 배운 'ACID'에 대해 설명해주세요! 트랜잭션 속성의 각 문자가 무엇을 의미하는지 알려주세요."
-
-const MOCK_AI_RESPONSES = [
-    '흥미롭네요! 그렇다면 원자성(Atomicity)이 보장되지 않으면 실제로 어떤 문제가 발생할 수 있을까요?',
-    '완벽해요! 마지막으로, ACID 속성 중 격리성(Isolation)이 낮을 때 발생하는 문제(dirty read 등)를 설명해줄 수 있나요?',
-]
-
-const MOCK_EVAL: EndFlippedResponse = {
-    sessionId:       'mock-session-id',
-    flippedResult:   'pass',
-    score:           88,
-    gainedKeywords:  ['원자성', 'COMMIT', 'ROLLBACK', '트랜잭션'],
-    weakKeywords:    ['격리성', '잠금(Lock)', '데드락'],
-    feedback:        '이해도 88% — ACID 핵심 개념을 훌륭히 설명했어요! 격리성 부분을 조금 더 보완해 보세요.',
-}
 
 // ── 채팅 메시지 타입 ─────────────────────────────────────────────────────────
 interface ChatMessage {
@@ -84,9 +60,9 @@ export interface ReverseLearningModalProps {
      * EndFlippedResponse를 MetaEvaluationResponse로 변환하여 다음 모달로 전환하는 데 사용.
      */
     onSessionEnd?: (result: EndFlippedResponse) => void
-    /** 이전 mock 방식 호환용 (onSessionEnd가 없을 때 폴백으로 호출) */
+    /** 이전 방식 호환용 (onSessionEnd가 없을 때 폴백으로 호출) */
     onSubmitExplanation?: (explanation: string) => void
-    /** roomId가 있으면 실제 API를 호출하고, 없으면 Mock 모드로 동작 */
+    /** 학습실 ID — 실제 API 호출에 필요 */
     roomId?: string
     /** 현재 주차 ID (startFlippedSession의 curriculum_id로 사용) */
     weekId?: string
@@ -104,17 +80,18 @@ export default function ReverseLearningModal({
     loading: externalLoading = false,
 }: ReverseLearningModalProps) {
     // 세션 초기화 관련 상태
-    const [sessionId,      setSessionId]      = useState<string | null>(null)
-    const [initLoading,    setInitLoading]     = useState(true)   // startFlippedSession 대기 중
-    const [endLoading,     setEndLoading]      = useState(false)  // endFlippedSession 대기 중
+    const [sessionId,   setSessionId]   = useState<string | null>(null)
+    const [initLoading, setInitLoading] = useState(true)
+    const [endLoading,  setEndLoading]  = useState(false)
+    const [initError,   setInitError]   = useState<string | null>(null)
+    const [evalError,   setEvalError]   = useState<string | null>(null)
 
     // 채팅 UI 상태
     const [messages,    setMessages]    = useState<ChatMessage[]>([])
     const [inputText,   setInputText]   = useState('')
-    const [isStreaming, setIsStreaming]  = useState(false)  // SSE 스트리밍 중 여부
+    const [isStreaming, setIsStreaming]  = useState(false)
 
     // 현재 스트리밍 중인 AI 메시지 버퍼
-    // (setState 배치 처리로 인해 ref를 통해 최신 값을 보장)
     const streamBufferRef = useRef('')
 
     // SSE EventSource 인스턴스 — unmount 시 반드시 .close() 호출 필요
@@ -123,40 +100,22 @@ export default function ReverseLearningModal({
     // 채팅 영역 자동 스크롤을 위한 ref
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
 
-    // Mock 모드 여부: roomId가 없으면 Mock으로 동작
-    const isMockMode = !roomId || !weekId
-
-    // Mock 응답 인덱스 (Mock 모드에서 번갈아 응답 반환)
-    const mockTurnRef = useRef(0)
-
     // ── 초기화: 세션 시작 ────────────────────────────────────────────────────
     useEffect(() => {
         let cancelled = false
 
         const initialize = async () => {
             setInitLoading(true)
+            setInitError(null)
             try {
-                if (!isMockMode) {
-                    // ── 실제 API 호출 ────────────────────────────────────────
-                    // POST /flipped/start → sessionId와 AI 첫 메시지 수신
-                    const { sessionId: sid, firstMessage } =
-                        await startFlippedSession(roomId!, { curriculum_id: weekId! })
-
-                    if (cancelled) return
-
-                    setSessionId(sid)
-                    // AI의 첫 번째 질문을 채팅 메시지로 추가
-                    setMessages([{ role: 'ai', content: firstMessage }])
-                } else {
-                    // ── Mock 모드: 가짜 세션 시작 ────────────────────────────
-                    setSessionId('mock-session')
-                    setMessages([{ role: 'ai', content: MOCK_FIRST_MESSAGE }])
-                }
-            } catch {
-                // API 실패 시 Mock 데이터로 폴백
+                const { sessionId: sid, firstMessage } =
+                    await startFlippedSession(roomId!, { curriculum_id: weekId! })
+                if (cancelled) return
+                setSessionId(sid)
+                setMessages([{ role: 'ai', content: firstMessage }])
+            } catch (e) {
                 if (!cancelled) {
-                    setSessionId('mock-session')
-                    setMessages([{ role: 'ai', content: MOCK_FIRST_MESSAGE }])
+                    setInitError(e instanceof Error ? e.message : '세션 시작에 실패했습니다.')
                 }
             } finally {
                 if (!cancelled) setInitLoading(false)
@@ -164,9 +123,8 @@ export default function ReverseLearningModal({
         }
 
         initialize()
-
         return () => { cancelled = true }
-    }, [roomId, weekId, isMockMode])
+    }, [roomId, weekId])
 
     // ── 채팅 자동 스크롤 ─────────────────────────────────────────────────────
     useEffect(() => {
@@ -176,7 +134,7 @@ export default function ReverseLearningModal({
     // ── 메시지 전송 + SSE 스트리밍 처리 ─────────────────────────────────────
     const handleSend = useCallback(() => {
         const trimmed = inputText.trim()
-        if (!trimmed || isStreaming || !sessionId) return
+        if (!trimmed || isStreaming || !sessionId || !roomId) return
 
         // 사용자 메시지를 채팅 UI에 추가
         setMessages(prev => [...prev, { role: 'user', content: trimmed }])
@@ -190,174 +148,97 @@ export default function ReverseLearningModal({
             { role: 'ai', content: '', isStreaming: true },
         ])
 
-        if (!isMockMode && roomId && sessionId !== 'mock-session') {
-            // ── 실제 SSE 스트리밍 ──────────────────────────────────────────
-            // streamFlipped()는 accessToken을 쿼리 파라미터로 전달하는 EventSource를 반환
-            const sse = streamFlipped(roomId, sessionId, trimmed)
-            sseRef.current = sse
+        // streamFlipped()는 accessToken을 쿼리 파라미터로 전달하는 EventSource를 반환
+        const sse = streamFlipped(roomId, sessionId, trimmed)
+        sseRef.current = sse
 
-            let isCounterQuestion = false
+        let isCounterQuestion = false
 
-            sse.onmessage = (e) => {
-                try {
-                    const event: FlippedStreamEvent = JSON.parse(e.data)
+        sse.onmessage = (e) => {
+            try {
+                const event: FlippedStreamEvent = JSON.parse(e.data)
 
-                    if (event.type === 'token') {
-                        // 일반 토큰: 버퍼에 추가하고 마지막 AI 메시지를 업데이트
-                        streamBufferRef.current += event.content
-                        const currentContent = streamBufferRef.current
-                        setMessages(prev => {
-                            const updated = [...prev]
-                            updated[updated.length - 1] = {
-                                role: 'ai',
-                                content: currentContent,
-                                isStreaming: true,
-                            }
-                            return updated
-                        })
-                    } else if (event.type === 'counter_question') {
-                        // 역질문 토큰: 강조 스타일로 표시
-                        isCounterQuestion = true
-                        streamBufferRef.current += event.content
-                        const currentContent = streamBufferRef.current
-                        setMessages(prev => {
-                            const updated = [...prev]
-                            updated[updated.length - 1] = {
-                                role: 'ai',
-                                content: currentContent,
-                                isCounterQuestion: true,
-                                isStreaming: true,
-                            }
-                            return updated
-                        })
-                    } else if (event.type === 'done') {
-                        // 스트리밍 완료: EventSource 닫기, isStreaming 플래그 해제
-                        sse.close()
-                        sseRef.current = null
-                        const finalContent = streamBufferRef.current
-                        setMessages(prev => {
-                            const updated = [...prev]
-                            updated[updated.length - 1] = {
-                                role: 'ai',
-                                content: finalContent,
-                                isCounterQuestion,
-                                isStreaming: false,
-                            }
-                            return updated
-                        })
-                        setIsStreaming(false)
-                    }
-                } catch {
-                    // JSON 파싱 실패 시 무시 (불완전한 SSE 패킷)
-                }
-            }
-
-            sse.onerror = () => {
-                // SSE 연결 오류 시 연결 종료 및 UI 복구
-                sse.close()
-                sseRef.current = null
-                setIsStreaming(false)
-            }
-        } else {
-            // ── Mock 스트리밍: setTimeout으로 가짜 토큰 스트리밍 시뮬레이션 ─
-            const mockResponse =
-                MOCK_AI_RESPONSES[mockTurnRef.current % MOCK_AI_RESPONSES.length]
-            mockTurnRef.current += 1
-            const isLastMock = mockTurnRef.current >= 3
-
-            // 1글자씩 50ms 간격으로 타이핑 효과 구현
-            const chars = mockResponse.split('')
-            let charIndex = 0
-
-            const typeNextChar = () => {
-                if (charIndex >= chars.length) {
-                    // 마지막 글자 → 스트리밍 완료
+                if (event.type === 'token') {
+                    streamBufferRef.current += event.content
+                    const currentContent = streamBufferRef.current
                     setMessages(prev => {
                         const updated = [...prev]
                         updated[updated.length - 1] = {
                             role: 'ai',
-                            content: mockResponse,
+                            content: currentContent,
+                            isStreaming: true,
+                        }
+                        return updated
+                    })
+                } else if (event.type === 'counter_question') {
+                    isCounterQuestion = true
+                    streamBufferRef.current += event.content
+                    const currentContent = streamBufferRef.current
+                    setMessages(prev => {
+                        const updated = [...prev]
+                        updated[updated.length - 1] = {
+                            role: 'ai',
+                            content: currentContent,
                             isCounterQuestion: true,
+                            isStreaming: true,
+                        }
+                        return updated
+                    })
+                } else if (event.type === 'done') {
+                    sse.close()
+                    sseRef.current = null
+                    const finalContent = streamBufferRef.current
+                    setMessages(prev => {
+                        const updated = [...prev]
+                        updated[updated.length - 1] = {
+                            role: 'ai',
+                            content: finalContent,
+                            isCounterQuestion,
                             isStreaming: false,
                         }
                         return updated
                     })
                     setIsStreaming(false)
-                    // mock 마지막 턴에서 "완료하기" 버튼 활성화 힌트 표시용 로직
-                    if (isLastMock) {
-                        setMessages(prev => [
-                            ...prev,
-                            {
-                                role: 'ai',
-                                content:
-                                    '훌륭해요! 이제 "최종 평가받기" 버튼을 눌러 AI가 여러분의 이해도를 종합 평가하도록 해주세요.',
-                                isStreaming: false,
-                            },
-                        ])
-                    }
-                    return
                 }
-                streamBufferRef.current += chars[charIndex]
-                charIndex++
-                const currentContent = streamBufferRef.current
-                setMessages(prev => {
-                    const updated = [...prev]
-                    updated[updated.length - 1] = {
-                        role: 'ai',
-                        content: currentContent,
-                        isCounterQuestion: true,
-                        isStreaming: true,
-                    }
-                    return updated
-                })
-                setTimeout(typeNextChar, 30)
+            } catch {
+                // JSON 파싱 실패 시 무시 (불완전한 SSE 패킷)
             }
-
-            setTimeout(typeNextChar, 500) // 0.5초 딜레이 후 타이핑 시작
         }
-    }, [inputText, isStreaming, sessionId, isMockMode, roomId])
+
+        sse.onerror = () => {
+            sse.close()
+            sseRef.current = null
+            setIsStreaming(false)
+        }
+    }, [inputText, isStreaming, sessionId, roomId])
 
     // ── 최종 평가 요청 (세션 종료) ────────────────────────────────────────────
     const handleFinalEvaluation = useCallback(async () => {
-        if (!sessionId || endLoading) return
+        if (!sessionId || endLoading || !roomId) return
         setEndLoading(true)
+        setEvalError(null)
 
         try {
-            if (!isMockMode && roomId && sessionId !== 'mock-session') {
-                // ── 실제 API: POST /flipped/end ──────────────────────────────
-                const result = await endFlippedSession(roomId, { sessionId })
-                if (onSessionEnd) {
-                    onSessionEnd(result)
-                } else if (onSubmitExplanation) {
-                    // 폴백: 전체 대화를 텍스트로 직렬화하여 기존 방식으로 처리
-                    const fullText = messages
-                        .filter(m => m.role === 'user')
-                        .map(m => m.content)
-                        .join('\n')
-                    onSubmitExplanation(fullText)
-                }
-            } else {
-                // ── Mock 평가 결과 반환 ───────────────────────────────────────
-                await new Promise(r => setTimeout(r, 1000)) // 1초 로딩 시뮬레이션
-                if (onSessionEnd) {
-                    onSessionEnd(MOCK_EVAL)
-                } else if (onSubmitExplanation) {
-                    onSubmitExplanation('mock evaluation complete')
-                }
+            const result = await endFlippedSession(roomId, { sessionId })
+            if (onSessionEnd) {
+                onSessionEnd(result)
+            } else if (onSubmitExplanation) {
+                const fullText = messages
+                    .filter(m => m.role === 'user')
+                    .map(m => m.content)
+                    .join('\n')
+                onSubmitExplanation(fullText)
             }
-        } catch {
-            // API 실패 시 Mock 결과로 폴백
-            await new Promise(r => setTimeout(r, 500))
-            onSessionEnd?.(MOCK_EVAL)
+        } catch (e) {
+            setEvalError(e instanceof Error ? e.message : '평가 요청에 실패했습니다.')
         } finally {
             setEndLoading(false)
         }
-    }, [sessionId, endLoading, isMockMode, roomId, messages, onSessionEnd, onSubmitExplanation])
+    }, [sessionId, endLoading, roomId, messages, onSessionEnd, onSubmitExplanation])
 
     // ── Unmount cleanup ───────────────────────────────────────────────────────
     useEffect(() => {
         return () => {
-            // 컴포넌트가 사라질 때 SSE 연결이 열려있으면 반드시 닫아야 메모리 누수 방지
             if (sseRef.current) {
                 sseRef.current.close()
                 sseRef.current = null
@@ -373,11 +254,6 @@ export default function ReverseLearningModal({
         }
     }
 
-    // "최종 평가" 버튼 활성화 조건:
-    //   - 세션이 초기화됨
-    //   - 현재 스트리밍 중이 아님
-    //   - endFlippedSession 호출 중이 아님
-    //   - 적어도 한 번 이상 대화가 있음 (사용자 메시지 존재)
     const canFinish =
         !!sessionId &&
         !isStreaming &&
@@ -406,10 +282,13 @@ export default function ReverseLearningModal({
                 {/* 채팅 영역 */}
                 <div className="modal-reverse__chat">
                     {initLoading ? (
-                        // 세션 초기화 로딩 상태
                         <div className="modal-reverse__chat-loading">
                             <Loader2 size={20} strokeWidth={2} className="animate-spin" />
                             <span>AI 학생을 준비하고 있어요...</span>
+                        </div>
+                    ) : initError ? (
+                        <div className="modal-reverse__chat-loading">
+                            <span style={{ color: '#ef4444' }}>⚠ {initError}</span>
                         </div>
                     ) : (
                         messages.map((msg, i) => (
@@ -435,7 +314,6 @@ export default function ReverseLearningModal({
                                         </div>
                                     )}
                                     <p>{msg.content}</p>
-                                    {/* 스트리밍 중 커서 효과 */}
                                     {msg.isStreaming && (
                                         <span className="modal-reverse__cursor">▊</span>
                                     )}
@@ -448,7 +326,7 @@ export default function ReverseLearningModal({
                 </div>
 
                 {/* 입력창 */}
-                {!initLoading && (
+                {!initLoading && !initError && (
                     <div className="modal-reverse__input-row">
                         <textarea
                             className="modal-reverse__textarea"
@@ -475,6 +353,13 @@ export default function ReverseLearningModal({
                             }
                         </button>
                     </div>
+                )}
+
+                {/* 평가 오류 메시지 */}
+                {evalError && (
+                    <p style={{ color: '#ef4444', fontSize: '12px', textAlign: 'center', margin: '4px 0' }}>
+                        ⚠ {evalError}
+                    </p>
                 )}
 
                 {/* 하단 버튼 */}

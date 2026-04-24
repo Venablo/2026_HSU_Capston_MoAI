@@ -34,7 +34,6 @@
  *     - 레이더 차트 (radarData: 개념이해도, 응용력, 논리력, 키워드적중률)
  *     - 문항별 AI 해설 (gainedKeywords, weakKeywords, aiComment)
  *
- * 백엔드 미연결 상태에서는 MOCK 데이터로 동작한다.
  * ============================================================================
  */
 
@@ -59,87 +58,6 @@ import {
     Radar, ResponsiveContainer, Tooltip,
 } from 'recharts'
 
-// ── Mock 데이터 (백엔드 미연결 상태용) ────────────────────────────────────────
-const MOCK_QUIZ: FinalQuizResponse = {
-    quizId: 'mock-quiz-id',
-    title:  'Week 1: 데이터베이스 기초 파이널 퀴즈',
-    questions: [
-        {
-            questionId:   'q1', questionType: 'essay', order: 1,
-            question:     'ACID 속성의 각 문자가 무엇을 의미하는지 설명하고, 실제 데이터베이스에서 이 속성들이 왜 중요한지 기술하세요.',
-            maxLength:    500,  tip:          '트랜잭션의 4가지 핵심 속성을 떠올려 보세요.',
-        },
-        {
-            questionId:   'q2', questionType: 'essay', order: 2,
-            question:     '트랜잭션의 원자성(Atomicity)이 보장되지 않을 경우 발생할 수 있는 문제를 구체적인 예시를 들어 설명하세요.',
-            maxLength:    500,  tip:          '은행 송금 시나리오를 생각해 보세요.',
-        },
-        {
-            questionId:   'q3', questionType: 'essay', order: 3,
-            question:     'COMMIT과 ROLLBACK의 차이점을 설명하고, 각각 어떤 상황에서 사용되는지 예를 들어 기술하세요.',
-            maxLength:    500,  tip:          '트랜잭션의 성공/실패 상황을 떠올려 보세요.',
-        },
-        {
-            questionId:   'q4', questionType: 'essay', order: 4,
-            question:     '동시성 제어(Concurrency Control)가 필요한 이유를 설명하고, 격리 수준(Isolation Level)의 종류를 아는 대로 설명하세요.',
-            maxLength:    500,  tip:          '여러 사용자가 동시에 DB를 사용할 때 발생하는 문제를 생각해 보세요.',
-        },
-        {
-            questionId:   'q5', questionType: 'essay', order: 5,
-            question:     'NULL 값이 데이터베이스에서 의미하는 바를 설명하고, NULL 처리 시 주의해야 할 사항을 기술하세요.',
-            maxLength:    500,  tip:          'NULL은 \'없음\'과 \'빈 문자열\'과 어떻게 다른가요?',
-        },
-    ],
-}
-
-const MOCK_REPORT: QuizReportResponse = {
-    finalScore: 87,
-    radarData: {
-        '개념이해도': 90,
-        '응용력':     82,
-        '논리력':     91,
-        '키워드적중률': 85,
-        '설명명확도':  88,
-    },
-    questions: [
-        {
-            order: 1, question: 'ACID 속성 설명', score: 9, maxScore: 10,
-            isCorrect: true, myAnswer: '(작성 내용)',
-            gainedKeywords:   ['원자성', '일관성', '고립성', '지속성'],
-            weakKeywords:  [],
-            aiComment: 'ACID 속성 모두를 정확하게 설명했습니다. 실제 DB에서의 중요성까지 언급한 점이 훌륭합니다.',
-        },
-        {
-            order: 2, question: '원자성 문제 예시', score: 8, maxScore: 10,
-            isCorrect: true, myAnswer: '(작성 내용)',
-            gainedKeywords:   ['원자성', 'ROLLBACK'],
-            weakKeywords:  ['부분 커밋'],
-            aiComment: '은행 예시를 잘 활용했지만, \'부분 커밋\' 용어를 더 명확히 사용하면 완벽합니다.',
-        },
-        {
-            order: 3, question: 'COMMIT/ROLLBACK 차이', score: 9, maxScore: 10,
-            isCorrect: true, myAnswer: '(작성 내용)',
-            gainedKeywords:   ['COMMIT', 'ROLLBACK', '트랜잭션'],
-            weakKeywords:  [],
-            aiComment: '두 명령어의 차이를 명확하게 구분하여 설명했습니다.',
-        },
-        {
-            order: 4, question: '동시성 제어', score: 7, maxScore: 10,
-            isCorrect: false, myAnswer: '(작성 내용)',
-            gainedKeywords:   ['격리 수준'],
-            weakKeywords:  ['dirty read', 'phantom read', 'serializable'],
-            aiComment: '격리 수준의 종류를 더 구체적으로 설명하면 좋겠습니다. dirty read, phantom read 등을 언급해 보세요.',
-        },
-        {
-            order: 5, question: 'NULL 값 처리', score: 9, maxScore: 10,
-            isCorrect: true, myAnswer: '(작성 내용)',
-            gainedKeywords:   ['NULL', '빈 문자열'],
-            weakKeywords:  [],
-            aiComment: 'NULL과 빈 문자열의 차이를 정확히 이해하고 있습니다.',
-        },
-    ],
-}
-
 // ── 레이더 차트 데이터 변환 ────────────────────────────────────────────────────
 // recharts RadarChart는 { subject: string, value: number } 배열을 요구한다.
 function toRadarData(radarMap: Record<string, number>) {
@@ -153,6 +71,7 @@ type Phase =
     | 'submitting'        // 제출 중
     | 'analyzing'         // AI 분석 중 (폴링)
     | 'report'            // 리포트 표시
+    | 'error'             // API 오류
 
 // ── Props 정의 ────────────────────────────────────────────────────────────────
 interface Props {
@@ -167,15 +86,14 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
     const [quiz,        setQuiz]        = useState<FinalQuizResponse | null>(null)
     const [answers,     setAnswers]     = useState<string[]>([])  // 각 문제 답안
     const [step,        setStep]        = useState(0)              // 현재 문제 인덱스 (0-based)
-    const [report,      setReport]      = useState<QuizReportResponse | null>(null)
-    const [analyzeMsg,  setAnalyzeMsg]  = useState('AI가 답변을 분석하고 있습니다...')
+    const [report,        setReport]        = useState<QuizReportResponse | null>(null)
+    const [analyzeMsg,    setAnalyzeMsg]    = useState('AI가 답변을 분석하고 있습니다...')
+    const [errorMessage,  setErrorMessage]  = useState('')
 
     // 폴링 인터벌 ID — unmount 시 반드시 clearInterval 필요
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     // 분석 메시지 인덱스 (폴링 중 메시지 순환 표시용)
     const analyzeStepRef = useRef(0)
-
-    const isMockMode = !roomId.startsWith('r') // mock roomId 감지 (실제는 UUID 형식)
 
     // ── 분석 중 메시지 순환 ───────────────────────────────────────────────────
     const ANALYZE_MESSAGES = [
@@ -206,12 +124,10 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                     setAnswers(new Array(data.questions.length).fill(''))
                     setPhase('answering')
                 }
-            } catch {
-                // API 실패 시 Mock으로 폴백
+            } catch (e) {
                 if (!cancelled) {
-                    setQuiz(MOCK_QUIZ)
-                    setAnswers(new Array(MOCK_QUIZ.questions.length).fill(''))
-                    setPhase('answering')
+                    setErrorMessage(e instanceof Error ? e.message : '퀴즈를 불러오지 못했습니다.')
+                    setPhase('error')
                 }
             }
         }
@@ -239,10 +155,9 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
             // 제출 성공 → 분석 화면으로 전환 + 폴링 시작
             setPhase('analyzing')
             startPolling(estimatedSec)
-        } catch {
-            // API 실패 → Mock 리포트로 바로 전환
-            setReport(MOCK_REPORT)
-            setPhase('report')
+        } catch (e) {
+            setErrorMessage(e instanceof Error ? e.message : '제출에 실패했습니다. 다시 시도해 주세요.')
+            setPhase('error')
         }
     }, [quiz, answers, roomId, weekId])
 
@@ -270,16 +185,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
             }
         }, Math.max(estimatedSec * 1000, 3_000))
 
-        // Mock 모드: 5초 후 Mock 리포트로 자동 전환
-        if (isMockMode) {
-            setTimeout(() => {
-                clearInterval(msgInterval)
-                stopPolling()
-                setReport(MOCK_REPORT)
-                setPhase('report')
-            }, 5_000)
-        }
-    }, [roomId, weekId, isMockMode, stopPolling, ANALYZE_MESSAGES])
+    }, [roomId, weekId, stopPolling, ANALYZE_MESSAGES])
 
     // ── 현재 문제 데이터 ──────────────────────────────────────────────────────
     const questions  = quiz?.questions ?? []
@@ -297,6 +203,24 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
 
     // 현재 문제에 답이 작성됐는지 확인
     const hasAnswer = currentAns.trim().length > 0
+
+    // ── 렌더: 오류 ──────────────────────────────────────────────────────────
+    if (phase === 'error') {
+        return (
+            <Modal onClose={onClose} wide>
+                <div className="fq-loading">
+                    <p style={{ color: '#ef4444', fontSize: '14px' }}>⚠ {errorMessage}</p>
+                    <button
+                        className="fq-report__close-btn"
+                        onClick={onClose}
+                        style={{ marginTop: '16px' }}
+                    >
+                        닫기
+                    </button>
+                </div>
+            </Modal>
+        )
+    }
 
     // ── 렌더: 문제 로딩 중 ───────────────────────────────────────────────────
     if (phase === 'loading-questions') {

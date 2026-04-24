@@ -1,12 +1,11 @@
 /**
- * ConnectionStatusBadge  —  Development-only connection mode indicator
+ * ConnectionStatusBadge  —  Development-only connection status indicator
  *
  * Renders a fixed pill in the bottom-left corner.  Hidden in production.
  *
- * Mock mode  → amber  "MOCK"  (no real requests are made)
- * Live / idle → neutral "LIVE —"
- * Live / ok   → green  "LIVE ✓ 200"
- * Live / error → red   "LIVE ✗ <message>"
+ * idle  → neutral "LIVE —"
+ * ok    → green   "LIVE ✓ 200"
+ * error → red     "LIVE ✗ <message>"
  */
 
 import type { CSSProperties } from 'react'
@@ -15,23 +14,8 @@ import { useApiConnectionStatus } from '../../../hooks/useApiConnectionStatus'
 export default function ConnectionStatusBadge() {
   if (!import.meta.env.DEV) return null
 
-  const { isMock, status, httpStatus, errorMessage, lastUrl } = useApiConnectionStatus()
+  const { status, httpStatus, errorMessage, lastUrl } = useApiConnectionStatus()
 
-  // ── Mock mode ─────────────────────────────────────────────────────────────
-  if (isMock) {
-    return (
-      <div style={WRAPPER_STYLE} title="VITE_USE_MOCK=true — no real HTTP calls">
-        <span style={{ ...DOT_STYLE, background: '#f59e0b' }} />
-        <span style={{ color: '#fbbf24', fontWeight: 700 }}>MOCK</span>
-        <span style={{ opacity: 0.45 }}>·</span>
-        <span style={{ opacity: 0.7, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          mock data active
-        </span>
-      </div>
-    )
-  }
-
-  // ── Real server mode ──────────────────────────────────────────────────────
   const isIdle  = status === 'idle'
   const isOk    = status === 'ok'
   const isError = status === 'error'
