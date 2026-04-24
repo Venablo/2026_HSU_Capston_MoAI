@@ -1,6 +1,7 @@
 package com.moai.backend.domain.eventlog.service;
 
 import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.moai.backend.domain.eventlog.dto.LlmKeywordExtractionResult;
 import com.moai.backend.domain.eventlog.dto.LlmQuizResult;
 import com.moai.backend.domain.eventlog.dto.LlmSummaryResult;
@@ -10,6 +11,7 @@ import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.material.entity.CustomMaterial;
+import com.moai.backend.domain.material.entity.SummaryItem;
 import com.moai.backend.domain.material.repository.CustomMaterialRepository;
 import com.moai.backend.domain.quiz.entity.Quiz;
 import com.moai.backend.domain.quiz.entity.QuizQuestion;
@@ -20,6 +22,8 @@ import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.global.llm.LlmRequestDto;
 import com.moai.backend.global.llm.LlmService;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -214,11 +218,32 @@ public class EventProcessingService {
      * 커리큘럼에 등록된 키워드와 교집합하여 관련 키워드만 필터링한다.
      */
     private List<String> extractAndFilterKeywords(String transcriptText, WeeklyCurriculum curriculum) {
+        List<String> curriculumKw = curriculum.getKeywords();
+        String allowList = (curriculumKw == null || curriculumKw.isEmpty())
+                ? "(비어있음)" : String.join(", ", curriculumKw);
+
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 강의 자막 분석 AI입니다.
+
+                역할: 주어진 자막 구간에서 학생이 해당 시점에 **다루고 있는 학습 키워드**를 추출해 패턴3(개념 혼동) 감지에 사용합니다.
+
+                ■ 출력 형식: 순수 JSON (코드블록/마크다운 금지)
+                {"keywords": ["키워드1", "키워드2", ...]}
+
+                ■ 필수 규칙
+                1. 키워드는 명사/명사구 단위로 간결하게. 문장 조각/동사/수식어 단독 추출 금지.
+                2. 아래 **허용 키워드 목록**에 존재하는 용어가 자막에 실제로 등장하거나 명백히 암시되면 우선 추출 (표기 변형·영문 병기 허용).
+                3. 목록에 없는 키워드도 교육적으로 핵심이면 추출 가능 — 단, 고유명사·광고·인사말·진행멘트는 제외.
+                4. 중복·동의어는 한 번만. 최대 12개.
+                5. 자막이 짧거나 키워드가 없으면 빈 배열 반환: {"keywords": []}
+
+                ■ 허용 키워드 목록(커리큘럼 기준): %s
+                """.formatted(allowList);
+
         LlmRequestDto keywordRequest = LlmRequestDto.builder()
-                .systemPrompt("당신은 교육 콘텐츠 분석 전문가입니다. "
-                        + "주어진 자막 텍스트에서 학습과 관련된 핵심 키워드를 추출하세요. "
-                        + "JSON 형식으로 응답하세요: {\"keywords\": [\"키워드1\", \"키워드2\", ...]}")
-                .userMessage("다음 자막에서 핵심 키워드를 추출하세요:\n\n" + transcriptText)
+                .systemPrompt(systemPrompt)
+                .userMessage("강의 주제: " + curriculum.getTopic()
+                        + "\n\n자막 원문:\n" + transcriptText)
                 .build();
 
         LlmKeywordExtractionResult extraction = llmService.callJson(keywordRequest, LlmKeywordExtractionResult.class);
@@ -250,16 +275,106 @@ public class EventProcessingService {
     private LlmSummaryResult generateSummary(List<String> keywords, String transcriptText) {
         String keywordList = String.join(", ", keywords);
 
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 AI 실시간 학습 도우미입니다.
+
+                학습자가 영상 시청 중 특정 구간을 반복 되감기하거나 오래 일시정지한 것이 감지되었습니다.
+                해당 구간의 핵심 개념을 학습자가 빠르게 이해할 수 있도록 풍부한 요약본을 생성하세요.
+
+                ■ 출력 형식: 순수 JSON (코드블록 없이)
+                {
+                  "summary_title": "요약 제목",
+                  "trigger_reason": "트리거 사유 한 줄",
+                  "key_points": [
+                    {
+                      "concept": "개념명 (한글 + 영문)",
+                      "icon_letter": "A",
+                      "color": "#5b4ccc",
+                      "definition": "한 문장 정의",
+                      "detail": "2~3문장 상세 설명",
+                      "analogy": "실생활 비유",
+                      "exam_tip": "시험 포인트",
+                      "checkpoint_question": "자가 점검 질문",
+                      "memory_hook": "암기 장치"
+                    }
+                  ],
+                  "comparison_table": {
+                    "headers": ["구분", "항목A", "항목B", "항목C"],
+                    "rows": [["특징1","값","값","값"]]
+                  },
+                  "quick_check": ["자가 점검 질문1"],
+                  "common_mistakes": ["자주 하는 실수1"],
+                  "memory_hooks": ["암기 장치1"],
+                  "next_actions": ["다음 학습 행동1"],
+                  "related_keywords": ["연관 키워드1"],
+                  "difficulty_assessment": "난이도 평가",
+                  "study_time_estimate": "예상 학습 시간"
+                }
+
+                ■ 필수 규칙:
+                1. key_points: 최소 4개 이상. 각 항목에 definition/detail/analogy/exam_tip 필수, checkpoint_question/memory_hook 권장.
+                2. comparison_table: 최소 3행 이상, 각 행의 마지막 칸에는 시험 포인트가 드러나도록.
+                3. quick_check 3개 이상, common_mistakes 3개 이상, memory_hooks 3개 이상, next_actions 3개 이상.
+                4. 모든 설명은 해당 학습 주차 수준에 맞게 작성, 전문 용어는 한글(영문) 병기.
+                5. analogy는 반드시 실생활 또는 일상 상황에서 가져올 것.
+                """;
+
         LlmRequestDto summaryRequest = LlmRequestDto.builder()
-                .systemPrompt("당신은 교육 콘텐츠 요약 전문가입니다. "
-                        + "주어진 키워드와 자막을 기반으로 학습 요약 자료를 생성하세요. "
-                        + "JSON 형식으로 응답하세요: "
-                        + "{\"title\": \"요약 제목\", \"summaryItems\": ["
-                        + "{\"label\": \"A\", \"title\": \"항목 제목\", \"desc\": \"상세 설명\"}, ...]}")
-                .userMessage("키워드: " + keywordList + "\n\n자막 텍스트:\n" + transcriptText)
+                .systemPrompt(systemPrompt)
+                .userMessage("핵심 키워드: " + keywordList + "\n\n자막 텍스트:\n" + transcriptText)
                 .build();
 
-        return llmService.callJson(summaryRequest, LlmSummaryResult.class);
+        LlmConceptSummaryResponse raw = llmService.callJson(summaryRequest, LlmConceptSummaryResponse.class);
+        return mapConceptSummaryToResult(raw, keywords);
+    }
+
+    private LlmSummaryResult mapConceptSummaryToResult(LlmConceptSummaryResponse raw, List<String> keywords) {
+        String title = raw != null && raw.getSummaryTitle() != null
+                ? raw.getSummaryTitle()
+                : "핵심 개념 요약 — " + String.join(", ", keywords);
+
+        List<SummaryItem> items = new ArrayList<>();
+        if (raw != null && raw.getKeyPoints() != null) {
+            int idx = 0;
+            for (LlmConceptSummaryResponse.KeyPoint kp : raw.getKeyPoints()) {
+                if (kp == null) continue;
+                String label = kp.getIconLetter() != null && !kp.getIconLetter().isBlank()
+                        ? kp.getIconLetter()
+                        : String.valueOf((char) ('A' + idx));
+                StringBuilder desc = new StringBuilder();
+                if (kp.getDefinition() != null) desc.append(kp.getDefinition()).append("\n\n");
+                if (kp.getDetail() != null) desc.append(kp.getDetail()).append("\n\n");
+                if (kp.getAnalogy() != null) desc.append("💡 비유: ").append(kp.getAnalogy()).append("\n\n");
+                if (kp.getExamTip() != null) desc.append("📝 시험 포인트: ").append(kp.getExamTip()).append("\n");
+                if (kp.getCheckpointQuestion() != null)
+                    desc.append("❓ 자가 점검: ").append(kp.getCheckpointQuestion()).append("\n");
+                if (kp.getMemoryHook() != null)
+                    desc.append("🔖 암기 장치: ").append(kp.getMemoryHook()).append("\n");
+                items.add(new SummaryItem(label, kp.getConcept() != null ? kp.getConcept() : "핵심 개념", desc.toString().trim()));
+                idx++;
+            }
+        }
+
+        if (raw != null && raw.getComparisonTable() != null
+                && raw.getComparisonTable().getHeaders() != null
+                && raw.getComparisonTable().getRows() != null
+                && !raw.getComparisonTable().getRows().isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.join(" | ", raw.getComparisonTable().getHeaders())).append("\n");
+            for (List<String> row : raw.getComparisonTable().getRows()) {
+                sb.append(String.join(" | ", row)).append("\n");
+            }
+            items.add(new SummaryItem(String.valueOf((char) ('A' + items.size())), "비교 정리표", sb.toString().trim()));
+        }
+
+        if (raw != null && raw.getQuickCheck() != null && !raw.getQuickCheck().isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            int i = 1;
+            for (String q : raw.getQuickCheck()) sb.append(i++).append(". ").append(q).append("\n");
+            items.add(new SummaryItem(String.valueOf((char) ('A' + items.size())), "자가 점검 질문", sb.toString().trim()));
+        }
+
+        return new LlmSummaryResult(title, items);
     }
 
     /**
@@ -268,24 +383,94 @@ public class EventProcessingService {
     private LlmQuizResult generateQuiz(List<String> keywords, String transcriptText, String topic) {
         String keywordList = keywords.isEmpty() ? topic : String.join(", ", keywords);
         String context = transcriptText.isBlank()
-                ? "주제: " + topic
-                : "키워드: " + keywordList + "\n\n자막 텍스트:\n" + transcriptText;
+                ? "커리큘럼 주제: " + topic + "\n키워드: " + keywordList
+                : "커리큘럼 주제: " + topic + "\n키워드: " + keywordList + "\n\n자막 텍스트:\n" + transcriptText;
+
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 돌발 퀴즈 출제 전문가 AI입니다.
+
+                학습자가 영상 구간을 스킵하거나 2배속으로 빠르게 넘긴 직후, 해당 구간의 핵심 개념을 놓치지 않았는지 즉시 확인하는 4지선다 문제를 만듭니다.
+
+                ■ 출력 형식: 순수 JSON (코드블록 없이)
+                {
+                  "quiz_type": "multiple_choice",
+                  "trigger_message": "트리거 메시지",
+                  "questions": [
+                    {
+                      "order": 1,
+                      "question_type": "multiple",
+                      "question": "4지선다 문항",
+                      "options": [
+                        {"label":"A","text":"보기1"},
+                        {"label":"B","text":"보기2"},
+                        {"label":"C","text":"보기3"},
+                        {"label":"D","text":"보기4"}
+                      ],
+                      "answer": "A/B/C/D",
+                      "explanation": "정답 해설과 오답 포인트",
+                      "related_concept": "관련 핵심 개념",
+                      "related_keyword": "관련 키워드",
+                      "follow_up_tip": "심화 학습 팁",
+                      "trap_reason": "학습자가 헷갈릴 수 있는 이유"
+                    }
+                  ],
+                  "mini_review": ["복습 포인트1"],
+                  "follow_up_missions": ["바로 해볼 행동1"],
+                  "related_keywords": ["키워드1"]
+                }
+
+                ■ 필수 규칙:
+                1. 모든 문항은 4지선다 객관식. 참/거짓형 금지.
+                2. options는 항상 4개, label은 A/B/C/D.
+                3. 문제는 스킵한 구간의 핵심 내용을 정확히 반영.
+                4. explanation은 왜 정답이고 왜 다른 보기가 오답인지 설명.
+                5. follow_up_tip은 구체적인 학습 행동 제안.
+                6. 전문 용어는 한글(영문) 병기.
+                """;
 
         LlmRequestDto quizRequest = LlmRequestDto.builder()
-                .systemPrompt("당신은 교육 퀴즈 출제 전문가입니다. "
-                        + "주어진 키워드와 자막을 기반으로 4지선다 객관식 문제 1개를 생성하세요. "
-                        + "JSON 형식으로 응답하세요: "
-                        + "{\"question\": \"문제 본문\", \"options\": ["
-                        + "{\"label\": \"A\", \"text\": \"선택지1\"}, "
-                        + "{\"label\": \"B\", \"text\": \"선택지2\"}, "
-                        + "{\"label\": \"C\", \"text\": \"선택지3\"}, "
-                        + "{\"label\": \"D\", \"text\": \"선택지4\"}], "
-                        + "\"answer\": \"정답 라벨(A/B/C/D)\", "
-                        + "\"relatedKeyword\": \"관련 키워드\"}")
+                .systemPrompt(systemPrompt)
                 .userMessage(context)
                 .build();
 
-        return llmService.callJson(quizRequest, LlmQuizResult.class);
+        LlmPopupQuizResponse raw = llmService.callJson(quizRequest, LlmPopupQuizResponse.class);
+        return mapPopupQuizToResult(raw, keywords, topic);
+    }
+
+    private LlmQuizResult mapPopupQuizToResult(LlmPopupQuizResponse raw, List<String> keywords, String topic) {
+        LlmPopupQuizResponse.Question first = raw != null && raw.getQuestions() != null && !raw.getQuestions().isEmpty()
+                ? raw.getQuestions().get(0)
+                : null;
+        if (first == null) {
+            throw new IllegalStateException("LLM이 돌발 퀴즈 문항을 반환하지 않았습니다");
+        }
+
+        List<com.moai.backend.domain.quiz.entity.QuizOption> options = new ArrayList<>();
+        if (first.getOptions() != null) {
+            int idx = 0;
+            for (LlmPopupQuizResponse.Option opt : first.getOptions()) {
+                if (opt == null) continue;
+                String label = (opt.getLabel() != null && !opt.getLabel().isBlank())
+                        ? opt.getLabel().trim().toUpperCase()
+                        : String.valueOf((char) ('A' + idx));
+                options.add(new com.moai.backend.domain.quiz.entity.QuizOption(label, opt.getText()));
+                idx++;
+            }
+        }
+        while (options.size() < 4) {
+            options.add(new com.moai.backend.domain.quiz.entity.QuizOption(
+                    String.valueOf((char) ('A' + options.size())), "보기 " + (options.size() + 1)));
+        }
+        if (options.size() > 4) {
+            options = options.subList(0, 4);
+        }
+
+        String answer = first.getAnswer() != null ? first.getAnswer().trim().toUpperCase() : "A";
+        String relatedKeyword = first.getRelatedKeyword() != null && !first.getRelatedKeyword().isBlank()
+                ? first.getRelatedKeyword()
+                : (keywords.isEmpty() ? topic : keywords.get(0));
+
+        return new LlmQuizResult(first.getQuestion(), options, answer, relatedKeyword);
     }
 
     /**
@@ -330,4 +515,129 @@ public class EventProcessingService {
     public record RewindProcessResult(List<String> extractedKeywords, String materialId) {}
 
     public record QuizProcessResult(String quizId, String questionId) {}
+
+    // ──────────────────────────────────────────────
+    // LLM 응답 DTO (내부 클래스)
+    // ──────────────────────────────────────────────
+
+    @Getter
+    @NoArgsConstructor
+    static class LlmConceptSummaryResponse {
+        @JsonProperty("summary_title")
+        private String summaryTitle;
+
+        @JsonProperty("trigger_reason")
+        private String triggerReason;
+
+        @JsonProperty("key_points")
+        private List<KeyPoint> keyPoints;
+
+        @JsonProperty("comparison_table")
+        private ComparisonTable comparisonTable;
+
+        @JsonProperty("quick_check")
+        private List<String> quickCheck;
+
+        @JsonProperty("common_mistakes")
+        private List<String> commonMistakes;
+
+        @JsonProperty("memory_hooks")
+        private List<String> memoryHooks;
+
+        @JsonProperty("next_actions")
+        private List<String> nextActions;
+
+        @JsonProperty("related_keywords")
+        private List<String> relatedKeywords;
+
+        @JsonProperty("difficulty_assessment")
+        private String difficultyAssessment;
+
+        @JsonProperty("study_time_estimate")
+        private String studyTimeEstimate;
+
+        @Getter
+        @NoArgsConstructor
+        static class KeyPoint {
+            private String concept;
+
+            @JsonProperty("icon_letter")
+            private String iconLetter;
+
+            private String color;
+            private String definition;
+            private String detail;
+            private String analogy;
+
+            @JsonProperty("exam_tip")
+            private String examTip;
+
+            @JsonProperty("checkpoint_question")
+            private String checkpointQuestion;
+
+            @JsonProperty("memory_hook")
+            private String memoryHook;
+        }
+
+        @Getter
+        @NoArgsConstructor
+        static class ComparisonTable {
+            private List<String> headers;
+            private List<List<String>> rows;
+        }
+    }
+
+    @Getter
+    @NoArgsConstructor
+    static class LlmPopupQuizResponse {
+        @JsonProperty("quiz_type")
+        private String quizType;
+
+        @JsonProperty("trigger_message")
+        private String triggerMessage;
+
+        private List<Question> questions;
+
+        @JsonProperty("mini_review")
+        private List<String> miniReview;
+
+        @JsonProperty("follow_up_missions")
+        private List<String> followUpMissions;
+
+        @JsonProperty("related_keywords")
+        private List<String> relatedKeywords;
+
+        @Getter
+        @NoArgsConstructor
+        static class Question {
+            private Integer order;
+
+            @JsonProperty("question_type")
+            private String questionType;
+
+            private String question;
+            private List<Option> options;
+            private String answer;
+            private String explanation;
+
+            @JsonProperty("related_concept")
+            private String relatedConcept;
+
+            @JsonProperty("related_keyword")
+            private String relatedKeyword;
+
+            @JsonProperty("follow_up_tip")
+            private String followUpTip;
+
+            @JsonProperty("trap_reason")
+            private String trapReason;
+        }
+
+        @Getter
+        @NoArgsConstructor
+        static class Option {
+            private String label;
+            private String text;
+        }
+    }
 }

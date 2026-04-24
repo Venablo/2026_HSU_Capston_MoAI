@@ -1,6 +1,7 @@
 package com.moai.backend.domain.eventlog.dto;
 
 import com.moai.backend.domain.quiz.entity.QuizOption;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -8,6 +9,7 @@ import java.util.List;
 
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
 public class LlmQuizResult {
 
     private String question;

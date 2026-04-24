@@ -37,7 +37,8 @@ llm:
   model: gemini-3.1-flash-lite-preview
 
 youtube:
-  api-key: ${YOUTUBE_API_KEY}
+  api-key: ${YOUTUBE_API_KEY:}
+  fallback-keys: ${YOUTUBE_FALLBACK_KEYS:}
 
 cloud:
   aws:

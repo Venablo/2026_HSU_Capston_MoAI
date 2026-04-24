@@ -1,5 +1,7 @@
 package com.moai.backend.global.exception;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -7,6 +9,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @RestControllerAdvice //  하나의 클래스로 모든 컨트롤러에 대해 전역적으로 예외 처리
 public class GlobalExceptionHandler {
 
@@ -38,5 +41,20 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(e.getStatus()).body(response);
+    }
+
+    // 예상치 못한 런타임 예외 — 스택트레이스 노출 방지 + 통일된 ErrorResponse 반환
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpectedException(Exception e) {
+        log.error("처리되지 않은 예외 발생", e);
+
+        ErrorResponse response = ErrorResponse.builder()
+                .success(false)
+                .code("COMMON_500")
+                .message("서버 내부 오류가 발생했습니다.")
+                .timestamp(LocalDateTime.now().toString())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
     }
 }

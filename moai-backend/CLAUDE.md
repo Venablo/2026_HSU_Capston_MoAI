@@ -1,11 +1,17 @@
-~~# CLAUDE.md
+# CLAUDE.md
 > **구현 범위: Backend (Spring Boot) + Infrastructure만 구현 대상입니다. Frontend 코드는 작성하지 않습니다.**
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application with Java 17, using MySQL, Redis, and JWT-based authentication.
+MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application on Java 17. Stack: MySQL + Redis + AWS S3, JWT auth, STOMP/WebSocket for chat, SSE for real-time notifications and flipped-learning events, WebFlux `WebClient` for LLM calls, Apache PDFBox for material generation, and a Python subprocess (`youtube-transcript-api`) for subtitle scraping.
+
+## Reference docs
+
+- `docs/api_spec.md` — REST/SSE/WebSocket endpoint contracts
+- `docs/architecture.md` — detailed flows and sequence diagrams
+- `docs/db_schema.md` — table definitions and relationships
 
 ## Build & Run Commands
 
@@ -39,17 +45,34 @@ docker-compose up -d
 
 ### Package layout: `com.moai.backend`
 
-- **`domain/{feature}/`** — feature-based modules, each with `controller/`, `service/`, `dto/`, `entity/`, `repository/` sub-packages
-  - Current domains: `auth` (login/logout/token reissue), `users` (signup, user entity)
+- **`domain/{feature}/`** — feature-based modules, each with `controller/`, `service/`, `dto/`, `entity/`, `repository/` sub-packages. Current domains:
+  - `auth` — login/logout/token reissue
+  - `users` — signup, user entity, mypage
+  - `onboarding` — initial user keyword/interest setup
+  - `learningroom` — learning room CRUD, file URLs via S3
+  - `curriculum` — LLM-driven weekly curriculum + YouTube video_id recommendation
+  - `transcript` — subtitle scraping (Python subprocess) + storage
+  - `material` — week-level study materials (PDF via PDFBox)
+  - `flipped` — 거꾸로 학습 (flipped-learning) flow, SSE-driven
+  - `quiz` — final quiz generation, async grading, AI analysis report
+  - `keyword` — strength/weakness keyword aggregation
+  - `eventlog` — YouTube-IFrame behavior events → Redis pattern detection
+  - `study` — matching engine + study proposals (uses Redis online state)
+  - `chat` — STOMP/WebSocket real-time chat + offline-notification bridge
+  - `notification` — SSE push + mypage history
 - **`global/`** — cross-cutting concerns:
-  - `auth/` — `JwtTokenProvider` (token creation/validation/parsing), `JwtAuthenticationFilter` (Spring Security filter)
-  - `config/` — `SecurityConfig` (stateless JWT security chain), `RedisConfig`
+  - `auth/` — `JwtTokenProvider` (token creation/validation/parsing, access/refresh `token_type` claim), `JwtAuthenticationFilter` (Spring Security filter)
+  - `config/` — `SecurityConfig` (stateless JWT), `RedisConfig`, WebSocket/STOMP config
   - `common/` — `ApiResponse<T>` (standard success wrapper), `BaseTimeEntity`
   - `exception/` — `CustomException(status, code, message)`, `GlobalExceptionHandler`
+  - `llm/` — shared `LlmService` (WebClient-based), `LlmConfig`, request/response DTOs. All LLM calls go through this module
+  - `s3/` — `S3Service` / `S3Config` (AWS SDK v2) for learning-room file URLs
+  - `subtitle/` — `SubtitleScraperService` invokes `scripts/subtitle_scraper.py` via `ProcessBuilder`
+  - `material/` — `MaterialGeneratorService` + `MaterialContent` (PDF output)
 
 ### Key patterns
 
-- **Stateless JWT auth**: Access token (30min) + Refresh token (14 days). Refresh tokens stored in Redis (`RT:{email}`). Logout blacklists access tokens in Redis with remaining TTL.
+- **Stateless JWT auth**: Access token (30min) + Refresh token (14 days) with a `token_type` claim to distinguish them (refresh-only endpoints reject access tokens and vice versa). Refresh tokens stored in Redis (`RT:{email}`). Logout blacklists access tokens in Redis with remaining TTL.
 - **API response format**: All success responses use `ApiResponse.success(status, message, data)`. Errors use `ErrorResponse` with `status`, `code`, `message`.
 - **Exception handling**: Throw `CustomException(httpStatus, errorCode, message)` — caught globally by `GlobalExceptionHandler`.
 - **Security permit paths**: Only /api/auth/register, /api/auth/login, and /api/auth/refresh are public; all other endpoints require a valid JWT.
@@ -57,13 +80,27 @@ docker-compose up -d
 - **DTOs**: Use Lombok `@Getter` and Jakarta Validation annotations (`@NotBlank`, `@Email`, etc.).
 - **Transactions**: Service classes default to `@Transactional(readOnly = true)` at class level; write operations override with `@Transactional`.
 - **Strict Layered Architecture**: 비즈니스 로직은 절대 Controller에 작성하지 않고 오직 Service 계층에만 구현합니다. Controller는 프론트엔드와의 데이터 교환(DTO 변환 및 응답)만 담당합니다.
+- **Real-time channels**:
+  - SSE emitters: flipped-learning event stream + notification push (requires JWT via query param or header — see `SecurityConfig`)
+  - STOMP/WebSocket: chat. Offline recipients fall back to notification-table + SSE
+- **LLM calls**: always via `global/llm/LlmService` (reactive `WebClient`). Domains never instantiate their own HTTP client for LLM.
 
 ### Infrastructure
 
-- MySQL 8.0 on port 3306 (database: `moai_db`)
-- Redis on port 6379 (token storage and blacklist)
+- MySQL 8.0 on port 3306 (database: `moai_db`) — production/local runtime
+- Redis on port 6379 (token storage, blacklist, event counters, online-presence)
+- Tests use H2 in-memory (`testRuntimeOnly 'com.h2database:h2'`) — running `./gradlew test` does NOT require a live MySQL/Redis.
 - JPA `ddl-auto: update` — schema managed by Hibernate
-- The deployment environment (and local) must have Python 3 and 'youtube-transcript-api' installed.
+- Config file is `src/main/resources/application.yaml` (not `application.yml`). `subtitle.script-path` points at the Python scraper.
+- The deployment environment (and local) must have Python 3 and `youtube-transcript-api` installed.
+
+### Key dependencies (non-obvious)
+
+- `io.jsonwebtoken:jjwt 0.12.3` — JWT signing/parsing
+- `software.amazon.awssdk:s3` (AWS SDK v2, BOM 2.42.26) — S3 file URLs
+- `org.apache.pdfbox:pdfbox 3.0.4` — PDF material generation
+- `spring-boot-starter-websocket` — STOMP chat
+- `spring-boot-starter-webflux` — `WebClient` for LLM calls (no reactive endpoints; MVC stack remains the default)
 
 ### System Architecture
 ```mermaid
@@ -144,4 +181,18 @@ graph TB
     YouTube Data API 미사용.
     자막 스크래핑 실패 시 해당 주차 resources는 빈 배열로 저장하고 계속 진행.
 - **퀴즈 응시 이력 조회**: api_spec의 GET /api/learning-rooms/{roomId}/quiz-attempts는 GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts로 변경.
+
+## RTK Mode (Windows)
+
+You are running in RTK compatibility mode on Windows.
+
+- Always prefix executable commands with `rtk`.
+- Never output raw commands without `rtk`.
+- Do not rely on hook-based injection.
+- When suggesting terminal commands, convert:
+
+git status -> rtk git status
+npm test -> rtk npm test
+gradle build -> rtk gradle build
+docker compose up -> rtk docker compose up
 

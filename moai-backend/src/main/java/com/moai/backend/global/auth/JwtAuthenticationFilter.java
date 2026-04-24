@@ -57,6 +57,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요�
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) { // 문자열 검사 및 'Bearer ' 시작
             return bearerToken.substring(7); // 순수 토큰 추출
         }
+        // SSE(EventSource) 처럼 헤더 설정이 불가한 경우 query param 폴백
+        String queryToken = request.getParameter("access_token");
+        if (StringUtils.hasText(queryToken)) {
+            return queryToken;
+        }
         return null;
     }
 }

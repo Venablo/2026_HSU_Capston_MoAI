@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
+import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService.WeekEnrichmentContext;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateRequestDto;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateResponseDto;
 import com.moai.backend.domain.learningroom.dto.LearningRoomListResponseDto;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Slf4j
@@ -64,36 +66,53 @@ public class LearningRoomService {
                 .build();
         learningRoomRepository.save(room);
 
-        // 2. LLM 커리큘럼 생성
-        LlmCurriculumResponse llmResponse = generateCurriculum(
+        // 2. P1 프롬프트 — 주차별 학습 주제 + 핵심 키워드 생성 (동기 1회 호출)
+        P1CurriculumResponse p1Response = generateCurriculum(
                 requestDto.getSubject(),
                 requestDto.getLevel(),
                 requestDto.getDurationWeeks(),
                 requestDto.getHoursPerDay().doubleValue()
         );
 
-        // 3. WeeklyCurriculum INSERT x N주
+        // 3. WeeklyCurriculum INSERT × N주 + 병렬 enrichment 컨텍스트 수집
         List<WeeklyCurriculum> savedCurriculums = new ArrayList<>();
-        List<LearningRoomCreateResponseDto.CurriculumSummary> summaries =
-                llmResponse.getWeeks().stream()
-                        .map(week -> {
-                            WeeklyCurriculum curriculum = WeeklyCurriculum.builder()
-                                    .room(room)
-                                    .weekNumber((short) week.getWeekNumber())
-                                    .topic(week.getTopic())
-                                    .description(week.getDescription())
-                                    .build();
-                            weeklyCurriculumRepository.save(curriculum);
-                            savedCurriculums.add(curriculum);
+        List<WeekEnrichmentContext> enrichmentContexts = new ArrayList<>();
+        List<LearningRoomCreateResponseDto.CurriculumSummary> summaries = new ArrayList<>();
 
-                            return new LearningRoomCreateResponseDto.CurriculumSummary(
-                                    week.getWeekNumber(), week.getTopic()
-                            );
-                        })
-                        .toList();
+        for (P1CurriculumResponse.WeekItem week : p1Response.getWeeklyTopics()) {
+            WeeklyCurriculum curriculum = WeeklyCurriculum.builder()
+                    .room(room)
+                    .weekNumber((short) week.getWeekNumber())
+                    .topic(week.getTopic())
+                    .description(week.getWeeklySummary())
+                    .keywords(nullSafe(week.getKeyConcepts()))
+                    .build();
+            weeklyCurriculumRepository.save(curriculum);
+            savedCurriculums.add(curriculum);
 
-        // 4. 비동기 enrichment 트리거: 주차별로 영상 추천 → 자막 스크래핑 → 키워드 추출 병렬 실행
-        curriculumEnrichmentService.enrichAllWeeks(savedCurriculums);
+            enrichmentContexts.add(new WeekEnrichmentContext(
+                    curriculum.getId(),
+                    week.getTopic(),
+                    week.getWeeklySummary(),
+                    nullSafe(week.getLearningObjectives()),
+                    nullSafe(week.getKeyConcepts()),
+                    nullSafe(week.getFocusQuestions()),
+                    nullSafe(week.getPracticeKeywords()),
+                    week.getYoutubeSearchQuery(),
+                    requestDto.getSubject(),
+                    requestDto.getLevel()
+            ));
+
+            summaries.add(new LearningRoomCreateResponseDto.CurriculumSummary(
+                    week.getWeekNumber(), week.getTopic()
+            ));
+        }
+
+        // 4. 주차별 P2 enrichment를 비동기 병렬 실행 — 각 주차 데이터는 완료되는 즉시 DB에 반영된다
+        // 외부 빈 호출로 프록시를 경유해야 @Async가 작동한다 (자기호출 금지)
+        for (WeekEnrichmentContext ctx : enrichmentContexts) {
+            curriculumEnrichmentService.enrichWeek(ctx);
+        }
 
         return LearningRoomCreateResponseDto.builder()
                 .roomId(room.getId())
@@ -104,12 +123,42 @@ public class LearningRoomService {
                 .build();
     }
 
-    private LlmCurriculumResponse generateCurriculum(String subject, String level,
-                                                       short durationWeeks, double hoursPerDay) {
-        String systemPrompt = "당신은 학습 커리큘럼 설계 전문가입니다. "
-                + "주어진 학습 주제, 수준, 기간에 맞는 주차별 커리큘럼을 JSON으로 생성해주세요. "
-                + "반드시 아래 JSON 형식만 출력하세요:\n"
-                + "{\"weeks\":[{\"week_number\":1,\"topic\":\"주제\",\"description\":\"설명\"}]}";
+    private P1CurriculumResponse generateCurriculum(String subject, String level,
+                                                     short durationWeeks, double hoursPerDay) {
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 커리큘럼 설계 전문가 AI입니다.
+
+                학습 정보를 받아 주차별 학습 주제 목록을 생성하세요.
+
+                ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
+                {
+                  "weekly_topics": [
+                    {
+                      "week_number": 1,
+                      "topic": "구체적 학습 주제명 — 세부범위",
+                      "weekly_summary": "이번 주차에서 배우게 될 범위, 앞주차와의 연결, 왜 중요한지를 2~3문장으로 설명한 요약",
+                      "learning_objectives": ["목표1", "목표2", "목표3", "목표4"],
+                      "key_concepts": ["핵심 키워드1", "키워드2", "키워드3", "키워드4", "키워드5"],
+                      "focus_questions": ["스스로 답해야 할 핵심 질문1", "질문2"],
+                      "practice_keywords": ["반복 복습 키워드1", "키워드2", "키워드3", "키워드4"],
+                      "youtube_search_query": "이 주차 내용을 가장 잘 설명하는 한국어 YouTube 검색어"
+                    }
+                  ],
+                  "recommended_channel_query": "이 과목 전체를 다루는 대표 YouTube 채널 검색어"
+                }
+
+                ■ 필수 규칙:
+                1. 요청된 주차 수 전부 빠짐없이 생성
+                2. topic은 반드시 대주제 — 세부범위 형태로 구체적 작성
+                3. 주차 간 선수학습→심화 논리적 연결 (1주차 기초 → 마지막 주차 종합)
+                4. weekly_summary는 2~3문장으로 "왜 중요한지 / 앞뒤 주차와 어떻게 연결되는지 / 실전에서 어디에 쓰이는지" 포함
+                5. key_concepts는 최소 5개 이상 (시험 출제 키워드 중심)
+                6. learning_objectives는 최소 4개 이상, 행동동사 사용 (설명할 수 있다, 비교할 수 있다, 구현할 수 있다)
+                7. focus_questions는 최소 2개 이상
+                8. practice_keywords는 최소 4개 이상
+                9. 난이도 반영: beginner=기초개념/용어정리, intermediate=실무적용/문제풀이, advanced=심화분석/최적화
+                10. youtube_search_query는 실제 YouTube에서 검색 가능한 구체적 한국어 키워드 조합
+                """;
 
         String userMessage = String.format(
                 "학습 주제: %s\n학습 수준: %s\n총 기간: %d주\n하루 학습 시간: %.1f시간",
@@ -121,13 +170,21 @@ public class LearningRoomService {
                 .userMessage(userMessage)
                 .build();
 
-        return llmService.callJson(request, LlmCurriculumResponse.class);
+        return llmService.callJson(request, P1CurriculumResponse.class);
+    }
+
+    private <T> List<T> nullSafe(List<T> list) {
+        return list != null ? list : Collections.emptyList();
     }
 
     @Getter
     @NoArgsConstructor
-    static class LlmCurriculumResponse {
-        private List<WeekItem> weeks;
+    static class P1CurriculumResponse {
+        @JsonProperty("weekly_topics")
+        private List<WeekItem> weeklyTopics;
+
+        @JsonProperty("recommended_channel_query")
+        private String recommendedChannelQuery;
 
         @Getter
         @NoArgsConstructor
@@ -135,7 +192,24 @@ public class LearningRoomService {
             @JsonProperty("week_number")
             private int weekNumber;
             private String topic;
-            private String description;
+
+            @JsonProperty("weekly_summary")
+            private String weeklySummary;
+
+            @JsonProperty("learning_objectives")
+            private List<String> learningObjectives;
+
+            @JsonProperty("key_concepts")
+            private List<String> keyConcepts;
+
+            @JsonProperty("focus_questions")
+            private List<String> focusQuestions;
+
+            @JsonProperty("practice_keywords")
+            private List<String> practiceKeywords;
+
+            @JsonProperty("youtube_search_query")
+            private String youtubeSearchQuery;
         }
     }
 }

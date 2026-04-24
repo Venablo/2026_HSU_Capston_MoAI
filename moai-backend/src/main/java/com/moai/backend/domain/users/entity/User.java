@@ -1,5 +1,6 @@
 package com.moai.backend.domain.users.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.moai.backend.global.common.BaseTimeEntity;
 import com.moai.backend.global.common.StringListConverter;
 import jakarta.persistence.*;
@@ -29,6 +30,7 @@ public class User extends BaseTimeEntity {
     @Column(name = "login_id", nullable = false, unique = true, length = 50)
     private String loginId;
 
+    @JsonIgnore
     @Column(name = "password_hash", nullable = false, columnDefinition = "TEXT")
     private String passwordHash;
 

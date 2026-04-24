@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
 @Slf4j
@@ -30,22 +31,24 @@ public class NotificationService {
 
     private static final long SSE_TIMEOUT = 30 * 60 * 1000L; // 30분
 
-    private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final Map<String, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
     public SseEmitter subscribe(String userId) {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
-        emitters.put(userId, emitter);
+        CopyOnWriteArrayList<SseEmitter> userEmitters =
+                emitters.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>());
+        userEmitters.add(emitter);
 
-        emitter.onCompletion(() -> emitters.remove(userId));
-        emitter.onTimeout(() -> emitters.remove(userId));
-        emitter.onError(e -> emitters.remove(userId));
+        emitter.onCompletion(() -> removeEmitter(userId, emitter));
+        emitter.onTimeout(() -> removeEmitter(userId, emitter));
+        emitter.onError(e -> removeEmitter(userId, emitter));
 
         try {
             emitter.send(SseEmitter.event()
                     .name("connect")
                     .data("connected"));
         } catch (IOException e) {
-            emitters.remove(userId);
+            removeEmitter(userId, emitter);
             log.warn("SSE 초기 연결 이벤트 전송 실패 - userId: {}", userId, e);
         }
 
@@ -53,18 +56,29 @@ public class NotificationService {
     }
 
     public void pushSse(String userId, Object event) {
-        SseEmitter emitter = emitters.get(userId);
-        if (emitter == null) {
+        CopyOnWriteArrayList<SseEmitter> userEmitters = emitters.get(userId);
+        if (userEmitters == null || userEmitters.isEmpty()) {
             return;
         }
 
-        try {
-            emitter.send(SseEmitter.event()
-                    .name("notification")
-                    .data(event));
-        } catch (IOException e) {
-            emitters.remove(userId);
-            log.warn("SSE 이벤트 전송 실패 - userId: {}", userId, e);
+        for (SseEmitter emitter : userEmitters) {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("notification")
+                        .data(event));
+            } catch (IOException e) {
+                removeEmitter(userId, emitter);
+                log.warn("SSE 이벤트 전송 실패 - userId: {}", userId, e);
+            }
+        }
+    }
+
+    private void removeEmitter(String userId, SseEmitter emitter) {
+        CopyOnWriteArrayList<SseEmitter> userEmitters = emitters.get(userId);
+        if (userEmitters == null) return;
+        userEmitters.remove(emitter);
+        if (userEmitters.isEmpty()) {
+            emitters.remove(userId, userEmitters);
         }
     }
 
