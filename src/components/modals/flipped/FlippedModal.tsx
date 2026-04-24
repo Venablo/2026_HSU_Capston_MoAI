@@ -4,9 +4,10 @@ import Modal from '../common/Modal'
 
 interface Props {
     onClose: () => void
+    conceptName?: string
 }
 
-export default function FlippedModal({ onClose }: Props) {
+export default function FlippedModal({ onClose, conceptName = '이번 주제' }: Props) {
     const [text, setText]           = useState('')
     const [recording, setRecording] = useState(false)
 
@@ -18,7 +19,7 @@ export default function FlippedModal({ onClose }: Props) {
                 <Brain size={16} strokeWidth={2} />
                 AI 대상 거꾸로 학습
             </div>
-            <h3 className="modal-flipped__title">AI에게 '트랜잭션'을 설명해보세요</h3>
+            <h3 className="modal-flipped__title">AI에게 '{conceptName}'를 설명해보세요</h3>
             <p className="modal-flipped__desc">
                 AI가 학생 역할을 합니다. 자유롭게 설명해 주시면 이해도를 분석해 드릴게요.
             </p>

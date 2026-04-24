@@ -1,4 +1,5 @@
 import type { SummaryItem } from '../components/modals/monitoring/SummaryDetailModal'
+import type { InstantQuizResponse } from './api'
 
 // ─── Meta-cognition evaluation ────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export type ModalData =
         completionRate: number
         challengeLevel: 'intermediate' | 'advanced'
       }
-    | { type: 'quiz-pass' }
+    | { type: 'quiz-pass'; quiz: InstantQuizResponse }
     | { type: 'flipped' }
     | {
         type: 'reverse-learning'

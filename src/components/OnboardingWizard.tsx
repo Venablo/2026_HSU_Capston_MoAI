@@ -10,6 +10,11 @@
  *   → 성공 시 navigate('/study/{roomId}/classroom')
  *   → 실패 시 에러 메시지 표시 후 재시도 가능
  *
+ * Step 1 목표 키워드:
+ *   → GET /api/onboarding/keywords (getOnboardingKeywords)
+ *   → 로딩 중: 스피너 표시
+ *   → 빈 배열: 직접 입력 안내
+ *
  * level 매핑 (UI 인덱스 → API 필드):
  *   0 → 'beginner'
  *   1 → 'beginner'
@@ -31,11 +36,10 @@ import {
     Lightbulb, Lock, ArrowLeft, ArrowRight, Loader2, AlertCircle,
 } from 'lucide-react'
 import '../styles/OnboardingWizard.css'
-import { createLearningRoom } from '../services/apiService'
+import { createLearningRoom, getOnboardingKeywords } from '../services/apiService'
 import type { CreateLearningRoomRequest } from '../types/api'
 
 // ── 상수 ──────────────────────────────────────────────────────────────────────
-const GOALS       = ['#컴공', '#정보처리기사', '#웹개발', '#CS면접', '#토익']
 const LEVELS      = ['입문 (개념부터 차근차근)', '초급 (기본기는 있어요)', '중급 (심화 내용 중심으로)', '고급 (실전 위주로)']
 const DURATIONS   = ['4주', '8주', '10주', '12주', '16주']
 const INTENSITIES = ['하루 1시간', '하루 2시간', '하루 3시간', '하루 4시간+']
@@ -74,11 +78,15 @@ export default function OnboardingWizard({ onClose }: Props) {
     const [step,        setStep]        = useState(1)
 
     // 사용자 선택 값
-    const [goal,        setGoal]        = useState('#정보처리기사')
+    const [goal,        setGoal]        = useState('')
     const [customGoal,  setCustomGoal]  = useState('')
     const [level,       setLevel]       = useState(1)
     const [duration,    setDuration]    = useState('10주')
     const [intensity,   setIntensity]   = useState('하루 3시간')
+
+    // Step 1 키워드 API 로딩
+    const [goals,        setGoals]        = useState<string[]>([])
+    const [goalsLoading, setGoalsLoading] = useState(true)
 
     // API 호출 상태
     const [creating,    setCreating]    = useState(false)
@@ -91,6 +99,17 @@ export default function OnboardingWizard({ onClose }: Props) {
 
     // 진행률 표시 (step/4 * 100)
     const progress = (step / 4) * 100
+
+    // ── 온보딩 키워드 로드 ───────────────────────────────────────────────────
+    useEffect(() => {
+        getOnboardingKeywords()
+            .then(data => {
+                setGoals(data.keywords)
+                if (data.keywords.length > 0) setGoal(data.keywords[0])
+            })
+            .catch(() => setGoals([]))
+            .finally(() => setGoalsLoading(false))
+    }, [])
 
     // ── 로딩 메시지 순환 시작/정지 ──────────────────────────────────────────
     const startLoadingMessages = () => {
@@ -138,17 +157,9 @@ export default function OnboardingWizard({ onClose }: Props) {
             // 생성된 학습실 교실 화면으로 이동
             navigate(`/study/${roomId}/classroom`)
         } catch {
-            // API 실패 (네트워크 오류 또는 백엔드 미연결) → Mock 모드로 폴백
             stopLoadingMessages()
-
-            // 개발 환경에서는 Mock roomId로 진행
-            if (import.meta.env.DEV) {
-                onClose()
-                navigate('/study/mock-room-001/classroom')
-            } else {
-                setCreating(false)
-                setError('학습실 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
-            }
+            setCreating(false)
+            setError('학습실 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
         }
     }
 
@@ -235,22 +246,35 @@ export default function OnboardingWizard({ onClose }: Props) {
                         <div className="animate-fade-in">
                             <h2 className="wizard__title">어떤 분야의 성장을<br />목표로 하시나요?</h2>
                             <p className="wizard__subtitle">AI가 목표에 맞는 최적의 커리큘럼을 설계합니다</p>
-                            <div className="wizard__chips">
-                                {GOALS.map(g => (
-                                    <button
-                                        key={g}
-                                        className={`wizard__chip ${goal === g ? 'wizard__chip--active' : ''}`}
-                                        onClick={() => { setGoal(g); setCustomGoal('') }}
-                                    >
-                                        {g}
-                                        {goal === g && (
-                                            <span className="wizard__chip-check">
-                                                <Check size={11} strokeWidth={2.5} />
-                                            </span>
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
+
+                            {goalsLoading ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '16px 0', color: 'var(--color-text-secondary)' }}>
+                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+                                    <span style={{ fontSize: '13px' }}>키워드 불러오는 중...</span>
+                                </div>
+                            ) : goals.length === 0 ? (
+                                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', padding: '8px 0' }}>
+                                    직접 입력하여 목표를 설정해 주세요.
+                                </p>
+                            ) : (
+                                <div className="wizard__chips">
+                                    {goals.map(g => (
+                                        <button
+                                            key={g}
+                                            className={`wizard__chip ${goal === g ? 'wizard__chip--active' : ''}`}
+                                            onClick={() => { setGoal(g); setCustomGoal('') }}
+                                        >
+                                            {g}
+                                            {goal === g && (
+                                                <span className="wizard__chip-check">
+                                                    <Check size={11} strokeWidth={2.5} />
+                                                </span>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             <div className="wizard__custom-label">또는 직접 입력하기</div>
                             <input
                                 className="wizard__input"
@@ -328,7 +352,7 @@ export default function OnboardingWizard({ onClose }: Props) {
                                 <Sparkles size={40} strokeWidth={1.5} />
                             </div>
                             <p className="wizard__plan-title">
-                                {(customGoal || goal.replace('#', ''))}({LEVEL_CHARS[level]}급) 과정을
+                                {(customGoal || goal.replace('#', '') || '설정된 목표')}({LEVEL_CHARS[level]}급) 과정을
                             </p>
                             <p className="wizard__plan-desc">
                                 <span className="wizard__plan-highlight">{duration}</span> 동안 매일{' '}

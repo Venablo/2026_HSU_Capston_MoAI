@@ -33,10 +33,8 @@ import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
-import DebugEventController from '../../../components/modals/common/DebugEventController'
-import DebugToast from '../../../components/modals/common/DebugToast'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
-import { useDebugToast } from '../../../hooks/useDebugToast'
+import { useAuth } from '../../../context/AuthContext'
 import {
     sendEventLog,
     getMaterialDetail,
@@ -115,7 +113,8 @@ function StudyClassroomContent() {
     const [quizLoading,   setQuizLoading]   = useState(false)
 
     const { open, metacogComplete, partnerConnected, setCurrentWeekId } = useClassroomModal()
-    const { toasts, addToast, resolveToast } = useDebugToast()
+    const { nickname } = useAuth()
+    const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
 
     // ── 주차 데이터 로드 ─────────────────────────────────────────────────────
     useEffect(() => {
@@ -168,7 +167,6 @@ function StudyClassroomContent() {
     ) => {
         if (!weekData) return
 
-        const toastId = addToast(eventType)
         try {
             const result = await sendEventLog(roomId, {
                 event_type:    eventType,
@@ -176,7 +174,6 @@ function StudyClassroomContent() {
                 payload,
             })
 
-            resolveToast(toastId, result.aiTriggered)
             if (!result.aiTriggered) return
 
             if (
@@ -198,13 +195,13 @@ function StudyClassroomContent() {
                     })
                 }
             } else if (result.eventType === 'video_skip') {
-                await getInstantQuiz(roomId, weekData.weekId)
-                open('quiz-pass')
+                const quiz = await getInstantQuiz(roomId, weekData.weekId)
+                open('quiz-pass', { type: 'quiz-pass', quiz })
             }
         } catch {
-            resolveToast(toastId, false)
+            // pattern detection errors are silent
         }
-    }, [roomId, weekData, open, addToast, resolveToast])
+    }, [roomId, weekData, open])
 
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
     // weekData가 로드되기 전에는 빈 videoId('')로 초기화.
@@ -230,7 +227,7 @@ function StudyClassroomContent() {
                         />
                     </div>
                     <button className="topbar__icon-btn"><Bell size={18} strokeWidth={1.5} /></button>
-                    <div className="topbar__avatar">K</div>
+                    <div className="topbar__avatar">{avatarChar}</div>
                 </div>
             </header>
 
@@ -534,10 +531,8 @@ function StudyClassroomContent() {
                 </aside>
             </div>
 
-            {/* ── 모달 + 디버그 패널 ── */}
-            <DebugEventController />
+            {/* ── 모달 ── */}
             <ClassroomModals />
-            <DebugToast toasts={toasts} />
         </>
     )
 }

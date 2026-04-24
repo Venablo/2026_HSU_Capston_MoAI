@@ -38,7 +38,7 @@ import ReverseLearningModal from '../flipped/ReverseLearningModal'
 import MetaEvaluationModal from '../flipped/MetaEvaluationModal'
 import StudyMatchingModal from '../flipped/StudyMatchingModal'
 import FinalQuizModal from '../quiz/FinalQuizModal'
-import type { MetaEvaluationResponse, MetaEvaluationResponse as MetaEval } from '../../../types/aiEvents'
+import type { MetaEvaluationResponse } from '../../../types/aiEvents'
 import type { EndFlippedResponse } from '../../../types/api'
 
 export default function ClassroomModals() {
@@ -77,7 +77,7 @@ export default function ClassroomModals() {
      *   EndFlippedResponse.weakKeywords    → MetaEvaluationResponse.weakKeywords
      */
     const handleSessionEnd = (result: EndFlippedResponse) => {
-        const evaluation: MetaEval = {
+        const evaluation: MetaEvaluationResponse = {
             comprehensionScore: result.score,
             strongKeywords:     result.gainedKeywords,
             weakKeywords:       result.weakKeywords,
@@ -85,17 +85,8 @@ export default function ClassroomModals() {
         open('meta-evaluation', { type: 'meta-evaluation', evaluation })
     }
 
-    // ── reverse-learning(mock 방식) → meta-evaluation 전환 ──────────────────
-    // 폴백: 이전 방식(explanation string)으로 호출됐을 때 mock 평가 실행
-    const handleEvaluationFallback = async (_explanation: string) => {
-        // mock 평가 결과 (실제 구현 시 endFlippedSession 응답 사용)
-        const mockEval: MetaEvaluationResponse = {
-            comprehensionScore: 88,
-            strongKeywords:     ['원자성', 'COMMIT', 'ROLLBACK'],
-            weakKeywords:       ['격리성', '데드락'],
-        }
-        open('meta-evaluation', { type: 'meta-evaluation', evaluation: mockEval })
-    }
+    // Fallback: onSessionEnd was not provided (should not happen in normal flow).
+    const handleEvaluationFallback = (_explanation: string) => { close() }
 
     // ── meta-evaluation → study-matching 전환 ───────────────────────────────
     const handleMatching = async (evaluation: MetaEvaluationResponse) => {
@@ -152,8 +143,9 @@ export default function ClassroomModals() {
             )}
 
             {/* ── 패턴3(스킵) 돌발 퀴즈 / fast-track 연계 4지선다 퀴즈 ── */}
-            {modal === 'quiz-pass' && (
+            {modal === 'quiz-pass' && modalData?.type === 'quiz-pass' && (
                 <QuizPassModal
+                    quiz={modalData.quiz}
                     onClose={close}
                     onResult={(correct, conceptName, correctConcept, explanation) => {
                         if (correct) {
