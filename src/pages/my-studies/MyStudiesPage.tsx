@@ -1,64 +1,39 @@
-import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useState } from 'react'
-import { Database, Globe, Monitor, Plus } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { BookOpen, Plus, Loader2 } from 'lucide-react'
 import '../../styles/MyStudiesPage.css'
+import { getLearningRooms } from '../../services/apiService'
+import type { LearningRoomListItem } from '../../types/api'
 
 type FilterKey = '전체' | '진행 중' | '완료'
 
-interface Study {
-    id:       number
-    icon:     ReactNode
-    title:    string
-    week:     string
-    topic:    string
-    progress: number
-    status:   string
-    tags:     string[]
-    color:    string
+function statusLabel(status: LearningRoomListItem['status']): string {
+    if (status === 'active')    return '진행 중'
+    if (status === 'completed') return '완료'
+    if (status === 'paused')    return '일시정지'
+    return status
 }
-
-const STUDIES: Study[] = [
-    {
-        id:       1,
-        icon:     <Database size={22} strokeWidth={1.5} />,
-        title:    '정보처리기사 완성반',
-        week:     'Week 1 / 10주',
-        topic:    'DB Foundation',
-        progress: 30,
-        status:   '진행 중',
-        tags:     ['#정보처리기사', '#초급'],
-        color:    '#7c3aed',
-    },
-    {
-        id:       2,
-        icon:     <Globe size={22} strokeWidth={1.5} />,
-        title:    '웹개발 기초 부트캠프',
-        week:     'Week 3 / 8주',
-        topic:    'CSS & Flexbox',
-        progress: 45,
-        status:   '진행 중',
-        tags:     ['#웹개발', '#CSS'],
-        color:    '#0ea5e9',
-    },
-    {
-        id:       3,
-        icon:     <Monitor size={22} strokeWidth={1.5} />,
-        title:    'CS 면접 완성',
-        week:     '완료',
-        topic:    '운영체제, 네트워크',
-        progress: 100,
-        status:   '완료',
-        tags:     ['#CS면접', '#완료'],
-        color:    '#10b981',
-    },
-]
 
 export default function MyStudiesPage() {
     const navigate = useNavigate()
-    const [filter, setFilter] = useState<FilterKey>('전체')
+    const [filter,  setFilter]  = useState<FilterKey>('전체')
+    const [rooms,   setRooms]   = useState<LearningRoomListItem[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error,   setError]   = useState<string | null>(null)
 
-    const filtered = filter === '전체' ? STUDIES : STUDIES.filter(s => s.status === filter)
+    useEffect(() => {
+        getLearningRooms()
+            .then(setRooms)
+            .catch(e => setError(e instanceof Error ? e.message : '학습실 목록을 불러오지 못했습니다.'))
+            .finally(() => setLoading(false))
+    }, [])
+
+    const filtered = rooms.filter(r => {
+        if (filter === '전체')   return true
+        if (filter === '진행 중') return r.status === 'active' || r.status === 'paused'
+        if (filter === '완료')   return r.status === 'completed'
+        return true
+    })
 
     return (
         <>
@@ -88,71 +63,100 @@ export default function MyStudiesPage() {
                     ))}
                 </div>
 
-                {/* Grid */}
-                <div className="study-grid">
-                    {filtered.map((study, i) => (
-                        <div
-                            key={study.id}
-                            className={`study-card animate-fade-in delay-${i * 100}`}
-                            onClick={() => navigate(`/study/${study.id}/classroom`)}
-                        >
-                            <div className="study-card__header">
-                                <div className="study-card__info-row">
-                                    <div className="study-card__emoji-wrap" style={{ color: study.color }}>
-                                        {study.icon}
-                                    </div>
-                                    <div>
-                                        <div className="study-card__title">{study.title}</div>
-                                        <div className="study-card__week">{study.week}</div>
-                                    </div>
-                                </div>
-                                <span
-                                    className={`study-card__status-badge ${
-                                        study.status === '완료'
-                                            ? 'study-card__status-badge--done'
-                                            : 'study-card__status-badge--active'
-                                    }`}
-                                >
-                                    {study.status}
-                                </span>
-                            </div>
-
-                            <div className="study-card__topic">현재: {study.topic}</div>
-
-                            <div>
-                                <div className="study-card__progress-header">
-                                    <span className="study-card__progress-label">진행률</span>
-                                    <span className="study-card__progress-pct" style={{ color: study.color }}>
-                                        {study.progress}%
-                                    </span>
-                                </div>
-                                <div className="study-card__bar-track">
-                                    <div
-                                        className="study-card__bar-fill"
-                                        style={{ width: `${study.progress}%`, background: study.color }}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="study-card__tags">
-                                {study.tags.map(tag => (
-                                    <span key={tag} className="study-card__tag">{tag}</span>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-
-                    {/* Add card */}
-                    <div
-                        className="study-card--add"
-                        onClick={() => navigate('/main')}
-                    >
-                        <div className="study-card--add__icon">
-                            <Plus size={24} strokeWidth={1.5} />
-                        </div>
-                        <div className="study-card--add__label">새 학습실 만들기</div>
+                {/* Loading */}
+                {loading && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '48px 0', color: 'var(--color-text-secondary)' }}>
+                        <Loader2 size={20} strokeWidth={1.5} className="animate-spin" />
+                        <span>학습실 목록을 불러오는 중...</span>
                     </div>
-                </div>
+                )}
+
+                {/* Error */}
+                {!loading && error && (
+                    <div style={{ padding: '48px 0', color: '#ef4444' }}>⚠ {error}</div>
+                )}
+
+                {/* Grid */}
+                {!loading && !error && (
+                    <div className="study-grid">
+                        {filtered.map((room, i) => {
+                            const label  = statusLabel(room.status)
+                            const isDone = room.status === 'completed'
+                            const weekStr = isDone
+                                ? '완료'
+                                : `Week ${room.currentWeek} / ${room.durationWeeks}주`
+
+                            return (
+                                <div
+                                    key={room.roomId}
+                                    className={`study-card animate-fade-in delay-${i * 100}`}
+                                    onClick={() => navigate(`/study/${room.roomId}/classroom`)}
+                                >
+                                    <div className="study-card__header">
+                                        <div className="study-card__info-row">
+                                            <div className="study-card__emoji-wrap" style={{ color: 'var(--color-purple-500)' }}>
+                                                <BookOpen size={22} strokeWidth={1.5} />
+                                            </div>
+                                            <div>
+                                                <div className="study-card__title">{room.subject}</div>
+                                                <div className="study-card__week">{weekStr}</div>
+                                            </div>
+                                        </div>
+                                        <span
+                                            className={`study-card__status-badge ${
+                                                isDone
+                                                    ? 'study-card__status-badge--done'
+                                                    : 'study-card__status-badge--active'
+                                            }`}
+                                        >
+                                            {label}
+                                        </span>
+                                    </div>
+
+                                    <div className="study-card__topic">레벨: {room.level}</div>
+
+                                    <div>
+                                        <div className="study-card__progress-header">
+                                            <span className="study-card__progress-label">진행률</span>
+                                            <span className="study-card__progress-pct" style={{ color: 'var(--color-purple-500)' }}>
+                                                {room.completionRate}%
+                                            </span>
+                                        </div>
+                                        <div className="study-card__bar-track">
+                                            <div
+                                                className="study-card__bar-fill"
+                                                style={{ width: `${room.completionRate}%`, background: 'var(--color-purple-500)' }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="study-card__tags">
+                                        <span className="study-card__tag">#{room.subject}</span>
+                                        <span className="study-card__tag">#{room.level}</span>
+                                    </div>
+                                </div>
+                            )
+                        })}
+
+                        {/* Empty state */}
+                        {filtered.length === 0 && (
+                            <div style={{ gridColumn: '1 / -1', padding: '40px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+                                {filter === '전체' ? '아직 학습실이 없습니다.' : `'${filter}' 학습실이 없습니다.`}
+                            </div>
+                        )}
+
+                        {/* Add card */}
+                        <div
+                            className="study-card--add"
+                            onClick={() => navigate('/main')}
+                        >
+                            <div className="study-card--add__icon">
+                                <Plus size={24} strokeWidth={1.5} />
+                            </div>
+                            <div className="study-card--add__label">새 학습실 만들기</div>
+                        </div>
+                    </div>
+                )}
             </main>
         </>
     )

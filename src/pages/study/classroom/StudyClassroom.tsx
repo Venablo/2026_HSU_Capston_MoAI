@@ -3,21 +3,17 @@
  * StudyClassroom.tsx  —  핵심 학습 화면
  * ============================================================================
  *
- * 주요 변경 사항:
- *   1. YouTube IFrame API 통합
- *      - useYouTubePlayer 훅으로 영상 재생 + 사용자 행동 폴링
- *      - 되감기/스킵/장시간 정지/탭 이탈 패턴 자동 감지
+ * 데이터 로딩 흐름:
+ *   1. getCurriculum(roomId) → 전체 주차 목록 조회
+ *   2. 진행 중인 첫 번째 주차(completionRate < 100) 선택, 없으면 마지막 주차
+ *   3. getCurriculumWeek(roomId, weekId) → 주차 상세 데이터 조회
+ *      (topic, description, keywords, resources, mainVideoId, completionRate)
  *
- *   2. 실제 API 연동 (sendEventLog)
- *      - 패턴 감지 시 POST /learning-rooms/{roomId}/events 호출
- *      - aiTriggered: true 시 응답에 따라 모달 자동 오픈
- *
- *   3. 커리큘럼 데이터 로드
- *      - URL의 :studyId를 roomId로 사용
- *      - getCurriculumWeek()로 주차별 mainVideoId, keywords 조회
- *
- *   4. 파이널 퀴즈 연결
- *      - "퀴즈 도전하기" → 돌발 퀴즈(quiz-pass) 대신 파이널 퀴즈(final-quiz) 모달 오픈
+ * 탭별 데이터 (lazy-load — 탭 첫 클릭 시 로드):
+ *   docs    → weekData.resources (ResourceItem[])
+ *   videos  → getRecommendedVideos(roomId, weekId)
+ *   summary → weekData.keywords (string[])
+ *   quiz    → getQuizAttempts(roomId, weekId)
  * ============================================================================
  */
 
@@ -27,11 +23,11 @@ import { useParams } from 'react-router-dom'
 import {
     Search, Bell, ChevronLeft, ChevronRight,
     FileText, FileEdit, Package,
-    PlayCircle, Video,
+    PlayCircle,
     ClipboardList, Play, Zap, MessageSquare,
     Calendar, BrainCircuit, CheckCircle2,
     Trophy, Lock, Users, MessageCircle,
-    UserCircle, ArrowRight,
+    UserCircle, ArrowRight, Loader2,
 } from 'lucide-react'
 import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
@@ -45,40 +41,22 @@ import {
     sendEventLog,
     getMaterialDetail,
     getInstantQuiz,
+    getCurriculum,
+    getCurriculumWeek,
+    getRecommendedVideos,
+    getQuizAttempts,
 } from '../../../services/apiService'
-import type { EventType, LearningEventPayload } from '../../../types/api'
+import type {
+    EventType,
+    LearningEventPayload,
+    CurriculumWeekDetail,
+    RecommendedVideo,
+    QuizAttemptListItem,
+} from '../../../types/api'
 
 // ── 타입 정의 ─────────────────────────────────────────────────────────────────
 type TabKey = 'docs' | 'videos' | 'summary' | 'quiz'
-
-interface Doc   { icon: ReactNode; name: string; size: string; type: string }
-interface Vid   { thumb: ReactNode; title: string; channel: string; views: string; duration: string }
-interface Tab   { key: TabKey; icon: ReactNode; label: string }
-
-// ── Mock 정적 데이터 (백엔드 연결 전 화면 구성용) ─────────────────────────────
-const DOCS: Doc[] = [
-    { icon: <FileText size={20} strokeWidth={1.5} />,  name: 'Week 1 데이터베이스 기초 완벽 정리.pdf', size: '2.4MB', type: 'PDF Document'       },
-    { icon: <FileEdit size={20} strokeWidth={1.5} />,  name: '기출문제 풀이집 및 해설.docx',            size: '1.1MB', type: 'Microsoft Word'      },
-    { icon: <Package  size={20} strokeWidth={1.5} />,  name: 'SQL 실습용 데이터셋.zip',                 size: '15MB',  type: 'Compressed Archive'  },
-]
-
-const VIDEOS: Vid[] = [
-    { thumb: <PlayCircle size={28} strokeWidth={1.5} />, title: '10분 만에 끝내는 DB 트랜잭션 완벽 이해',   channel: 'MoAI AI 큐레이션', views: '1.2만회', duration: '10:24' },
-    { thumb: <Video     size={28} strokeWidth={1.5} />, title: '비전공자를 위한 ACID 속성 가장 쉬운 설명', channel: 'MoAI AI 큐레이션', views: '8.5천회',  duration: '08:15' },
-]
-
-const SUMMARY_ITEMS = [
-    '트랜잭션(Transaction)은 데이터베이스 작업의 논리적 단위입니다.',
-    'ACID: Atomicity(원자성) · Consistency(일관성) · Isolation(격리성) · Durability(지속성)',
-    '원자성: ALL or NOTHING — 트랜잭션 내 모든 연산은 전부 실행되거나 전혀 실행되지 않아야 합니다.',
-    'COMMIT은 트랜잭션을 확정, ROLLBACK은 이전 상태로 되돌립니다.',
-]
-
-const QUIZ_HISTORY = [
-    { q: 'DB 구조와 스키마의 차이점은?',       result: '정답', score: '100점' },
-    { q: 'PRIMARY KEY의 특성 2가지를 말하시오', result: '오답', score: '0점'  },
-    { q: 'NULL과 빈 문자열의 차이점은?',        result: '정답', score: '100점' },
-]
+interface Tab { key: TabKey; icon: ReactNode; label: string }
 
 const TABS: Tab[] = [
     { key: 'docs',    icon: <ClipboardList size={14} strokeWidth={1.5} />, label: '주차별 공식 교안' },
@@ -87,59 +65,110 @@ const TABS: Tab[] = [
     { key: 'quiz',    icon: <MessageSquare size={14} strokeWidth={1.5} />, label: '퀴즈 내역'       },
 ]
 
-// ── Mock 주차 데이터 (getCurriculumWeek 응답 형식과 동일) ─────────────────────
-// 실제 구현 시 getCurriculumWeek(roomId, weekId)로 교체한다.
-const MOCK_WEEK = {
-    weekId:         'w3000000-0000-0000-0000-000000000001',
-    weekNumber:     1,
-    topic:          'DB Foundation',
-    description:    'DB의 기본 구조와 ACID 원리를 마스터합니다.',
-    completionRate: 30,
-    keywords:       ['ACID', '트랜잭션', 'COMMIT', 'ROLLBACK', '원자성'],
-    // 실제 YouTube 영상 ID — 백엔드 연결 전 테스트용 공개 DB 강의
-    mainVideoId:    'HXV3zeQKqGY',
+// ── 유틸 ──────────────────────────────────────────────────────────────────────
+function formatDuration(sec: number): string {
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function resourceIcon(type: string): ReactNode {
+    if (type === 'pdf')  return <FileText size={20} strokeWidth={1.5} />
+    if (type === 'docx') return <FileEdit size={20} strokeWidth={1.5} />
+    if (type === 'zip')  return <Package  size={20} strokeWidth={1.5} />
+    return <FileText size={20} strokeWidth={1.5} />
+}
+
+function TabLoading() {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '24px 0', color: 'var(--color-text-secondary)' }}>
+            <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
+            <span style={{ fontSize: '13px' }}>불러오는 중...</span>
+        </div>
+    )
+}
+
+function TabEmpty({ message }: { message: string }) {
+    return (
+        <p style={{ padding: '24px 0', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            {message}
+        </p>
+    )
 }
 
 // ── 핵심 컴포넌트 (ClassroomModalProvider 내부에서 렌더링) ─────────────────────
 function StudyClassroomContent() {
-    // URL 파라미터에서 roomId(=studyId) 추출
-    // 라우트: /study/:studyId/classroom
-    const { studyId: roomId = 'mock-room' } = useParams<{ studyId: string }>()
+    const { studyId: roomId = '' } = useParams<{ studyId: string }>()
 
     const [rightCollapsed, setRightCollapsed] = useState(false)
     const [tab, setTab] = useState<TabKey>('docs')
 
-    // 현재 주차 데이터 — 실제 구현 시 getCurriculumWeek로 대체
-    const [weekData] = useState(MOCK_WEEK)
+    // 주차 데이터
+    const [weekData,    setWeekData]    = useState<CurriculumWeekDetail | null>(null)
+    const [weekLoading, setWeekLoading] = useState(true)
+    const [weekError,   setWeekError]   = useState<string | null>(null)
+
+    // 탭별 데이터 (lazy-load)
+    const [videos,        setVideos]        = useState<RecommendedVideo[] | null>(null)
+    const [videosLoading, setVideosLoading] = useState(false)
+    const [quizAttempts,  setQuizAttempts]  = useState<QuizAttemptListItem[] | null>(null)
+    const [quizLoading,   setQuizLoading]   = useState(false)
 
     const { open, metacogComplete, partnerConnected, setCurrentWeekId } = useClassroomModal()
     const { toasts, addToast, resolveToast } = useDebugToast()
 
-    // 학습실 진입 시 weekId를 Context에 저장하여 모달들이 참조할 수 있게 함
+    // ── 주차 데이터 로드 ─────────────────────────────────────────────────────
     useEffect(() => {
-        setCurrentWeekId(weekData.weekId)
-    }, [weekData.weekId, setCurrentWeekId])
+        if (!roomId) {
+            setWeekError('학습실 ID가 없습니다.')
+            setWeekLoading(false)
+            return
+        }
+        setWeekLoading(true)
+        setWeekError(null)
+        getCurriculum(roomId)
+            .then(weeks => {
+                if (!weeks.length) throw new Error('이 학습실에 커리큘럼이 없습니다.')
+                // 진행 중인 첫 번째 주차 선택, 없으면 마지막 주차
+                const active = weeks.find(w => w.completionRate < 100) ?? weeks[weeks.length - 1]
+                return getCurriculumWeek(roomId, active.weekId)
+            })
+            .then(detail => {
+                setWeekData(detail)
+                setCurrentWeekId(detail.weekId)
+            })
+            .catch(e => setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.'))
+            .finally(() => setWeekLoading(false))
+    }, [roomId, setCurrentWeekId])
+
+    // ── 영상 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
+    useEffect(() => {
+        if (tab !== 'videos' || !roomId || !weekData || videos !== null) return
+        setVideosLoading(true)
+        getRecommendedVideos(roomId, weekData.weekId)
+            .then(setVideos)
+            .catch(() => setVideos([]))
+            .finally(() => setVideosLoading(false))
+    }, [tab, roomId, weekData, videos])
+
+    // ── 퀴즈 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
+    useEffect(() => {
+        if (tab !== 'quiz' || !roomId || !weekData || quizAttempts !== null) return
+        setQuizLoading(true)
+        getQuizAttempts(roomId, weekData.weekId)
+            .then(setQuizAttempts)
+            .catch(() => setQuizAttempts([]))
+            .finally(() => setQuizLoading(false))
+    }, [tab, roomId, weekData, quizAttempts])
 
     // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
-    /**
-     * useYouTubePlayer 훅이 패턴을 감지할 때마다 이 함수가 호출된다.
-     *
-     * 처리 흐름:
-     *   1. POST /learning-rooms/{roomId}/events 호출
-     *   2. aiTriggered: false → 아무것도 하지 않음
-     *   3. aiTriggered: true  → eventType에 따라 모달 오픈
-     *      - video_rewind / video_pause / tab_departure:
-     *          getMaterialDetail(materialId) → MonitoringModal
-     *      - video_skip:
-     *          getInstantQuiz(weekId) → QuizPassModal
-     */
     const handlePatternDetected = useCallback(async (
         eventType: EventType,
         payload: LearningEventPayload,
     ) => {
-        // Show blue "Sending" toast immediately when a pattern is detected
-        const toastId = addToast(eventType)
+        if (!weekData) return
 
+        const toastId = addToast(eventType)
         try {
             const result = await sendEventLog(roomId, {
                 event_type:    eventType,
@@ -147,26 +176,20 @@ function StudyClassroomContent() {
                 payload,
             })
 
-            // Update toast: purple if AI modal will open, dim blue otherwise
             resolveToast(toastId, result.aiTriggered)
+            if (!result.aiTriggered) return
 
-            if (!result.aiTriggered) return  // 임계값 미달 → 패턴 미발동
-
-            // ── AI 트리거 발동 → 이벤트 타입별 모달 오픈 ───────────────────
             if (
                 result.eventType === 'video_rewind' ||
                 result.eventType === 'video_pause'  ||
                 result.eventType === 'tab_departure'
             ) {
-                // 패턴1/2: materialId로 요약 자료 조회 후 MonitoringModal 표시
                 if (result.materialId) {
                     const material = await getMaterialDetail(roomId, result.materialId)
                     open('monitoring', {
                         type:        'monitoring',
                         conceptName: material.title,
                         reason:      `${eventType} 패턴 감지 — 보충 자료를 준비했어요.`,
-                        // Map API field names (label/desc) to modal field names (letter/description).
-                        // Stored here so SummaryDetailModal opens instantly with no second fetch.
                         summaryItems: material.summaryItems.map(s => ({
                             letter:      s.label,
                             title:       s.title,
@@ -175,25 +198,23 @@ function StudyClassroomContent() {
                     })
                 }
             } else if (result.eventType === 'video_skip') {
-                // 패턴3: 스킵 감지 → 돌발 퀴즈 조회 (InstantQuizResponse는 QuizPassModal에서 사용)
-                // TODO: getInstantQuiz 응답을 QuizPassModal로 전달하는 로직 추가
                 await getInstantQuiz(roomId, weekData.weekId)
                 open('quiz-pass')
             }
         } catch {
-            // API 미연결 상태(개발 환경)에서는 오류 무시 — DebugEventController로 수동 테스트
             resolveToast(toastId, false)
         }
-    }, [roomId, weekData.weekId, open, addToast, resolveToast])
+    }, [roomId, weekData, open, addToast, resolveToast])
 
-    // ── YouTube IFrame API 훅 연결 ────────────────────────────────────────────
-    // playerDivId: <div id={playerDivId} />에 YouTube 플레이어가 마운트됨
+    // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
+    // weekData가 로드되기 전에는 빈 videoId('')로 초기화.
+    // weekData 로드 완료 시 hook 내부에서 플레이어를 재생성한다.
     const { playerDivId } = useYouTubePlayer({
-        videoId:           weekData.mainVideoId,
+        videoId:           weekData?.mainVideoId ?? '',
         onPatternDetected: handlePatternDetected,
     })
 
-    const progress = weekData.completionRate
+    const progress = weekData?.completionRate ?? 0
 
     return (
         <>
@@ -223,7 +244,12 @@ function StudyClassroomContent() {
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
                         <Calendar size={14} strokeWidth={1.5} />
-                        Week {weekData.weekNumber}: {weekData.topic}
+                        {weekLoading
+                            ? '불러오는 중...'
+                            : weekData
+                                ? `Week ${weekData.weekNumber}: ${weekData.topic}`
+                                : weekError ?? ''
+                        }
                         <ChevronRight size={14} strokeWidth={1.5} style={{ transform: 'rotate(90deg)' }} />
                     </button>
 
@@ -237,22 +263,27 @@ function StudyClassroomContent() {
 
                     {/* 강의 정보 */}
                     <h1 className="classroom__lesson-title">
-                        데이터베이스 아키텍처 및 트랜잭션 이해
+                        {weekLoading ? '...' : weekData?.topic ?? weekError ?? ''}
                     </h1>
                     <p className="classroom__lesson-desc">
-                        {weekData.description}
+                        {weekData?.description ?? ''}
                     </p>
 
-                    {/* ── YouTube IFrame 플레이어 ─────────────────────────────
-                     *   useYouTubePlayer가 playerDivId의 div를 IFrame으로 교체한다.
-                     *   API가 로드되기 전까지는 빈 div가 표시된다.
-                     *
-                     *   동작 중인 패턴 감지:
-                     *     - 1초 폴링으로 재생 위치 추적 → 되감기/스킵 감지
-                     *     - 일시정지 3분 → video_pause 발생
-                     *     - visibilitychange → tab_departure 발생
-                     * ──────────────────────────────────────────────────────── */}
+                    {/* ── YouTube IFrame 플레이어 ── */}
                     <div className="classroom__video">
+                        {/* 로딩/에러 오버레이 — 플레이어 div는 항상 DOM에 유지 */}
+                        {(weekLoading || weekError) && (
+                            <div style={{
+                                position: 'absolute', inset: 0, display: 'flex',
+                                alignItems: 'center', justifyContent: 'center',
+                                background: '#0f0f1a', zIndex: 1, borderRadius: '12px',
+                            }}>
+                                {weekLoading
+                                    ? <Loader2 size={32} strokeWidth={1.5} className="animate-spin" style={{ color: 'var(--color-purple-500)' }} />
+                                    : <span style={{ color: '#ef4444', fontSize: '13px' }}>⚠ {weekError}</span>
+                                }
+                            </div>
+                        )}
                         <div
                             id={playerDivId}
                             style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
@@ -274,45 +305,65 @@ function StudyClassroomContent() {
                         ))}
                     </div>
 
-                    {/* 탭: 문서 */}
+                    {/* 탭: 교안 (주차 resources) */}
                     {tab === 'docs' && (
                         <div className="classroom__doc-list">
-                            {DOCS.map((doc, i) => (
-                                <div key={i} className="classroom__doc-item">
-                                    <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
-                                        {doc.icon}
+                            {weekLoading ? <TabLoading /> : !weekData ? null :
+                            weekData.resources.length === 0
+                                ? <TabEmpty message="이 주차에 첨부된 교안이 없습니다." />
+                                : weekData.resources.map((res, i) => (
+                                    <div key={i} className="classroom__doc-item">
+                                        <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                            {resourceIcon(res.type)}
+                                        </div>
+                                        <div className="classroom__doc-info">
+                                            <div className="classroom__doc-name">{res.title}</div>
+                                            <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
+                                        </div>
+                                        <a
+                                            href={res.url}
+                                            className="classroom__doc-download"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            다운로드
+                                        </a>
                                     </div>
-                                    <div className="classroom__doc-info">
-                                        <div className="classroom__doc-name">{doc.name}</div>
-                                        <div className="classroom__doc-meta">{doc.size} · {doc.type}</div>
-                                    </div>
-                                    <button className="classroom__doc-download">다운로드</button>
-                                </div>
-                            ))}
+                                ))
+                            }
                         </div>
                     )}
 
-                    {/* 탭: 영상 */}
+                    {/* 탭: AI 추천 영상 */}
                     {tab === 'videos' && (
                         <div className="classroom__video-grid">
-                            {VIDEOS.map((v, i) => (
-                                <div key={i} className="classroom__video-card">
-                                    <div className="classroom__video-thumb">
-                                        <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.8)' }}>
-                                            {v.thumb}
+                            {videosLoading ? <TabLoading /> :
+                            videos === null ? null :
+                            videos.length === 0
+                                ? <TabEmpty message="추천 영상이 없습니다." />
+                                : videos.map((v, i) => (
+                                    <div key={i} className="classroom__video-card">
+                                        <div className="classroom__video-thumb">
+                                            <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                                                <PlayCircle size={28} strokeWidth={1.5} />
+                                            </div>
+                                            <div className="classroom__video-thumb-duration">
+                                                {formatDuration(v.durationSec)}
+                                            </div>
                                         </div>
-                                        <div className="classroom__video-thumb-duration">{v.duration}</div>
+                                        <div className="classroom__video-meta">
+                                            <div className="classroom__video-title">{v.title}</div>
+                                            <div className="classroom__video-channel">
+                                                조회수 {v.viewCount.toLocaleString()}회
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="classroom__video-meta">
-                                        <div className="classroom__video-title">{v.title}</div>
-                                        <div className="classroom__video-channel">{v.channel} · 조회수 {v.views}</div>
-                                    </div>
-                                </div>
-                            ))}
+                                ))
+                            }
                         </div>
                     )}
 
-                    {/* 탭: AI 핵심 요약 */}
+                    {/* 탭: AI 핵심 요약 (주차 keywords) */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
                             <div
@@ -320,14 +371,18 @@ function StudyClassroomContent() {
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                             >
                                 <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
-                                AI 핵심 요약
+                                핵심 키워드
                             </div>
-                            {SUMMARY_ITEMS.map((s, i) => (
-                                <div key={i} className="classroom__summary-row">
-                                    <div className="classroom__summary-dot" />
-                                    <div className="classroom__summary-text">{s}</div>
-                                </div>
-                            ))}
+                            {weekLoading ? <TabLoading /> :
+                            !weekData?.keywords.length
+                                ? <TabEmpty message="키워드 데이터가 없습니다." />
+                                : weekData.keywords.map((kw, i) => (
+                                    <div key={i} className="classroom__summary-row">
+                                        <div className="classroom__summary-dot" />
+                                        <div className="classroom__summary-text">{kw}</div>
+                                    </div>
+                                ))
+                            }
                         </div>
                     )}
 
@@ -341,17 +396,21 @@ function StudyClassroomContent() {
                                 <MessageSquare size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                 퀴즈 내역
                             </div>
-                            {QUIZ_HISTORY.map((item, i) => (
-                                <div key={i} className="classroom__quiz-row">
-                                    <div className="classroom__quiz-q">Q{i + 1}. {item.q}</div>
-                                    <div className="classroom__quiz-result-row">
-                                        <span className={`classroom__quiz-badge ${item.result === '정답' ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
-                                            {item.result}
-                                        </span>
-                                        <span className="classroom__quiz-score">{item.score}</span>
+                            {quizLoading ? <TabLoading /> :
+                            quizAttempts === null ? null :
+                            quizAttempts.length === 0
+                                ? <TabEmpty message="아직 퀴즈 내역이 없습니다." />
+                                : quizAttempts.map((item, i) => (
+                                    <div key={item.attemptId} className="classroom__quiz-row">
+                                        <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
+                                        <div className="classroom__quiz-result-row">
+                                            <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
+                                                {item.isCorrect ? '정답' : '오답'}
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            }
                         </div>
                     )}
                 </div>
@@ -386,12 +445,12 @@ function StudyClassroomContent() {
                                 <button
                                     className="metacog-card__btn"
                                     onClick={() => open('reverse-learning', {
-                                        type:       'reverse-learning',
-                                        conceptName: 'ACID',
-                                        // roomId와 weekId를 모달에 전달하여 실제 SSE API 호출 가능
+                                        type:        'reverse-learning',
+                                        conceptName: weekData?.topic ?? '',
                                         roomId,
-                                        weekId:     weekData.weekId,
+                                        weekId:      weekData?.weekId,
                                     })}
+                                    disabled={!weekData}
                                 >
                                     AI에게 설명하기
                                 </button>
@@ -405,13 +464,9 @@ function StudyClassroomContent() {
                                     <CheckCircle2 size={16} strokeWidth={1.5} />
                                     메타인지 평가 완료
                                 </div>
-                                <div className="metacog-card__score">이해도 95%</div>
-                                <div className="metacog-card__keywords">
-                                    <span className="metacog-card__kw metacog-card__kw--strong">원자성</span>
-                                    <span className="metacog-card__kw metacog-card__kw--strong">COMMIT</span>
-                                    <span className="metacog-card__kw metacog-card__kw--weak">격리성</span>
-                                    <span className="metacog-card__kw metacog-card__kw--weak">데드락</span>
-                                </div>
+                                <p className="metacog-card__desc" style={{ margin: '4px 0 0' }}>
+                                    거꾸로 학습이 완료되었습니다.
+                                </p>
                             </div>
                         )}
 
@@ -428,16 +483,14 @@ function StudyClassroomContent() {
                             </div>
                             <p className="weekly-quiz-card__desc">
                                 {metacogComplete
-                                    ? 'Week 1 전체 내용 최종 평가! 도전해보세요.'
+                                    ? `Week ${weekData?.weekNumber ?? ''} 전체 내용 최종 평가! 도전해보세요.`
                                     : '메타인지 평가를 완료하면 잠금이 해제됩니다.'}
                             </p>
-                            {metacogComplete && (
+                            {metacogComplete && weekData && (
                                 <button
                                     className="weekly-quiz-card__btn"
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                                     onClick={() => open('final-quiz', {
-                                        // 파이널 퀴즈 모달에 roomId, weekId 전달
-                                        // → FinalQuizModal이 getFinalQuiz → submitFinalQuiz → 폴링 수행
                                         type:   'final-quiz',
                                         roomId,
                                         weekId: weekData.weekId,
@@ -464,10 +517,9 @@ function StudyClassroomContent() {
                                         <UserCircle size={32} strokeWidth={1.5} style={{ color: 'var(--color-purple-400)' }} />
                                     </div>
                                     <div className="partner-widget__info">
-                                        <div className="partner-widget__name">김지현</div>
-                                        <div className="partner-widget__role">멘토</div>
+                                        <div className="partner-widget__name">파트너 연결됨</div>
+                                        <div className="partner-widget__role">스터디 매칭</div>
                                     </div>
-                                    <div className="partner-widget__match-badge">98% 매칭</div>
                                 </div>
                                 <button
                                     className="partner-widget__msg-btn"
