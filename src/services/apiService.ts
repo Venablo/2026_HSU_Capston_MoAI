@@ -388,13 +388,18 @@ export async function updateProgress(
  * durationSec 을 분:초 형식으로 변환해 UI 에 표시한다.
  */
 export async function getRecommendedVideos(roomId: string, weekId: string): Promise<RecommendedVideo[]> {
-  // AI 추천 YouTube 영상 목록 조회. 응답 data.videos 배열에서 추출. { videoId, title, durationSec, viewCount } 구조.
-  const data = await unwrap(
-    api.get<ApiResponse<RecommendedVideosData>>(
-      `/api/learning-rooms/${roomId}/curriculum/${weekId}/recommended-videos`,
-    ),
+  const raw = await unwrap(
+    api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}/recommended-videos`),
   )
-  return data.videos
+  console.log('[getRecommendedVideos] raw response:', JSON.stringify(raw, null, 2))
+  if (Array.isArray(raw)) return raw as RecommendedVideo[]
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    for (const key of ['videos', 'recommendedVideos', 'items', 'content']) {
+      if (Array.isArray(obj[key])) return obj[key] as RecommendedVideo[]
+    }
+  }
+  return []
 }
 
 /**

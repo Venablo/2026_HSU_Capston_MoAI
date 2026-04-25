@@ -153,6 +153,8 @@ export interface RecommendedVideo {
   title: string
   durationSec: number
   viewCount: number
+  isMain?: boolean      // true = this is the primary video for the week (main player)
+  thumbnailUrl?: string
 }
 
 /** Wrapper shape returned by GET …/recommended-videos */

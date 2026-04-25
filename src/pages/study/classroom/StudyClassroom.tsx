@@ -203,11 +203,21 @@ function StudyClassroomContent() {
         }
     }, [roomId, weekData, open])
 
+    // ── 메인 영상 ID 결정 ────────────────────────────────────────────────────
+    // Priority 1: mainVideoId from the curriculum week detail (returned by backend)
+    // Priority 2: a video in the recommended list explicitly flagged isMain: true
+    // Priority 3: empty string (player shows nothing until data arrives)
+    const mainVideoFromList = Array.isArray(videos) ? videos.find(v => v.isMain) : undefined
+    const activeVideoId = weekData?.mainVideoId || mainVideoFromList?.videoId || ''
+
+    // Recommended list = every video that is NOT the main video
+    const recommendedList = Array.isArray(videos)
+        ? videos.filter(v => !v.isMain && v.videoId !== activeVideoId)
+        : []
+
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
-    // weekData가 로드되기 전에는 빈 videoId('')로 초기화.
-    // weekData 로드 완료 시 hook 내부에서 플레이어를 재생성한다.
     const { playerDivId } = useYouTubePlayer({
-        videoId:           weekData?.mainVideoId ?? '',
+        videoId:           activeVideoId,
         onPatternDetected: handlePatternDetected,
     })
 
@@ -331,14 +341,14 @@ function StudyClassroomContent() {
                         </div>
                     )}
 
-                    {/* 탭: AI 추천 영상 */}
+                    {/* 탭: AI 추천 영상 — main video is excluded; it's already in the player above */}
                     {tab === 'videos' && (
                         <div className="classroom__video-grid">
                             {videosLoading ? <TabLoading /> :
                             videos === null ? null :
-                            videos.length === 0
+                            recommendedList.length === 0
                                 ? <TabEmpty message="추천 영상이 없습니다." />
-                                : videos.map((v, i) => (
+                                : recommendedList.map((v, i) => (
                                     <div key={i} className="classroom__video-card">
                                         <div className="classroom__video-thumb">
                                             <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.8)' }}>
