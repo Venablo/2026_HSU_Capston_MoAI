@@ -136,12 +136,12 @@ function clearStoredAuth() {
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // localStorage 에서 현재 유효한 accessToken 을 읽는다
-    const token = localStorage.getItem(TOKEN_KEYS.accessToken)
+    const accessToken = localStorage.getItem(TOKEN_KEYS.accessToken)
 
-    if (token) {
+    if (accessToken) {
       // 스펙 명세: Authorization: Bearer {accessToken}
       // 모든 JWT 필요 엔드포인트에 자동 첨부됨 (41개 중 38개)
-      config.headers.Authorization = `Bearer ${token}`
+      config.headers.Authorization = `Bearer ${accessToken}`
     }
     // token 이 없으면 헤더를 첨부하지 않는다 (공개 엔드포인트용: 로그인, 회원가입, 토큰 갱신)
 
