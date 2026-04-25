@@ -53,7 +53,7 @@
 | 12 | GET | /api/learning-rooms/{roomId}/curriculum/{weekId}/recommended-videos | AI 추천 영상 목록 | JWT |
 | 13 | GET | /api/learning-rooms/{roomId}/materials | AI 핵심 요약 자료 목록 | JWT |
 | 14 | GET | /api/learning-rooms/{roomId}/materials/{materialId} | 요약 자료 상세 | JWT |
-| 15 | GET | /api/learning-rooms/{roomId}/quiz-attempts | 퀴즈 응시 이력 목록 | JWT |
+| 15 | GET | /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts | 퀴즈 응시 이력 목록 | JWT |
 | 16 | GET | /api/quiz-attempts/{attemptId} | 퀴즈 상세 조회 (AI 해설 포함) | JWT |
 | **5. 행동 로그 (Learning Event Logs)** |
 | 17 | POST | /api/learning-rooms/{roomId}/events | 행동 이벤트 전송 (Redis 패턴 판단) | JWT |
@@ -410,7 +410,7 @@ AI 핵심 요약 탭 — 패턴1 감지 시 자동 생성된 자료 목록
 }
 ```
 
-### GET /api/learning-rooms/{roomId}/quiz-attempts (JWT 필요)
+### GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts (JWT 필요)
 
 퀴즈 내역 탭 — 응시 이력 목록
 

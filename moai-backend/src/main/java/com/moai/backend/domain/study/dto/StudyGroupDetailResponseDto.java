@@ -20,5 +20,6 @@ public class StudyGroupDetailResponseDto {
         private String profileImageUrl;
         private String role;
         private boolean isOnline;
+        private String strengthKeyword;
     }
 }

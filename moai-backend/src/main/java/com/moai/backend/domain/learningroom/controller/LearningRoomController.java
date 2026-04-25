@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/learning-rooms")
@@ -25,10 +27,10 @@ public class LearningRoomController {
     private final LearningRoomService learningRoomService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<LearningRoomListResponseDto>> getMyRooms(
+    public ResponseEntity<ApiResponse<List<LearningRoomListResponseDto>>> getMyRooms(
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        LearningRoomListResponseDto responseDto =
+        List<LearningRoomListResponseDto> responseDto =
                 learningRoomService.getMyRooms(userDetails.getUsername());
 
         return ResponseEntity.ok(ApiResponse.success("학습실 목록 조회 성공", responseDto));

@@ -120,9 +120,7 @@ public class FlippedLearningService {
         // Redis 세션 상태 초기화: 키워드 인덱스 0, 교환 횟수 0
         initializeSessionState(sessionId);
 
-        return new FlippedStartResponseDto(
-                sessionId, firstMessage, keywords, 0, keywords.size()
-        );
+        return new FlippedStartResponseDto(sessionId, firstMessage);
     }
 
     /**

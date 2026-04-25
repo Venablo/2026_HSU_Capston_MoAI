@@ -10,6 +10,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/learning-rooms/{roomId}/curriculum")
@@ -18,14 +20,14 @@ public class CurriculumController {
     private final CurriculumService curriculumService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<CurriculumListResponseDto>> getCurriculumList(
+    public ResponseEntity<ApiResponse<List<CurriculumListResponseDto.CurriculumSummary>>> getCurriculumList(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String roomId) {
 
         CurriculumListResponseDto responseDto =
                 curriculumService.getCurriculumList(userDetails.getUsername(), roomId);
 
-        return ResponseEntity.ok(ApiResponse.success("주차 목록 조회 성공", responseDto));
+        return ResponseEntity.ok(ApiResponse.success("주차 목록 조회 성공", responseDto.getWeeks()));
     }
 
     @GetMapping("/{weekId}")
@@ -41,15 +43,16 @@ public class CurriculumController {
     }
 
     @PatchMapping("/{weekId}/progress")
-    public ResponseEntity<ApiResponse<Void>> updateProgress(
+    public ResponseEntity<ApiResponse<ProgressUpdateResponseDto>> updateProgress(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String roomId,
             @PathVariable String weekId,
             @Valid @RequestBody ProgressUpdateRequestDto requestDto) {
 
-        curriculumService.updateProgress(userDetails.getUsername(), roomId, weekId, requestDto);
+        ProgressUpdateResponseDto responseDto =
+                curriculumService.updateProgress(userDetails.getUsername(), roomId, weekId, requestDto);
 
-        return ResponseEntity.ok(ApiResponse.success("진척도 업데이트 성공"));
+        return ResponseEntity.ok(ApiResponse.success("진척도 업데이트 성공", responseDto));
     }
 
     @GetMapping("/{weekId}/recommended-videos")

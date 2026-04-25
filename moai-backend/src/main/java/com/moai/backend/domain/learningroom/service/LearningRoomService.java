@@ -39,16 +39,13 @@ public class LearningRoomService {
     private final LlmService llmService;
     private final CurriculumEnrichmentService curriculumEnrichmentService;
 
-    public LearningRoomListResponseDto getMyRooms(String email) {
+    public List<LearningRoomListResponseDto> getMyRooms(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        List<LearningRoomListResponseDto.RoomSummary> rooms =
-                learningRoomRepository.findByUserId(user.getId()).stream()
-                        .map(LearningRoomListResponseDto.RoomSummary::from)
-                        .toList();
-
-        return new LearningRoomListResponseDto(rooms);
+        return learningRoomRepository.findByUserId(user.getId()).stream()
+                .map(LearningRoomListResponseDto::from)
+                .toList();
     }
 
     @Transactional

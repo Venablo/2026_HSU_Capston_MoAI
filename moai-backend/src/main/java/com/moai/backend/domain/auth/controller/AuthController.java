@@ -4,6 +4,7 @@ import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
 import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
 import com.moai.backend.domain.auth.dto.UserLogoutRequestDto;
 import com.moai.backend.domain.auth.dto.UserRefreshRequestDto;
+import com.moai.backend.domain.auth.dto.UserRefreshResponseDto;
 import com.moai.backend.domain.auth.service.AuthService;
 import com.moai.backend.domain.users.dto.UserSignUpRequestDto;
 import com.moai.backend.domain.users.dto.UserSignUpResponseDto;
@@ -66,9 +67,9 @@ public class AuthController {
 
     // 토큰 갱신 POST /api/auth/refresh
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<UserTokenResponseDto>> refresh(@RequestBody UserRefreshRequestDto requestDto) {
+    public ResponseEntity<ApiResponse<UserRefreshResponseDto>> refresh(@RequestBody UserRefreshRequestDto requestDto) {
 
-        UserTokenResponseDto newTokenDto = authService.reissue(requestDto.getRefreshToken());
+        UserRefreshResponseDto newTokenDto = authService.reissue(requestDto.getRefreshToken());
 
         return ResponseEntity.ok(ApiResponse.success("토큰 재발급 성공", newTokenDto));
     }

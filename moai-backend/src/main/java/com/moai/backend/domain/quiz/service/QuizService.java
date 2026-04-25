@@ -73,7 +73,7 @@ public class QuizService {
     @Lazy
     private QuizService self;
 
-    public QuizAttemptListResponseDto getQuizAttempts(String email, String roomId, String weekId) {
+    public List<QuizAttemptListResponseDto> getQuizAttempts(String email, String roomId, String weekId) {
         User user = findUserByEmail(email);
         LearningRoom room = findRoomByOwner(user, roomId);
 
@@ -81,15 +81,11 @@ public class QuizService {
         weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
 
-        // quiz → curriculum 조인을 통해 주차별 응시 이력 조회
-        List<QuizAttemptListResponseDto.AttemptSummary> attempts =
-                quizAttemptRepository.findByUserIdAndQuiz_CurriculumIdOrderByAttemptedAtDesc(
-                        user.getId(), weekId
-                ).stream()
-                        .map(QuizAttemptListResponseDto.AttemptSummary::from)
-                        .toList();
-
-        return new QuizAttemptListResponseDto(attempts);
+        return quizAttemptRepository.findByUserIdAndQuiz_CurriculumIdOrderByAttemptedAtDesc(
+                user.getId(), weekId
+        ).stream()
+                .map(QuizAttemptListResponseDto::from)
+                .toList();
     }
 
     public QuizAttemptDetailResponseDto getQuizAttemptDetail(String email, String attemptId) {
@@ -183,12 +179,21 @@ public class QuizService {
             rewindToSec = quiz.getRewindToSec();
         }
 
+        String relatedVideoId = null;
+        if (quiz.getCurriculum() != null && quiz.getCurriculum().getResources() != null) {
+            relatedVideoId = quiz.getCurriculum().getResources().stream()
+                    .filter(r -> "youtube".equals(r.getType()))
+                    .map(com.moai.backend.domain.curriculum.entity.CurriculumResource::getVideoId)
+                    .findFirst()
+                    .orElse(null);
+        }
+
         return QuizAttemptResponseDto.builder()
                 .attemptId(attempt.getId())
                 .isCorrect(isCorrect)
                 .correctAnswer(question.getAnswer())
                 .aiExplanation(aiExplanation)
-                .relatedVideoId(null) // 이벤트 로그의 video_id — 현재 Quiz에서 직접 참조 불가
+                .relatedVideoId(relatedVideoId)
                 .relatedTimestamp(rewindToSec)
                 .rewindToSec(rewindToSec)
                 .build();
@@ -411,7 +416,7 @@ public class QuizService {
                 questionResult.put("isCorrect", isCorrect);
                 questionResult.put("myAnswer", answerItem.getAnswer());
                 questionResult.put("gainedKeywords", grading.getGainedKeywords());
-                questionResult.put("weakKeywords", grading.getWeaknessKeywords());
+                questionResult.put("missingKeywords", grading.getWeaknessKeywords());
                 questionResult.put("aiComment", grading.getAiComment());
                 questionResults.add(questionResult);
 

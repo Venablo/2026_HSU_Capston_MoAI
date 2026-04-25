@@ -22,4 +22,10 @@ public class CurriculumResource {
     private String url;
 
     private String size;
+
+    @JsonProperty("duration_sec")
+    private Long durationSec;
+
+    @JsonProperty("view_count")
+    private Long viewCount;
 }

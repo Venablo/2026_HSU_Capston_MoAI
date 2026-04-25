@@ -13,6 +13,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriBuilder;
 
+import java.time.Duration;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -78,7 +80,7 @@ public class YoutubeApiService {
         if (!isEnabled() || videoId == null || videoId.isBlank()) return Optional.empty();
 
         JsonNode root = fetchWithFallback(key -> b -> b.path("/videos")
-                .queryParam("part", "snippet,status,contentDetails")
+                .queryParam("part", "snippet,status,contentDetails,statistics")
                 .queryParam("id", videoId)
                 .queryParam("key", key)
                 .build());
@@ -96,7 +98,9 @@ public class YoutubeApiService {
         if (!"public".equalsIgnoreCase(privacy) || !embeddable) return Optional.empty();
 
         String title = item.path("snippet").path("title").asText("");
-        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true));
+        Long durationSec = parseDuration(item.path("contentDetails").path("duration").asText(null));
+        Long viewCount   = parseViewCount(item.path("statistics").path("viewCount").asText(null));
+        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount));
     }
 
     public List<VideoMeta> searchVideos(String query, int maxResults) {
@@ -129,7 +133,7 @@ public class YoutubeApiService {
 
         String joinedIds = String.join(",", ids);
         JsonNode verified = fetchWithFallback(key -> b -> b.path("/videos")
-                .queryParam("part", "snippet,status,contentDetails")
+                .queryParam("part", "snippet,status,contentDetails,statistics")
                 .queryParam("id", joinedIds)
                 .queryParam("key", key)
                 .build());
@@ -143,9 +147,29 @@ public class YoutubeApiService {
             boolean embeddable = v.path("status").path("embeddable").asBoolean(true);
             if (!"public".equalsIgnoreCase(privacy) || !embeddable) continue;
             String title = v.path("snippet").path("title").asText("");
-            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true));
+            Long durationSec = parseDuration(v.path("contentDetails").path("duration").asText(null));
+            Long viewCount   = parseViewCount(v.path("statistics").path("viewCount").asText(null));
+            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount));
         }
         return results;
+    }
+
+    private static Long parseDuration(String iso) {
+        if (iso == null || iso.isBlank()) return null;
+        try {
+            return Duration.parse(iso).getSeconds();
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private static Long parseViewCount(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private JsonNode fetchWithFallback(Function<String, Function<UriBuilder, java.net.URI>> uriBuilderPerKey) {
@@ -189,5 +213,6 @@ public class YoutubeApiService {
         return s.length() > 300 ? s.substring(0, 300) + "..." : s;
     }
 
-    public record VideoMeta(String videoId, String title, String url, boolean embeddable) {}
+    public record VideoMeta(String videoId, String title, String url, boolean embeddable,
+                            Long durationSec, Long viewCount) {}
 }

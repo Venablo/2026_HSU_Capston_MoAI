@@ -22,5 +22,6 @@ public class SuggestionListResponseDto {
     public static class PartnerInfo {
         private String nickname;
         private String profileImageUrl;
+        private String strengthKeyword;
     }
 }

@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.List;
 
 @Getter
@@ -34,6 +35,14 @@ public class CurriculumDetailResponseDto {
                     .orElse(null);
         }
 
+        // docs 탭에는 pdf/docx/zip 등 다운로드 가능한 자료만 내려준다.
+        // youtube 타입은 url=null 이므로 제외 (별도 recommended-videos API 사용).
+        List<CurriculumResource> docResources = curriculum.getResources() == null
+                ? Collections.emptyList()
+                : curriculum.getResources().stream()
+                        .filter(r -> !"youtube".equals(r.getType()))
+                        .toList();
+
         return CurriculumDetailResponseDto.builder()
                 .weekId(curriculum.getId())
                 .weekNumber(curriculum.getWeekNumber())
@@ -41,7 +50,7 @@ public class CurriculumDetailResponseDto {
                 .description(curriculum.getDescription())
                 .keywords(curriculum.getKeywords())
                 .mainVideoId(mainVideoId)
-                .resources(curriculum.getResources())
+                .resources(docResources)
                 .completionRate(curriculum.getCompletionRate())
                 .build();
     }

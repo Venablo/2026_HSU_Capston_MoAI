@@ -1,5 +1,6 @@
 package com.moai.backend.domain.users.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.moai.backend.domain.users.entity.User;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -18,6 +19,7 @@ import java.util.List;
 public class UserSignUpRequestDto {
 
     @NotBlank(message = "로그인 아이디는 필수 입력 항목입니다.")
+    @JsonProperty("login_id")
     private String loginId;
 
     @NotBlank(message = "비밀번호는 필수 입력 항목입니다.")
@@ -33,8 +35,10 @@ public class UserSignUpRequestDto {
     @Email(message = "올바른 이메일 형식이 아닙니다.")
     private String email;
 
+    @JsonProperty("birth_date")
     private LocalDate birthDate;
 
+    @JsonProperty("interest_keywords")
     private List<String> interestKeywords;
 
     public User toEntity(String encodedPassword) {

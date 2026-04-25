@@ -21,8 +21,8 @@ public class QuizAttemptDetailResponseDto {
     private String question;
     private String questionType;
     private List<QuizOption> options;
-    private String selected;
-    private String answer;
+    private String myAnswer;
+    private String correctAnswer;
     private Boolean isCorrect;
     private String aiExplanation;
     private String relatedKeyword;
@@ -38,8 +38,8 @@ public class QuizAttemptDetailResponseDto {
                 .question(q.getQuestion())
                 .questionType(q.getQuestionType())
                 .options(q.getOptions())
-                .selected(attempt.getSelected())
-                .answer(q.getAnswer())
+                .myAnswer(attempt.getSelected())
+                .correctAnswer(q.getAnswer())
                 .isCorrect(attempt.getIsCorrect())
                 .aiExplanation(attempt.getAiExplanation())
                 .relatedKeyword(q.getRelatedKeyword())

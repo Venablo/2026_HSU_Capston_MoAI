@@ -56,7 +56,8 @@ public class StudyGroupService {
                     suggestion.getSuggestedRole(),
                     new SuggestionListResponseDto.PartnerInfo(
                             partner.getNickname(),
-                            partner.getProfileImageUrl()),
+                            partner.getProfileImageUrl(),
+                            group.getMatchKeyword()),
                     group.getMatchScore(),
                     group.getMatchKeyword(),
                     group.getMatchReason(),
@@ -204,7 +205,8 @@ public class StudyGroupService {
                         partner.getNickname(),
                         partner.getProfileImageUrl(),
                         partnerRole,
-                        isOnline));
+                        isOnline,
+                        group.getMatchKeyword()));
     }
 
     private User findUserByEmail(String email) {

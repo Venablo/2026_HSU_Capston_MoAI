@@ -49,7 +49,7 @@ public class CurriculumService {
     }
 
     @Transactional
-    public void updateProgress(String email, String roomId, String weekId, ProgressUpdateRequestDto requestDto) {
+    public ProgressUpdateResponseDto updateProgress(String email, String roomId, String weekId, ProgressUpdateRequestDto requestDto) {
         LearningRoom room = findRoomByOwner(email, roomId);
 
         // 1. 해당 주차 진척도 업데이트
@@ -65,6 +65,8 @@ public class CurriculumService {
                 .divide(BigDecimal.valueOf(allWeeks.size()), 2, RoundingMode.HALF_UP);
 
         room.updateCompletionRate(average);
+
+        return new ProgressUpdateResponseDto(requestDto.getCompletionRate());
     }
 
     public RecommendedVideoListResponseDto getRecommendedVideos(String email, String roomId, String weekId) {
@@ -81,7 +83,7 @@ public class CurriculumService {
             videos = curriculum.getResources().stream()
                     .filter(r -> "youtube".equals(r.getType()))
                     .map(r -> new RecommendedVideoListResponseDto.VideoSummary(
-                            r.getVideoId(), r.getTitle(), null, null
+                            r.getVideoId(), r.getTitle(), r.getDurationSec(), r.getViewCount()
                     ))
                     .toList();
         }

@@ -73,8 +73,8 @@ public class CurriculumEnrichmentService {
         log.info("[{}주차] enrichment 시작 — topic: {}", curriculum.getWeekNumber(), curriculum.getTopic());
 
         // Step A: LLM을 통해 YouTube video_id 추천받기
-        String videoId = recommendVideo(curriculum, context);
-        if (videoId == null) {
+        YoutubeApiService.VideoMeta videoMeta = recommendVideo(curriculum, context);
+        if (videoMeta == null) {
             // 영상 추천 실패 → resources 빈 배열 저장, Step B/C 스킵
             curriculum.updateResources(List.of());
             weeklyCurriculumRepository.save(curriculum);
@@ -82,9 +82,14 @@ public class CurriculumEnrichmentService {
             return;
         }
 
-        // video_id를 resources JSON에 저장
+        String videoId = videoMeta.videoId();
+        String videoTitle = (videoMeta.title() != null && !videoMeta.title().isBlank())
+                ? videoMeta.title() : curriculum.getTopic();
+
+        // video_id를 resources JSON에 저장 (duration/viewCount 포함)
         CurriculumResource resource = new CurriculumResource(
-                "youtube", videoId, curriculum.getTopic(), null, null
+                "youtube", videoId, videoTitle, null, null,
+                videoMeta.durationSec(), videoMeta.viewCount()
         );
         curriculum.updateResources(List.of(resource));
         weeklyCurriculumRepository.save(curriculum);
@@ -140,7 +145,7 @@ public class CurriculumEnrichmentService {
 
     // --- Step A: LLM YouTube 영상 추천 ---
 
-    private String recommendVideo(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
+    private YoutubeApiService.VideoMeta recommendVideo(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
         try {
             String systemPrompt = """
                     당신은 MoAI 학습 플랫폼의 한국어 YouTube 교육 영상 큐레이션 전문가입니다.
@@ -178,22 +183,27 @@ public class CurriculumEnrichmentService {
                     .build();
 
             LlmVideoResponse response = llmService.callJson(request, LlmVideoResponse.class);
-            return verifyOrSearchVideoId(curriculum, context, response.getVideoId());
+            return verifyOrSearchVideoId(curriculum, context, response.getVideoId(), response.getTitle());
         } catch (Exception e) {
             log.warn("[{}주차] LLM 영상 추천 실패: {}", curriculum.getWeekNumber(), e.getMessage());
             return null;
         }
     }
 
-    private String verifyOrSearchVideoId(WeeklyCurriculum curriculum, WeekEnrichmentContext context, String llmVideoId) {
+    private YoutubeApiService.VideoMeta verifyOrSearchVideoId(
+            WeeklyCurriculum curriculum, WeekEnrichmentContext context,
+            String llmVideoId, String llmTitle) {
+
         if (!youtubeApiService.isEnabled()) {
-            return llmVideoId;
+            if (llmVideoId == null || llmVideoId.isBlank()) return null;
+            String title = (llmTitle != null && !llmTitle.isBlank()) ? llmTitle : curriculum.getTopic();
+            return new YoutubeApiService.VideoMeta(llmVideoId, title, null, true, null, null);
         }
 
         if (llmVideoId != null && !llmVideoId.isBlank()) {
             var verified = youtubeApiService.verifyVideo(llmVideoId);
             if (verified.isPresent()) {
-                return verified.get().videoId();
+                return verified.get();
             }
             log.info("[{}주차] LLM 추천 videoId 검증 실패 ({}), 검색 폴백 시도",
                     curriculum.getWeekNumber(), llmVideoId);
@@ -203,10 +213,13 @@ public class CurriculumEnrichmentService {
         if (query.isBlank()) query = curriculum.getTopic();
         var candidates = youtubeApiService.searchVideos(query, 5);
         if (!candidates.isEmpty()) {
-            return candidates.get(0).videoId();
+            return candidates.get(0);
         }
 
-        return llmVideoId;
+        // 모든 API 시도 실패 → LLM 결과를 메타 없이 그대로 사용
+        if (llmVideoId == null || llmVideoId.isBlank()) return null;
+        String title = (llmTitle != null && !llmTitle.isBlank()) ? llmTitle : curriculum.getTopic();
+        return new YoutubeApiService.VideoMeta(llmVideoId, title, null, true, null, null);
     }
 
     // --- Step C: LLM 키워드 추출 ---
@@ -288,7 +301,7 @@ public class CurriculumEnrichmentService {
                     s3Directory, fileBaseName + ".pdf", pdfBytes, "application/pdf"
             );
             String pdfSize = formatFileSize(pdfBytes.length);
-            resources.add(new CurriculumResource("pdf", null, materialTitle, pdfUrl, pdfSize));
+            resources.add(new CurriculumResource("pdf", null, materialTitle, pdfUrl, pdfSize, null, null));
             log.info("[{}주차] PDF 업로드 완료 — size: {}", curriculum.getWeekNumber(), pdfSize);
         } catch (Exception e) {
             log.warn("[{}주차] PDF 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());

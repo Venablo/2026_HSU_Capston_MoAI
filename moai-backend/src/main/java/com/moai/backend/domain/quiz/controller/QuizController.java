@@ -7,6 +7,7 @@ import com.moai.backend.domain.quiz.dto.InstantQuizResponseDto;
 import com.moai.backend.domain.quiz.dto.QuizReportResponseDto;
 import com.moai.backend.domain.quiz.dto.QuizAttemptDetailResponseDto;
 import com.moai.backend.domain.quiz.dto.QuizAttemptListResponseDto;
+import java.util.List;
 import com.moai.backend.domain.quiz.dto.QuizAttemptRequestDto;
 import com.moai.backend.domain.quiz.dto.QuizAttemptResponseDto;
 import com.moai.backend.domain.quiz.service.QuizService;
@@ -26,12 +27,12 @@ public class QuizController {
     private final QuizService quizService;
 
     @GetMapping("/api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts")
-    public ResponseEntity<ApiResponse<QuizAttemptListResponseDto>> getQuizAttempts(
+    public ResponseEntity<ApiResponse<List<QuizAttemptListResponseDto>>> getQuizAttempts(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String roomId,
             @PathVariable String weekId) {
 
-        QuizAttemptListResponseDto responseDto =
+        List<QuizAttemptListResponseDto> responseDto =
                 quizService.getQuizAttempts(userDetails.getUsername(), roomId, weekId);
 
         return ResponseEntity.ok(ApiResponse.success("퀴즈 응시 이력 조회 성공", responseDto));

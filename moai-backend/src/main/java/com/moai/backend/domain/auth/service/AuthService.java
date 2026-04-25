@@ -1,6 +1,7 @@
 package com.moai.backend.domain.auth.service;
 
 import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
+import com.moai.backend.domain.auth.dto.UserRefreshResponseDto;
 import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
@@ -79,7 +80,7 @@ public class AuthService {
     }
 
     @Transactional
-    public UserTokenResponseDto reissue(String refreshToken) {
+    public UserRefreshResponseDto reissue(String refreshToken) {
         if (!jwtTokenProvider.validateToken(refreshToken)) {
             throw new CustomException(ErrorCode.AUTH_INVALID_TOKEN);
         }
@@ -108,6 +109,6 @@ public class AuthService {
                 TimeUnit.MILLISECONDS
         );
 
-        return newTokens;
+        return new UserRefreshResponseDto(newTokens.getAccessToken(), newTokens.getExpiresIn());
     }
 }
