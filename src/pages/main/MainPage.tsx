@@ -38,13 +38,16 @@ export default function MainPage() {
     const [roomsError,   setRoomsError]   = useState<string | null>(null)
 
     useEffect(() => {
+        let cancelled = false
         getLearningRooms()
             .then(rooms => {
+                if (cancelled) return
                 const active = rooms.find(r => r.status === 'active' || r.status === 'paused') ?? null
                 setActiveRoom(active)
             })
-            .catch(e => setRoomsError(e instanceof Error ? e.message : '학습실 목록을 불러오지 못했습니다.'))
-            .finally(() => setRoomsLoading(false))
+            .catch(e    => { if (!cancelled) setRoomsError(e instanceof Error ? e.message : '학습실 목록을 불러오지 못했습니다.') })
+            .finally(() => { if (!cancelled) setRoomsLoading(false) })
+        return () => { cancelled = true }
     }, [])
 
     const displayName = nickname ?? ''

@@ -22,10 +22,12 @@ export default function MyStudiesPage() {
     const [error,   setError]   = useState<string | null>(null)
 
     useEffect(() => {
+        let cancelled = false
         getLearningRooms()
-            .then(setRooms)
-            .catch(e => setError(e instanceof Error ? e.message : '학습실 목록을 불러오지 못했습니다.'))
-            .finally(() => setLoading(false))
+            .then(data  => { if (!cancelled) setRooms(data) })
+            .catch(e    => { if (!cancelled) setError(e instanceof Error ? e.message : '학습실 목록을 불러오지 못했습니다.') })
+            .finally(() => { if (!cancelled) setLoading(false) })
+        return () => { cancelled = true }
     }, [])
 
     const filtered = rooms.filter(r => {

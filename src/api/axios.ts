@@ -264,18 +264,19 @@ api.interceptors.response.use(
 
       try {
         // POST /api/auth/refresh — 공개 엔드포인트이므로 인터셉터를 거치지 않도록
-        // axios 인스턴스(api)가 아닌 원시 axios 를 사용한다.
-        // (api 를 사용하면 또 401 → 무한루프 가능성)
-        const { data: envelope } = await axios.post<{
-          success: boolean
-          data: { accessToken: string; expiresIn: number }
-        }>(
+        // 원시 axios 를 사용한다 (api 인스턴스 사용 시 401 무한루프 가능).
+        // 원시 axios 는 transformResponse 가 없으므로 deepCamelCase 를 수동 적용한다.
+        const rawRefresh = await axios.post(
           `${import.meta.env.VITE_API_BASE_URL}/api/auth/refresh`,
           { refreshToken: storedRefreshToken },
           { headers: { 'Content-Type': 'application/json' } },
         )
+        const refreshBody = deepCamelCase(rawRefresh.data) as {
+          success: boolean
+          data: { accessToken: string; expiresIn: number }
+        }
 
-        const newAccessToken = envelope.data.accessToken
+        const newAccessToken = refreshBody.data.accessToken
 
         // 새 accessToken 을 localStorage 에 저장 (AuthContext 도 다음 렌더에서 동기화)
         localStorage.setItem(TOKEN_KEYS.accessToken, newAccessToken)
