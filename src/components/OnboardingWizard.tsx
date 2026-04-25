@@ -80,6 +80,7 @@ export default function OnboardingWizard({ onClose }: Props) {
     // 사용자 선택 값
     const [goal,        setGoal]        = useState('')
     const [customGoal,  setCustomGoal]  = useState('')
+    const [youtubeUrl,  setYoutubeUrl]  = useState('')
     const [level,       setLevel]       = useState(1)
     const [duration,    setDuration]    = useState('10주')
     const [intensity,   setIntensity]   = useState('하루 3시간')
@@ -144,6 +145,7 @@ export default function OnboardingWizard({ onClose }: Props) {
             level:          LEVEL_MAP[level],
             duration_weeks: parseWeeks(duration),
             hours_per_day:  HOURS_MAP[intensity] ?? 1,
+            ...(youtubeUrl.trim() && { youtube_url: youtubeUrl.trim() }),
         }
 
         try {
@@ -281,6 +283,16 @@ export default function OnboardingWizard({ onClose }: Props) {
                                 placeholder="원하는 목표를 자유롭게 적어보세요"
                                 value={customGoal}
                                 onChange={e => { setCustomGoal(e.target.value); if (e.target.value) setGoal('') }}
+                            />
+
+                            <div className="wizard__custom-label" style={{ marginTop: '16px' }}>
+                                YouTube 강의 URL (선택)
+                            </div>
+                            <input
+                                className="wizard__input"
+                                placeholder="https://www.youtube.com/watch?v=..."
+                                value={youtubeUrl}
+                                onChange={e => setYoutubeUrl(e.target.value)}
                             />
                         </div>
                     )}

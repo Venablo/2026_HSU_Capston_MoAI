@@ -285,8 +285,17 @@ export async function createLearningRoom(body: CreateLearningRoomRequest): Promi
  * completionRate, status 를 기반으로 카드 UI 를 렌더링한다.
  */
 export async function getLearningRooms(): Promise<LearningRoomListItem[]> {
-  // transformResponse (axios.ts) handles snake_case → camelCase automatically
-  return unwrap(api.get<ApiResponse<LearningRoomListItem[]>>('/api/learning-rooms'))
+  const raw = await unwrap(api.get<ApiResponse<unknown>>('/api/learning-rooms'))
+  console.log('getLearningRooms :', JSON.stringify(raw, null, 2))
+  // Handle flat array or wrapped object (e.g. { rooms:[...] } / { items:[...] })
+  if (Array.isArray(raw)) return raw as LearningRoomListItem[]
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    for (const key of ['rooms', 'items', 'learningRooms', 'content', 'data']) {
+      if (Array.isArray(obj[key])) return obj[key] as LearningRoomListItem[]
+    }
+  }
+  return []
 }
 
 /**

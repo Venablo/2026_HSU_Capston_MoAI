@@ -88,6 +88,7 @@ export interface CreateLearningRoomRequest {
   level: 'beginner' | 'intermediate' | 'advanced'
   duration_weeks: number
   hours_per_day: number
+  youtube_url?: string
 }
 
 export interface CurriculumSummaryItem {
