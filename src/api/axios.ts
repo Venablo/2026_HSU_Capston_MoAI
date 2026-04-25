@@ -96,7 +96,7 @@ function deepCamelCase<T>(data: T): T {
  *
  * baseURL:  .env 파일의 VITE_API_BASE_URL 값. 예) https://api.moai.app/v1
  *           빌드 환경(dev / prod)에 따라 자동으로 다른 URL 을 사용한다.
- * timeout:  10,000ms (10초). 이 시간 안에 응답이 없으면 ECONNABORTED 에러 발생.
+ * timeout:  60,000ms (60초). AI 백엔드 처리 시간을 고려한 값. 이 시간 안에 응답이 없으면 ECONNABORTED 에러 발생.
  * headers:  JSON 통신이 기본. SSE / WebSocket 은 axios 가 아닌 EventSource /
  *           WebSocket 을 직접 사용하므로 여기 헤더가 적용되지 않는다.
  * transformResponse: axios 기본 JSON.parse 이후 deepCamelCase 를 체이닝한다.
@@ -104,7 +104,7 @@ function deepCamelCase<T>(data: T): T {
  */
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 10_000,
+  timeout: 60_000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -113,6 +113,7 @@ const api = axios.create({
     (data: unknown) => deepCamelCase(data),  // snake_case → camelCase
   ),
 })
+console.log('[axios] instance created — timeout:', api.defaults.timeout, 'ms, baseURL:', api.defaults.baseURL)
 
 // ── 토큰 갱신 상태 관리 ───────────────────────────────────────────────────────
 /**
