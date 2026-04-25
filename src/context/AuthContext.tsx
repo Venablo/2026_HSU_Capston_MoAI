@@ -148,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *   이 함수를 자식 컴포넌트의 prop 으로 전달할 때 불필요한 리렌더를 방지.
    */
   const saveAuth = useCallback((data: LoginResponse) => {
+    console.log('[DEBUG] saveAuth received data:', JSON.stringify(data, null, 2))
+    console.log('[DEBUG] saving accessToken to localStorage key:', STORAGE_KEYS.accessToken, '→ value:', data.accessToken)
     // localStorage 에 먼저 저장 — axios 인터셉터가 동기적으로 읽을 수 있도록
     localStorage.setItem(STORAGE_KEYS.accessToken,  data.accessToken)
     localStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken)

@@ -181,13 +181,11 @@ export async function register(body: RegisterRequest): Promise<RegisterResponse>
  */
 export async function login(body: LoginRequest): Promise<LoginResponse> {
   // 백엔드 Spring Security + JWT 필터 연동. 응답 토큰을 AuthContext.saveAuth()로 저장.
-  // 응답에 포함된 필드:
-  //   accessToken  - 이후 모든 API 요청 헤더에 사용
-  //   refreshToken - accessToken 만료 시 재발급용
-  //   expiresIn    - accessToken 유효기간 (초, 예: 3600)
-  //   userId       - 사용자 고유 ID (UUID 형식)
-  //   nickname     - 화면에 표시할 닉네임
-  return unwrap(api.post<ApiResponse<LoginResponse>>('/api/auth/login', body))
+  const rawResponse = await api.post<ApiResponse<LoginResponse>>('/api/auth/login', body)
+  console.log('[DEBUG] login raw axios response.data:', JSON.stringify(rawResponse.data, null, 2))
+  const result = await unwrap(Promise.resolve(rawResponse))
+  console.log('[DEBUG] login unwrapped result:', JSON.stringify(result, null, 2))
+  return result
 }
 
 /**
