@@ -308,7 +308,16 @@ export async function getLearningRooms(): Promise<LearningRoomListItem[]> {
  */
 export async function getCurriculum(roomId: string): Promise<CurriculumWeekSummary[]> {
   // 학습실 Week 드롭다운 데이터 조회. 전체 주차 목록과 각 주차 completionRate 반환.
-  return unwrap(api.get<ApiResponse<CurriculumWeekSummary[]>>(`/api/learning-rooms/${roomId}/curriculum`))
+  const raw = await unwrap(api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum`))
+  console.log('getCurriculum raw:', JSON.stringify(raw, null, 2))
+  if (Array.isArray(raw)) return raw as CurriculumWeekSummary[]
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    for (const key of ['curriculum', 'weeks', 'items', 'content', 'data']) {
+      if (Array.isArray(obj[key])) return obj[key] as CurriculumWeekSummary[]
+    }
+  }
+  return []
 }
 
 /**
@@ -325,9 +334,20 @@ export async function getCurriculum(roomId: string): Promise<CurriculumWeekSumma
  */
 export async function getCurriculumWeek(roomId: string, weekId: string): Promise<CurriculumWeekDetail> {
   // 학습실 진입 시 가장 먼저 호출. topic·description·keywords·mainVideoId 등 주차 세부 정보 반환.
-  return unwrap(
-    api.get<ApiResponse<CurriculumWeekDetail>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}`),
+  const raw = await unwrap(
+    api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}`),
   )
+  console.log('getCurriculumWeek raw:', JSON.stringify(raw, null, 2))
+  // 백엔드가 { week: {...} } 또는 { data: {...} } 형태로 감쌀 경우 언래핑
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    for (const key of ['week', 'curriculum', 'data']) {
+      if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+        return obj[key] as CurriculumWeekDetail
+      }
+    }
+  }
+  return raw as CurriculumWeekDetail
 }
 
 /**
