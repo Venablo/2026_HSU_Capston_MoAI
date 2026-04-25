@@ -22,6 +22,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -105,11 +107,17 @@ public class LearningRoomService {
             ));
         }
 
-        // 4. 주차별 P2 enrichment를 비동기 병렬 실행 — 각 주차 데이터는 완료되는 즉시 DB에 반영된다
-        // 외부 빈 호출로 프록시를 경유해야 @Async가 작동한다 (자기호출 금지)
-        for (WeekEnrichmentContext ctx : enrichmentContexts) {
-            curriculumEnrichmentService.enrichWeek(ctx);
-        }
+        // 4. 주차별 P2 enrichment를 비동기 병렬 실행 — 트랜잭션 커밋 후에 실행해야
+        // async 스레드의 findById()가 방금 저장한 행을 읽을 수 있다.
+        final List<WeekEnrichmentContext> contextsToEnrich = enrichmentContexts;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (WeekEnrichmentContext ctx : contextsToEnrich) {
+                    curriculumEnrichmentService.enrichWeek(ctx);
+                }
+            }
+        });
 
         return LearningRoomCreateResponseDto.builder()
                 .roomId(room.getId())
