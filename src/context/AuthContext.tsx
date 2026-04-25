@@ -149,16 +149,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const saveAuth = useCallback((data: LoginResponse) => {
     // localStorage 에 먼저 저장 — axios 인터셉터가 동기적으로 읽을 수 있도록
-    // Backend returns snake_case keys: access_token, refresh_token
-    localStorage.setItem(STORAGE_KEYS.accessToken,  data.access_token)
-    localStorage.setItem(STORAGE_KEYS.refreshToken, data.refresh_token)
+    // axios.ts transformResponse 가 snake_case → camelCase 를 전역 처리하므로
+    // 항상 camelCase 키로 접근한다 (accessToken, refreshToken)
+    localStorage.setItem(STORAGE_KEYS.accessToken,  data.accessToken)
+    localStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken)
     localStorage.setItem(STORAGE_KEYS.userId,       data.userId)
     localStorage.setItem(STORAGE_KEYS.nickname,     data.nickname)
 
     // React state 업데이트 — 컴포넌트의 isAuthenticated 등이 즉시 갱신됨
     setAuth({
-      accessToken:  data.access_token,
-      refreshToken: data.refresh_token,
+      accessToken:  data.accessToken,
+      refreshToken: data.refreshToken,
       userId:       data.userId,
       nickname:     data.nickname,
     })

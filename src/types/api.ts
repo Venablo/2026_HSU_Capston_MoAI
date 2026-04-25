@@ -48,8 +48,8 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  access_token: string
-  refresh_token: string
+  accessToken: string
+  refreshToken: string
   expiresIn: number            // seconds, e.g. 3600
   userId: string
   nickname: string

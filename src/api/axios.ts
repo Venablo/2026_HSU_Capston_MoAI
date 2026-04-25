@@ -19,6 +19,7 @@
 import axios, {
   type AxiosError,
   type AxiosResponse,
+  type AxiosResponseTransformer,
   type InternalAxiosRequestConfig,
 } from 'axios'
 
@@ -62,6 +63,33 @@ export class MoaiApiError extends Error {
   }
 }
 
+// ── snake_case → camelCase 자동 변환 ─────────────────────────────────────────
+/**
+ * deepCamelCase
+ *
+ * 백엔드는 snake_case(예: access_token, room_id)로 응답하고
+ * 프론트엔드 타입은 camelCase(예: accessToken, roomId)를 사용한다.
+ * 이 함수를 transformResponse 에 등록하면 모든 응답 JSON 키가
+ * 자동으로 camelCase 로 변환되어 수동 매핑이 필요 없어진다.
+ *
+ * 재귀적으로 동작하므로 중첩 객체·배열도 모두 변환된다.
+ * 문자열·숫자·null 등 원시값은 그대로 반환한다.
+ */
+function deepCamelCase<T>(data: T): T {
+  if (Array.isArray(data)) {
+    return data.map(deepCamelCase) as unknown as T
+  }
+  if (data !== null && typeof data === 'object') {
+    return Object.fromEntries(
+      Object.entries(data as Record<string, unknown>).map(([key, value]) => [
+        key.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase()),
+        deepCamelCase(value),
+      ]),
+    ) as unknown as T
+  }
+  return data
+}
+
 // ── Axios 인스턴스 생성 ───────────────────────────────────────────────────────
 /**
  * 모든 API 요청에서 공유하는 단일 axios 인스턴스.
@@ -71,6 +99,8 @@ export class MoaiApiError extends Error {
  * timeout:  10,000ms (10초). 이 시간 안에 응답이 없으면 ECONNABORTED 에러 발생.
  * headers:  JSON 통신이 기본. SSE / WebSocket 은 axios 가 아닌 EventSource /
  *           WebSocket 을 직접 사용하므로 여기 헤더가 적용되지 않는다.
+ * transformResponse: axios 기본 JSON.parse 이후 deepCamelCase 를 체이닝한다.
+ *   → 성공·오류 응답 모두 JSON 파싱 직후 변환되므로 인터셉터보다 먼저 실행된다.
  */
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -78,6 +108,10 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  transformResponse: ([] as AxiosResponseTransformer[]).concat(
+    axios.defaults.transformResponse ?? [],  // 기본 JSON.parse
+    (data: unknown) => deepCamelCase(data),  // snake_case → camelCase
+  ),
 })
 
 // ── 토큰 갱신 상태 관리 ───────────────────────────────────────────────────────
