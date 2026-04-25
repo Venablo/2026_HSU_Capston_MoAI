@@ -109,16 +109,6 @@ export default function LoginPage() {
         }
     }
 
-    // [DEV ONLY] Bypass login to allow frontend testing without backend connection.
-    // import.meta.env.DEV is replaced with `false` at production build time,
-    // so this function and the button below are fully tree-shaken out of the bundle.
-    const handleDevBypass = import.meta.env.DEV
-        ? () => {
-            localStorage.setItem('accessToken', 'dev-bypass-token')
-            navigate('/main')
-        }
-        : undefined
-
     const FEATURES: Feature[] = [
         { icon: <Eye  size={24} strokeWidth={1.5} />, label: '행동 분석\n능동 가이드' },
         { icon: <Mic  size={24} strokeWidth={1.5} />, label: 'AI 대상\n거꾸로 학습'  },
@@ -227,25 +217,6 @@ export default function LoginPage() {
                             회원가입하기 →
                         </button>
 
-                        {/* [DEV ONLY] 백엔드 없이 UI 테스트용 — 프로덕션 빌드에서 자동 제거 */}
-                        {import.meta.env.DEV && (
-                            <button
-                                onClick={handleDevBypass}
-                                style={{
-                                    marginTop: '8px',
-                                    width: '100%',
-                                    padding: '9px',
-                                    borderRadius: '8px',
-                                    border: '1px dashed #6b7280',
-                                    background: 'transparent',
-                                    color: '#9ca3af',
-                                    fontSize: '12px',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                Dev Bypass Login
-                            </button>
-                        )}
                     </div>
                 </div>
             </div>
