@@ -137,7 +137,7 @@ api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // localStorage 에서 현재 유효한 accessToken 을 읽는다
     const accessToken = localStorage.getItem(TOKEN_KEYS.accessToken)
-
+      console.log("보내려는 토큰:", accessToken);
     if (accessToken) {
       // 스펙 명세: Authorization: Bearer {accessToken}
       // 모든 JWT 필요 엔드포인트에 자동 첨부됨 (41개 중 38개)
