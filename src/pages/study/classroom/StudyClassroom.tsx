@@ -393,11 +393,29 @@ function StudyClassroomContent() {
                                 <MessageSquare size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                 퀴즈 내역
                             </div>
-                            {quizLoading ? <TabLoading /> :
-                            quizAttempts === null ? null :
-                            quizAttempts.length === 0
-                                ? <TabEmpty message="아직 퀴즈 내역이 없습니다." />
-                                : quizAttempts.map((item, i) => (
+                            {quizLoading ? <TabLoading /> : (() => {
+                                // Defensive: treat non-array (wrapped response) as empty
+                                const list = Array.isArray(quizAttempts) ? quizAttempts : []
+                                if (quizAttempts === null) return null
+                                if (list.length === 0) return (
+                                    <div style={{ padding: '24px 0' }}>
+                                        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+                                            아직 퀴즈 내역이 없습니다.
+                                        </p>
+                                        <button
+                                            onClick={() => setTab('docs')}
+                                            style={{
+                                                fontSize: '12px', padding: '6px 14px',
+                                                borderRadius: '6px', border: '1px solid var(--color-purple-300)',
+                                                background: 'transparent', color: 'var(--color-purple-600)',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ← 학습으로 돌아가기
+                                        </button>
+                                    </div>
+                                )
+                                return list.map((item, i) => (
                                     <div key={item.attemptId} className="classroom__quiz-row">
                                         <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
                                         <div className="classroom__quiz-result-row">
@@ -407,7 +425,7 @@ function StudyClassroomContent() {
                                         </div>
                                     </div>
                                 ))
-                            }
+                            })()}
                         </div>
                     )}
                 </div>

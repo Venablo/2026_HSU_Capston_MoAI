@@ -80,7 +80,6 @@ export default function OnboardingWizard({ onClose }: Props) {
     // 사용자 선택 값
     const [goal,        setGoal]        = useState('')
     const [customGoal,  setCustomGoal]  = useState('')
-    const [youtubeUrl,  setYoutubeUrl]  = useState('')
     const [level,       setLevel]       = useState(1)
     const [duration,    setDuration]    = useState('10주')
     const [intensity,   setIntensity]   = useState('하루 3시간')
@@ -145,20 +144,19 @@ export default function OnboardingWizard({ onClose }: Props) {
             level:          LEVEL_MAP[level],
             duration_weeks: parseWeeks(duration),
             hours_per_day:  HOURS_MAP[intensity] ?? 1,
-            ...(youtubeUrl.trim() && { youtube_url: youtubeUrl.trim() }),
         }
 
         try {
-            // POST /api/learning-rooms
-            // 백엔드에서 LLM 커리큘럼 생성 + YouTube 추천 + 자막 스크래핑이 수행됨
-            // → 응답에 roomId가 포함됨
-            const { roomId } = await createLearningRoom(body)
+            const result = await createLearningRoom(body)
+            console.log('[createLearningRoom] response:', JSON.stringify(result, null, 2))
 
             stopLoadingMessages()
             onClose()
-            // 생성된 학습실 교실 화면으로 이동
-            navigate(`/study/${roomId}/classroom`)
-        } catch {
+            // AI content is generated asynchronously on the backend.
+            // Navigate to My Studies so the user can enter the room once it is ready.
+            navigate('/my-studies')
+        } catch (err) {
+            console.error('[createLearningRoom] error:', err)
             stopLoadingMessages()
             setCreating(false)
             setError('학습실 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
@@ -285,15 +283,6 @@ export default function OnboardingWizard({ onClose }: Props) {
                                 onChange={e => { setCustomGoal(e.target.value); if (e.target.value) setGoal('') }}
                             />
 
-                            <div className="wizard__custom-label" style={{ marginTop: '16px' }}>
-                                YouTube 강의 URL (선택)
-                            </div>
-                            <input
-                                className="wizard__input"
-                                placeholder="https://www.youtube.com/watch?v=..."
-                                value={youtubeUrl}
-                                onChange={e => setYoutubeUrl(e.target.value)}
-                            />
                         </div>
                     )}
 

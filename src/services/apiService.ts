@@ -307,13 +307,12 @@ export async function getLearningRooms(): Promise<LearningRoomListItem[]> {
  * @param roomId - 학습실 고유 ID (예: "r1000000-0000-0000-0000-000000000001")
  */
 export async function getCurriculum(roomId: string): Promise<CurriculumWeekSummary[]> {
-  // 학습실 Week 드롭다운 데이터 조회. 전체 주차 목록과 각 주차 completionRate 반환.
   const raw = await unwrap(api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum`))
-  console.log('getCurriculum raw:', JSON.stringify(raw, null, 2))
+  console.log('[getCurriculum] raw response:', JSON.stringify(raw, null, 2))
   if (Array.isArray(raw)) return raw as CurriculumWeekSummary[]
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>
-    for (const key of ['curriculum', 'weeks', 'items', 'content', 'data']) {
+    for (const key of ['weeklyCurriculums', 'curriculums', 'weeks', 'curriculum', 'content', 'items']) {
       if (Array.isArray(obj[key])) return obj[key] as CurriculumWeekSummary[]
     }
   }
@@ -333,15 +332,16 @@ export async function getCurriculum(roomId: string): Promise<CurriculumWeekSumma
  * @param weekId - 주차 ID (예: "w3000000-0000-0000-0000-000000000002")
  */
 export async function getCurriculumWeek(roomId: string, weekId: string): Promise<CurriculumWeekDetail> {
-  // 학습실 진입 시 가장 먼저 호출. topic·description·keywords·mainVideoId 등 주차 세부 정보 반환.
   const raw = await unwrap(
     api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}`),
   )
-  console.log('getCurriculumWeek raw:', JSON.stringify(raw, null, 2))
-  // 백엔드가 { week: {...} } 또는 { data: {...} } 형태로 감쌀 경우 언래핑
-  if (raw && typeof raw === 'object') {
+  console.log('[getCurriculumWeek] raw response:', JSON.stringify(raw, null, 2))
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>
-    for (const key of ['week', 'curriculum', 'data']) {
+    // If the object itself looks like CurriculumWeekDetail, return it directly
+    if ('weekId' in obj || 'weekNumber' in obj) return obj as unknown as CurriculumWeekDetail
+    // Otherwise try common server-side wrapper keys
+    for (const key of ['week', 'weekDetail', 'curriculum', 'data']) {
       if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
         return obj[key] as CurriculumWeekDetail
       }
@@ -438,12 +438,18 @@ export async function getMaterialDetail(roomId: string, materialId: string): Pro
  * attemptedAt 은 ISO 8601 형식이므로 프론트에서 "1분 전", "1시간 전" 등으로 변환한다.
  */
 export async function getQuizAttempts(roomId: string, weekId: string): Promise<QuizAttemptListItem[]> {
-  // 주차별(weekId) 퀴즈 응시 이력을 가져와서 화면 하단 탭에 표시.
-  return unwrap(
-    api.get<ApiResponse<QuizAttemptListItem[]>>(
-      `/api/learning-rooms/${roomId}/curriculum/${weekId}/quiz-attempts`,
-    ),
+  const raw = await unwrap(
+    api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}/quiz-attempts`),
   )
+  console.log('[getQuizAttempts] raw response:', JSON.stringify(raw, null, 2))
+  if (Array.isArray(raw)) return raw as QuizAttemptListItem[]
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    for (const key of ['quizAttempts', 'attempts', 'items', 'content']) {
+      if (Array.isArray(obj[key])) return obj[key] as QuizAttemptListItem[]
+    }
+  }
+  return []
 }
 
 /**
