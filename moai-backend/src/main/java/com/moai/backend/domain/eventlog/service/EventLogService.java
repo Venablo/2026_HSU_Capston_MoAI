@@ -61,6 +61,10 @@ public class EventLogService {
         // 이벤트 타입별 분기 처리
         return switch (request.getEventType()) {
             case "video_rewind" -> handleRewind(user, room, curriculum, videoId, payload, payloadJson);
+            case "video_pause" -> handleMaterialTrigger(user, room, curriculum, videoId, payloadJson,
+                    "video_pause", extractDouble(payload, "pause_start_sec"));
+            case "tab_departure" -> handleMaterialTrigger(user, room, curriculum, videoId, payloadJson,
+                    "tab_departure", extractDouble(payload, "departure_sec"));
             case "video_skip" -> handleSkip(user, room, curriculum, videoId, payload, payloadJson);
             case "video_speed_up" -> handleSpeedUp(user, room, curriculum, videoId, payload, payloadJson);
             default -> throw new CustomException(ErrorCode.EVENT_UNSUPPORTED_TYPE);
@@ -91,6 +95,21 @@ public class EventLogService {
         return EventResponseDto.builder()
                 .aiTriggered(true)
                 .eventType("video_rewind")
+                .extractedKeywords(processResult.extractedKeywords())
+                .materialId(processResult.materialId())
+                .build();
+    }
+
+    private EventResponseDto handleMaterialTrigger(User user, LearningRoom room,
+                                                   WeeklyCurriculum curriculum, String videoId,
+                                                   String payloadJson, String eventType,
+                                                   double triggerSec) {
+        RewindProcessResult processResult = eventProcessingService.processRewindPattern(
+                user, room, curriculum, videoId, triggerSec, payloadJson);
+
+        return EventResponseDto.builder()
+                .aiTriggered(true)
+                .eventType(eventType)
                 .extractedKeywords(processResult.extractedKeywords())
                 .materialId(processResult.materialId())
                 .build();

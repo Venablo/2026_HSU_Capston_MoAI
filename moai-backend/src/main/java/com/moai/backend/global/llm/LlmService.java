@@ -35,7 +35,7 @@ public class LlmService {
     private String model;
 
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
-            "```(?:json)?\\s*\\n?(.*?)\\n?\\s*```", Pattern.DOTALL
+            "```(?:json)?\\s*\\n?(.*)\\n?\\s*```", Pattern.DOTALL
     );
 
     /**
@@ -170,13 +170,23 @@ public class LlmService {
 
     /**
      * 마크다운 코드블록(```json ... ``` 또는 ``` ... ```)을 제거하고 내부 JSON만 반환한다.
-     * 코드블록이 없으면 원본 텍스트를 그대로 반환한다.
+     * 코드블록이 없어도 선행/후행 텍스트를 제거하여 JSON 객체/배열만 추출한다.
      */
     private String stripCodeBlock(String text) {
-        Matcher matcher = CODE_BLOCK_PATTERN.matcher(text.trim());
+        String trimmed = text.trim();
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(trimmed);
         if (matcher.find()) {
-            return matcher.group(1).trim();
+            trimmed = matcher.group(1).trim();
         }
-        return text.trim();
+        // Preamble/postamble 텍스트를 제거하고 최외곽 JSON 객체/배열만 추출한다.
+        int objStart = trimmed.indexOf('{');
+        int arrStart = trimmed.indexOf('[');
+        if (objStart == -1 && arrStart == -1) return trimmed;
+        boolean useObj = arrStart == -1 || (objStart != -1 && objStart < arrStart);
+        int start = useObj ? objStart : arrStart;
+        char closeChar = useObj ? '}' : ']';
+        int end = trimmed.lastIndexOf(closeChar);
+        if (end > start) return trimmed.substring(start, end + 1);
+        return trimmed;
     }
 }

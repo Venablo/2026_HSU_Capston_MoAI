@@ -7,6 +7,7 @@ import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moai.backend.domain.quiz.dto.FinalQuizResponseDto;
 import com.moai.backend.domain.quiz.dto.FinalQuizSubmitRequestDto;
@@ -229,12 +230,12 @@ public class QuizService {
     }
 
     private FinalQuizResponseDto generateFinalQuiz(WeeklyCurriculum curriculum) {
-        String keywordsStr = String.join(", ", curriculum.getKeywords());
+        List<String> keywords = curriculumKeywordsOrTopic(curriculum);
 
         String userMessage = String.format(
-                "{\"curriculum_topic\":\"%s\",\"week_number\":%d,\"key_concepts\":[%s]}",
-                curriculum.getTopic(), (int) curriculum.getWeekNumber(),
-                curriculum.getKeywords().stream().map(k -> "\"" + k.replace("\"", "\\\"") + "\"").collect(java.util.stream.Collectors.joining(","))
+                "{\"curriculum_topic\":%s,\"week_number\":%d,\"key_concepts\":[%s]}",
+                quoteJson(curriculum.getTopic()), (int) curriculum.getWeekNumber(),
+                keywords.stream().map(this::quoteJson).collect(java.util.stream.Collectors.joining(","))
         );
 
         String systemPrompt = """
@@ -280,6 +281,9 @@ public class QuizService {
                 .build();
 
         LlmFinalQuizResult result = llmService.callJson(llmRequest, LlmFinalQuizResult.class);
+        if (result == null || result.getQuestions() == null || result.getQuestions().isEmpty()) {
+            throw new IllegalStateException("파이널 퀴즈 생성 응답이 비어있습니다");
+        }
 
         // Quiz INSERT
         Quiz quiz = Quiz.builder()
@@ -306,6 +310,19 @@ public class QuizService {
         }
 
         return buildFinalQuizResponse(quiz, questions);
+    }
+
+    private List<String> curriculumKeywordsOrTopic(WeeklyCurriculum curriculum) {
+        if (curriculum.getKeywords() != null && !curriculum.getKeywords().isEmpty()) {
+            return curriculum.getKeywords();
+        }
+
+        String topic = curriculum.getTopic();
+        if (topic != null && !topic.isBlank()) {
+            return List.of(topic);
+        }
+
+        return List.of("핵심 개념");
     }
 
     private FinalQuizResponseDto buildFinalQuizResponse(Quiz quiz, List<QuizQuestion> questions) {
@@ -374,6 +391,7 @@ public class QuizService {
 
             int totalScore = 0;
             List<Map<String, Object>> questionResults = new ArrayList<>();
+            List<String> curriculumKeywords = curriculumKeywordsOrTopic(curriculum);
             // radarData 생성용 요약 수집
             StringBuilder gradingSummary = new StringBuilder();
 
@@ -383,7 +401,7 @@ public class QuizService {
 
                 // LLM 서술형 채점 (커리큘럼 키워드 제약)
                 LlmEssayGradingResult grading = gradeEssayQuestion(
-                        question, answerItem.getAnswer(), curriculum.getKeywords());
+                        question, answerItem.getAnswer(), curriculumKeywords);
 
                 boolean isCorrect = grading.getScore() >= 12;
 
@@ -416,6 +434,7 @@ public class QuizService {
                 questionResult.put("isCorrect", isCorrect);
                 questionResult.put("myAnswer", answerItem.getAnswer());
                 questionResult.put("gainedKeywords", grading.getGainedKeywords());
+                questionResult.put("weakKeywords", grading.getWeaknessKeywords());
                 questionResult.put("missingKeywords", grading.getWeaknessKeywords());
                 questionResult.put("aiComment", grading.getAiComment());
                 questionResults.add(questionResult);
@@ -441,8 +460,21 @@ public class QuizService {
 
         } catch (JsonProcessingException e) {
             log.error("파이널 퀴즈 리포트 JSON 직렬화 실패", e);
+            markReportFailed(reportId);
         } catch (Exception e) {
             log.error("파이널 퀴즈 비동기 채점 실패: reportId={}", reportId, e);
+            markReportFailed(reportId);
+        }
+    }
+
+    private void markReportFailed(String reportId) {
+        try {
+            quizReportRepository.findById(reportId).ifPresent(r -> {
+                r.fail();
+                quizReportRepository.save(r);
+            });
+        } catch (Exception ex) {
+            log.error("채점 실패 상태 저장 실패: reportId={}", reportId, ex);
         }
     }
 
@@ -577,7 +609,51 @@ public class QuizService {
                 .userMessage(userMessage)
                 .build();
 
-        return llmService.call(request).getContent().trim();
+        try {
+            String raw = llmService.call(request).getContent().trim();
+            return normalizeRadarDataJson(raw, totalScore);
+        } catch (Exception e) {
+            log.warn("Radar data generation failed. Using fallback. totalScore={}", totalScore, e);
+            return fallbackRadarDataJson(totalScore);
+        }
+    }
+
+    private String normalizeRadarDataJson(String raw, int totalScore) throws JsonProcessingException {
+        JsonNode node = objectMapper.readTree(extractJsonObject(raw));
+        Map<String, Integer> radar = new LinkedHashMap<>();
+        radar.put("개념이해도", clampRadarValue(node.path("개념이해도").asInt(totalScore)));
+        radar.put("적용력", clampRadarValue(node.path("적용력").asInt(totalScore)));
+        radar.put("논리력", clampRadarValue(node.path("논리력").asInt(totalScore)));
+        radar.put("키워드적중률", clampRadarValue(node.path("키워드적중률").asInt(totalScore)));
+        return objectMapper.writeValueAsString(radar);
+    }
+
+    private String extractJsonObject(String text) {
+        int start = text == null ? -1 : text.indexOf('{');
+        int end = text == null ? -1 : text.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return text.substring(start, end + 1);
+        }
+        return text == null ? "{}" : text;
+    }
+
+    private int clampRadarValue(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
+    private String fallbackRadarDataJson(int totalScore) {
+        Map<String, Integer> radar = new LinkedHashMap<>();
+        int score = clampRadarValue(totalScore);
+        radar.put("개념이해도", score);
+        radar.put("적용력", score);
+        radar.put("논리력", score);
+        radar.put("키워드적중률", score);
+
+        try {
+            return objectMapper.writeValueAsString(radar);
+        } catch (JsonProcessingException e) {
+            return "{\"개념이해도\":0,\"적용력\":0,\"논리력\":0,\"키워드적중률\":0}";
+        }
     }
 
     private void resolveAndPromoteKeywords(User user, LearningRoom room,
@@ -676,21 +752,60 @@ public class QuizService {
                     .build();
         }
 
-        // completed — radarData/questions는 raw JSON이므로 Object로 역직렬화
-        try {
-            Object radarData = objectMapper.readValue(report.getRadarData(), Object.class);
-            Object questions = objectMapper.readValue(report.getQuestions(), Object.class);
-
+        if ("failed".equals(report.getStatus())) {
             return QuizReportResponseDto.builder()
-                    .status(report.getStatus())
-                    .finalScore(report.getFinalScore())
-                    .radarData(radarData)
-                    .questions(questions)
+                    .status("failed")
                     .build();
-        } catch (JsonProcessingException e) {
-            log.error("QuizReport JSON 역직렬화 실패: reportId={}", report.getId(), e);
-            throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
         }
+
+        Object radarData = readRadarData(report);
+        Object questions = readQuestions(report);
+
+        return QuizReportResponseDto.builder()
+                .status(report.getStatus())
+                .finalScore(report.getFinalScore())
+                .radarData(radarData)
+                .questions(questions)
+                .build();
+    }
+
+    private Object readRadarData(QuizReport report) {
+        try {
+            if (report.getRadarData() != null && !report.getRadarData().isBlank()) {
+                return objectMapper.readValue(report.getRadarData(), Object.class);
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("QuizReport radarData parse failed. Using fallback. reportId={}", report.getId(), e);
+        }
+
+        try {
+            return objectMapper.readValue(fallbackRadarDataJson(reportScoreAsInt(report)), Object.class);
+        } catch (JsonProcessingException e) {
+            Map<String, Integer> fallback = new LinkedHashMap<>();
+            fallback.put("개념이해도", 0);
+            fallback.put("적용력", 0);
+            fallback.put("논리력", 0);
+            fallback.put("키워드적중률", 0);
+            return fallback;
+        }
+    }
+
+    private Object readQuestions(QuizReport report) {
+        try {
+            if (report.getQuestions() != null && !report.getQuestions().isBlank()) {
+                return objectMapper.readValue(report.getQuestions(), Object.class);
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("QuizReport questions parse failed. Returning empty questions. reportId={}", report.getId(), e);
+        }
+        return List.of();
+    }
+
+    private int reportScoreAsInt(QuizReport report) {
+        if (report.getFinalScore() == null) {
+            return 0;
+        }
+        return clampRadarValue(report.getFinalScore().setScale(0, RoundingMode.HALF_UP).intValue());
     }
 
     /**

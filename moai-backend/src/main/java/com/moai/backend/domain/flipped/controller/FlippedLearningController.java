@@ -4,15 +4,18 @@ import com.moai.backend.domain.flipped.dto.*;
 import com.moai.backend.domain.flipped.service.FlippedLearningService;
 import com.moai.backend.global.common.ApiResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/learning-rooms/{roomId}/flipped")
@@ -36,11 +39,14 @@ public class FlippedLearningController {
                 .body(ApiResponse.success("거꾸로 학습 세션이 시작되었습니다.", responseDto));
     }
 
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String roomId,
-            @Valid @RequestBody FlippedStreamRequestDto requestDto) {
+            @NotBlank @RequestParam("sessionId") String sessionId,
+            @NotBlank @RequestParam("message") String message) {
+
+        FlippedStreamRequestDto requestDto = FlippedStreamRequestDto.of(sessionId, message);
 
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
 

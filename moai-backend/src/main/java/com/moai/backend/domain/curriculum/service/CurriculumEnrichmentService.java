@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -143,83 +144,82 @@ public class CurriculumEnrichmentService {
                 keywords != null ? keywords.size() + "개" : "추출 실패");
     }
 
-    // --- Step A: LLM YouTube 영상 추천 ---
+    // --- Step A: Algorithmic YouTube 영상 추천 ---
 
     private YoutubeApiService.VideoMeta recommendVideo(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
-        try {
-            String systemPrompt = """
-                    당신은 MoAI 학습 플랫폼의 한국어 YouTube 교육 영상 큐레이션 전문가입니다.
+        if (!youtubeApiService.isEnabled()) return null;
 
-                    주어진 학습 주제와 주차 맥락에 가장 잘 부합하는 실제 한국어 교육 영상 video_id 1개를 추천하세요.
+        String subject = nullSafe(context.subject()).trim();
+        String topic = curriculum.getTopic() != null ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim() : "";
+        String fullBase = (subject + " " + topic).replaceAll("\\s+", " ").trim();
+        String searchQuery = nullSafe(context.youtubeSearchQuery());
 
-                    ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
-                    {"video_id": "영상ID", "title": "영상 제목"}
-
-                    ■ 필수 규칙:
-                    1. 실제 존재하는 한국어 교육 영상만 추천 (광고/예능 제외)
-                    2. 11자 YouTube video_id만 반환 (URL 전체 금지)
-                    3. 주차 학습 목표/핵심 키워드/추천 검색어를 종합적으로 고려
-                    """;
-
-            String objectives = joinLines(context.learningObjectives());
-            String keyConcepts = joinCsv(context.keyConcepts());
-            String searchQuery = nullSafe(context.youtubeSearchQuery());
-            String summary = nullSafe(context.weeklySummary());
-
-            String userMessage = String.format(
-                    "과목: %s\n난이도: %s\n학습 주제: %s\n주차 요약: %s\n핵심 키워드: %s\n학습 목표:\n%s\n추천 검색어: %s",
-                    nullSafe(context.subject()),
-                    nullSafe(context.level()),
-                    curriculum.getTopic(),
-                    summary,
-                    keyConcepts,
-                    objectives,
-                    searchQuery
-            );
-
-            LlmRequestDto request = LlmRequestDto.builder()
-                    .systemPrompt(systemPrompt)
-                    .userMessage(userMessage)
-                    .build();
-
-            LlmVideoResponse response = llmService.callJson(request, LlmVideoResponse.class);
-            return verifyOrSearchVideoId(curriculum, context, response.getVideoId(), response.getTitle());
-        } catch (Exception e) {
-            log.warn("[{}주차] LLM 영상 추천 실패: {}", curriculum.getWeekNumber(), e.getMessage());
-            return null;
-        }
-    }
-
-    private YoutubeApiService.VideoMeta verifyOrSearchVideoId(
-            WeeklyCurriculum curriculum, WeekEnrichmentContext context,
-            String llmVideoId, String llmTitle) {
-
-        if (!youtubeApiService.isEnabled()) {
-            if (llmVideoId == null || llmVideoId.isBlank()) return null;
-            String title = (llmTitle != null && !llmTitle.isBlank()) ? llmTitle : curriculum.getTopic();
-            return new YoutubeApiService.VideoMeta(llmVideoId, title, null, true, null, null);
+        List<String> queries = new ArrayList<>();
+        if (!searchQuery.isBlank()) queries.add(searchQuery);
+        if (!fullBase.isBlank()) {
+            queries.add(fullBase + " 개념 강의");
+            queries.add(fullBase);
         }
 
-        if (llmVideoId != null && !llmVideoId.isBlank()) {
-            var verified = youtubeApiService.verifyVideo(llmVideoId);
-            if (verified.isPresent()) {
-                return verified.get();
+        Pattern problemPattern = Pattern.compile("기출|문제|문제풀이|풀이|해설|모의고사|예상문제|암기법|벼락치기|합격후기|공부법|shorts|쇼츠", Pattern.CASE_INSENSITIVE);
+        Pattern metaPattern = Pattern.compile("시험 정보|응시자격|공부법|합격 전략|빠르게 요약|초단기|한방 정리|오리엔테이션", Pattern.CASE_INSENSITIVE);
+        Pattern conceptPattern = Pattern.compile("강의|개념|이론|원리|기초|입문|정리|소프트웨어 설계|객체지향|데이터베이스|정규화|프로그래밍 언어|운영체제|네트워크|보안", Pattern.CASE_INSENSITIVE);
+
+        List<YoutubeApiService.VideoMeta> allCandidates = new ArrayList<>();
+        for (String query : queries) {
+            if (query.isBlank()) continue;
+            var results = youtubeApiService.searchVideos(query, 6);
+            allCandidates.addAll(results);
+            if (!results.isEmpty() && allCandidates.size() >= 10) break;
+        }
+
+        YoutubeApiService.VideoMeta bestVideo = null;
+        int bestScore = -9999;
+
+        for (YoutubeApiService.VideoMeta video : allCandidates) {
+            String title = video.title() != null ? video.title() : "";
+            if (problemPattern.matcher(title).find()) continue;
+            if (metaPattern.matcher(title).find()) continue;
+
+            int score = 0;
+            long duration = video.durationSec() != null ? video.durationSec() : 0;
+            
+            // Duration constraints from V15 logic
+            if (duration >= 1200 && duration <= 7200) {
+                score += 15;
+            } else if (duration >= 600) {
+                score += 5;
+            } else if (duration < 180) {
+                score -= 15;
             }
-            log.info("[{}주차] LLM 추천 videoId 검증 실패 ({}), 검색 폴백 시도",
-                    curriculum.getWeekNumber(), llmVideoId);
+
+            if (conceptPattern.matcher(title).find()) {
+                score += 10;
+            }
+
+            String titleLower = title.toLowerCase();
+            if (!subject.isBlank() && titleLower.contains(subject.toLowerCase())) score += 5;
+            
+            for (String part : topic.split("[\\s,]+")) {
+                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) {
+                    score += 5;
+                }
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestVideo = video;
+            }
         }
 
-        String query = nullSafe(context.youtubeSearchQuery());
-        if (query.isBlank()) query = curriculum.getTopic();
-        var candidates = youtubeApiService.searchVideos(query, 5);
-        if (!candidates.isEmpty()) {
-            return candidates.get(0);
+        if (bestVideo != null && bestScore >= 0) {
+            log.info("[{}주차] 유튜브 매칭 성공: {} (score: {})", curriculum.getWeekNumber(), bestVideo.title(), bestScore);
+            return bestVideo;
         }
 
-        // 모든 API 시도 실패 → LLM 결과를 메타 없이 그대로 사용
-        if (llmVideoId == null || llmVideoId.isBlank()) return null;
-        String title = (llmTitle != null && !llmTitle.isBlank()) ? llmTitle : curriculum.getTopic();
-        return new YoutubeApiService.VideoMeta(llmVideoId, title, null, true, null, null);
+        // 1차 필터(길이/문제풀이 등)를 통과하지 못했을 경우의 폴백
+        log.info("[{}주차] 엄격한 유튜브 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
+        return allCandidates.isEmpty() ? null : allCandidates.get(0);
     }
 
     // --- Step C: LLM 키워드 추출 ---
@@ -294,17 +294,21 @@ public class CurriculumEnrichmentService {
         String s3Directory = "materials/" + curriculum.getRoom().getId();
         String fileBaseName = curriculum.getId();
 
-        // 2. PDF 생성 → S3 업로드
+        // 2. Markdown 생성 → S3 업로드
         try {
-            byte[] pdfBytes = materialGeneratorService.generatePdf(content);
-            String pdfUrl = s3Service.upload(
-                    s3Directory, fileBaseName + ".pdf", pdfBytes, "application/pdf"
+            byte[] mdBytes = materialGeneratorService.generateMarkdown(content);
+            String mdUrl = s3Service.upload(
+                    s3Directory, fileBaseName + ".md", mdBytes, "text/markdown"
             );
-            String pdfSize = formatFileSize(pdfBytes.length);
-            resources.add(new CurriculumResource("pdf", null, materialTitle, pdfUrl, pdfSize, null, null));
-            log.info("[{}주차] PDF 업로드 완료 — size: {}", curriculum.getWeekNumber(), pdfSize);
+            String mdSize = formatFileSize(mdBytes.length);
+            if (mdUrl != null) {
+                resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null));
+                log.info("[{}주차] Markdown 업로드 완료 — size: {}", curriculum.getWeekNumber(), mdSize);
+            } else {
+                log.info("[{}주차] Markdown 생성 완료 ({}) — S3 비활성화로 저장 스킵", curriculum.getWeekNumber(), mdSize);
+            }
         } catch (Exception e) {
-            log.warn("[{}주차] PDF 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] Markdown 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());
         }
 
         // 3. resources JSON 업데이트 — PDF 추가 여부와 관계없이 항상 DB에 저장

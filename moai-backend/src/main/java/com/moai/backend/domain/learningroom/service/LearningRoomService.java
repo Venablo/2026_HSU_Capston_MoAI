@@ -5,11 +5,21 @@ import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService.WeekEnrichmentContext;
+import com.moai.backend.domain.eventlog.repository.LearningEventLogRepository;
+import com.moai.backend.domain.flipped.repository.AiInteractionRepository;
+import com.moai.backend.domain.flipped.repository.FlippedSessionRepository;
+import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateRequestDto;
 import com.moai.backend.domain.learningroom.dto.LearningRoomCreateResponseDto;
 import com.moai.backend.domain.learningroom.dto.LearningRoomListResponseDto;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
+import com.moai.backend.domain.material.repository.CustomMaterialRepository;
+import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
+import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
+import com.moai.backend.domain.quiz.repository.QuizReportRepository;
+import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
@@ -20,14 +30,21 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -40,6 +57,19 @@ public class LearningRoomService {
     private final UserRepository userRepository;
     private final LlmService llmService;
     private final CurriculumEnrichmentService curriculumEnrichmentService;
+    private final QuizAttemptRepository quizAttemptRepository;
+    private final QuizQuestionRepository quizQuestionRepository;
+    private final QuizReportRepository quizReportRepository;
+    private final QuizRepository quizRepository;
+    private final VideoTranscriptRepository videoTranscriptRepository;
+    private final LearningEventLogRepository learningEventLogRepository;
+    private final AiInteractionRepository aiInteractionRepository;
+    private final FlippedSessionRepository flippedSessionRepository;
+    private final UserKeywordRepository userKeywordRepository;
+    private final CustomMaterialRepository customMaterialRepository;
+
+    @Value("${moai.files.local-root:../data}")
+    private String localFileRoot;
 
     public List<LearningRoomListResponseDto> getMyRooms(String email) {
         User user = userRepository.findByEmail(email)
@@ -126,6 +156,80 @@ public class LearningRoomService {
                 .durationWeeks(room.getDurationWeeks())
                 .curriculum(summaries)
                 .build();
+    }
+
+    @Transactional
+    public void deleteRoom(String email, String roomId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        LearningRoom room = learningRoomRepository.findByIdAndUserId(roomId, user.getId())
+                .orElseThrow(() -> new CustomException(ErrorCode.LEARNING_ROOM_NOT_FOUND));
+
+        List<String> curriculumIds = weeklyCurriculumRepository.findIdsByRoomIdOrderByWeekNumber(roomId);
+
+        if (!curriculumIds.isEmpty()) {
+            // 1. 퀴즈 응시 → 퀴즈 문항 → 퀴즈 리포트 → 퀴즈 (FK 순서대로 삭제)
+            quizAttemptRepository.deleteByCurriculumIdIn(curriculumIds);
+            quizReportRepository.deleteByCurriculumIdIn(curriculumIds);
+            quizQuestionRepository.deleteByCurriculumIdIn(curriculumIds);
+            quizRepository.deleteByCurriculumIdIn(curriculumIds);
+
+            // 2. 자막, 이벤트 로그
+            videoTranscriptRepository.deleteByCurriculumIdIn(curriculumIds);
+            learningEventLogRepository.deleteByCurriculumIdIn(curriculumIds);
+        }
+
+        // 3. 거꾸로 학습 세션 및 AI 인터랙션 (roomId 기준)
+        aiInteractionRepository.deleteByRoomId(roomId);
+        flippedSessionRepository.deleteByRoomId(roomId);
+
+        // 4. 사용자 키워드 (roomId 기준)
+        userKeywordRepository.deleteByRoomId(roomId);
+
+        customMaterialRepository.deleteByRoomId(roomId);
+
+        // 5. 주차 커리큘럼 → 학습실
+        weeklyCurriculumRepository.deleteByRoomId(roomId);
+        learningRoomRepository.delete(room);
+        deleteLocalMaterialFilesAfterCommit(roomId);
+
+        log.info("학습실 삭제 완료: roomId={}, email={}", roomId, email);
+    }
+
+    private void deleteLocalMaterialFilesAfterCommit(String roomId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteLocalMaterialFiles(roomId);
+                }
+            });
+            return;
+        }
+
+        deleteLocalMaterialFiles(roomId);
+    }
+
+    private void deleteLocalMaterialFiles(String roomId) {
+        Path baseDir = Paths.get(localFileRoot).toAbsolutePath().normalize();
+        Path materialDir = baseDir.resolve("materials").resolve(roomId).normalize();
+
+        if (!materialDir.startsWith(baseDir) || !Files.exists(materialDir)) {
+            return;
+        }
+
+        try (Stream<Path> paths = Files.walk(materialDir)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    log.warn("Failed to delete local material file: {}", path, e);
+                }
+            });
+        } catch (IOException e) {
+            log.warn("Failed to delete local material directory: {}", materialDir, e);
+        }
     }
 
     private P1CurriculumResponse generateCurriculum(String subject, String level,

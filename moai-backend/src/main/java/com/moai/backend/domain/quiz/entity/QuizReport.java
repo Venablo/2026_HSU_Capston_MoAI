@@ -91,4 +91,9 @@ public class QuizReport {
         this.status = "completed";
         this.completedAt = LocalDateTime.now();
     }
+
+    public void fail() {
+        this.status = "failed";
+        this.completedAt = LocalDateTime.now();
+    }
 }

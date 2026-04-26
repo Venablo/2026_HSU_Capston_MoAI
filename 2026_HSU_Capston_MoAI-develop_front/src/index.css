@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ── */
+:root {
+    --color-purple-50:  #f5f3ff;
+    --color-purple-100: #ede9fe;
+    --color-purple-200: #ddd6fe;
+    --color-purple-400: #a78bfa;
+    --color-purple-500: #8b5cf6;
+    --color-purple-600: #7c3aed;
+    --color-purple-700: #6d28d9;
+    --color-purple-800: #5b21b6;
+    --color-bg-app:     #f5f0ff;
+    --color-bg-sidebar: #ffffff;
+    --color-border:     #ede9fe;
+    --color-text-primary:   #1f2937;
+    --color-text-secondary: #6b7280;
+    --color-text-muted:     #9ca3af;
+    --sidebar-width: 220px;
+    --topbar-height: 80px;
+    --radius-sm:  8px;
+    --radius-md:  12px;
+    --radius-lg:  16px;
+    --radius-xl:  20px;
+    --radius-2xl: 24px;
+    --shadow-card: 0 12px 32px rgba(109, 40, 217, 0.1);
+    --shadow-btn:  0 8px 24px rgba(91, 33, 182, 0.3);
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ── Dark mode tokens ── */
+.dark {
+    --color-bg-app:     #0f0e17;
+    --color-bg-sidebar: #1a1827;
+    --color-border:     #2d2b3d;
+    --color-surface:    #1a1827;
+    --color-text-primary:   #f1f0f7;
+    --color-text-secondary: #a09cb8;
+    --color-text-muted:     #6b6880;
+    --color-purple-50:  #1e1a2e;
+    --color-purple-100: #2a2248;
+    --color-purple-200: #3b2f6a;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--color-bg-app);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-purple-400); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-purple-500); }
+
+@keyframes fadeIn  { from { opacity:0; transform:translateY(8px);  } to { opacity:1; transform:translateY(0); } }
+@keyframes slideUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scaleIn { from { opacity:0; transform:scale(0.95);      } to { opacity:1; transform:scale(1);    } }
+/* Toast 알림 진입 애니메이션 — Toast.tsx 에서 사용 */
+@keyframes toastIn { from { opacity:0; transform:translateX(-50%) translateY(-12px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+
+.animate-fade-in  { animation: fadeIn  0.4s  ease both; }
+.animate-slide-up { animation: slideUp 0.45s ease both; }
+.animate-scale-in { animation: scaleIn 0.35s ease both; }
+
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }

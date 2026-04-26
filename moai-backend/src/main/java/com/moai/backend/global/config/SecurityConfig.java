@@ -57,6 +57,7 @@ public class SecurityConfig {
                         // SSE 비동기 디스패치 시 Security 재필터링 방지
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/actuator/health").permitAll() // 공개 API
+                        .requestMatchers("/api/files/**").permitAll() // 로컬 파일 서빙 (S3 비활성화 시 폴백)
                         .requestMatchers("/ws/study-groups/**").permitAll() // WebSocket 핸드셰이크 허용 (인증은 StompChannelInterceptor에서 처리)
                         .anyRequest().authenticated()               // 로그아웃 포함 나머지는 JWT 필요
                 )

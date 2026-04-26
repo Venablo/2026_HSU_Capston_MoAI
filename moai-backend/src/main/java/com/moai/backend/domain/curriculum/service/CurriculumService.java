@@ -48,6 +48,9 @@ public class CurriculumService {
         return CurriculumDetailResponseDto.from(curriculum);
     }
 
+    // 영상 시청이 기여할 수 있는 최대 진척도 (전체 100% 중 40%)
+    private static final BigDecimal VIDEO_MAX_CONTRIBUTION = BigDecimal.valueOf(40);
+
     @Transactional
     public ProgressUpdateResponseDto updateProgress(String email, String roomId, String weekId, ProgressUpdateRequestDto requestDto) {
         LearningRoom room = findRoomByOwner(email, roomId);
@@ -55,7 +58,16 @@ public class CurriculumService {
         // 1. 해당 주차 진척도 업데이트
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
-        curriculum.updateCompletionRate(requestDto.getCompletionRate());
+
+        // 영상 시청분은 최대 40%까지만 기여한다.
+        // 프론트가 전체 영상 시청률(0~100)을 보내면 0~40으로 환산,
+        // 이미 40% 이하의 값을 보내면 그대로 사용한다.
+        BigDecimal videoRate = requestDto.getCompletionRate().min(VIDEO_MAX_CONTRIBUTION);
+
+        // flipped(+30%) / quiz(+30%) 완료로 쌓인 진척도가 있으면 유지한다.
+        // 영상 시청 업데이트가 거꾸로 학습·퀴즈 완료 진척도를 덮어쓰지 않도록 max를 취한다.
+        BigDecimal newRate = videoRate.max(curriculum.getCompletionRate());
+        curriculum.updateCompletionRate(newRate);
 
         // 2. 전체 주차의 평균으로 학습실 completionRate 자동 갱신
         List<WeeklyCurriculum> allWeeks = weeklyCurriculumRepository.findByRoomIdOrderByWeekNumber(room.getId());
@@ -66,7 +78,7 @@ public class CurriculumService {
 
         room.updateCompletionRate(average);
 
-        return new ProgressUpdateResponseDto(requestDto.getCompletionRate());
+        return new ProgressUpdateResponseDto(newRate);
     }
 
     public RecommendedVideoListResponseDto getRecommendedVideos(String email, String roomId, String weekId) {

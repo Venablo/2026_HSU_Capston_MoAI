@@ -62,6 +62,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요�
         if (StringUtils.hasText(queryToken)) {
             return queryToken;
         }
+        // 프론트엔드 EventSource가 ?token= 형태로 전달하는 경우
+        String tokenParam = request.getParameter("token");
+        if (StringUtils.hasText(tokenParam)) {
+            return tokenParam;
+        }
         return null;
     }
 }
