@@ -71,12 +71,44 @@ public class SubtitleScraperService {
     }
 
     private static final long TIMEOUT_SECONDS = 30;
+    private static final long CHECK_TIMEOUT_SECONDS = 10;
     private static final List<List<String>> PYTHON_CANDIDATES = List.of(
             List.of("python3"),
             List.of("python"),
             List.of("py", "-3"),
             List.of("py")
     );
+
+    /**
+     * 수동/자동 자막 모두 포함하여 자막 존재 여부를 확인한다 (--check 모드).
+     * 전체 자막을 다운로드하지 않으므로 scrape()보다 훨씬 빠르다.
+     */
+    public boolean hasSubtitle(String videoId) {
+        for (List<String> commandPrefix : PYTHON_CANDIDATES) {
+            try {
+                java.util.ArrayList<String> command = new java.util.ArrayList<>(commandPrefix);
+                command.add(resolvedScriptPath);
+                command.add(videoId);
+                command.add("--check");
+
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                boolean finished = process.waitFor(CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    continue;
+                }
+                return process.exitValue() == 0;
+            } catch (IOException e) {
+                // 해당 Python 실행 파일 없음 — 다음 후보 시도
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
 
     public List<SubtitleChunkDto> scrape(String videoId) {
         ScraperRunResult lastFailure = null;

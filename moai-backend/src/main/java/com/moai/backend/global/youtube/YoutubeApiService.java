@@ -114,6 +114,7 @@ public class YoutubeApiService {
                 .queryParam("type", "video")
                 .queryParam("videoEmbeddable", "true")
                 .queryParam("videoSyndicated", "true")
+                .queryParam("videoCaption", "closedCaption")
                 .queryParam("maxResults", size)
                 .queryParam("relevanceLanguage", "ko")
                 .queryParam("regionCode", "KR")

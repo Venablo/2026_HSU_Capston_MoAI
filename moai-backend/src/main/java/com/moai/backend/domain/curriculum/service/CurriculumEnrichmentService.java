@@ -180,12 +180,11 @@ public class CurriculumEnrichmentService {
             String title = video.title() != null ? video.title() : "";
             if (problemPattern.matcher(title).find()) continue;
             if (metaPattern.matcher(title).find()) continue;
-            if (!video.hasCaptions()) continue;
 
             int score = 0;
+            if (video.hasCaptions()) score += 10; // 수동 자막 보너스
+
             long duration = video.durationSec() != null ? video.durationSec() : 0;
-            
-            // Duration constraints from V15 logic
             if (duration >= 1200 && duration <= 7200) {
                 score += 15;
             } else if (duration >= 600) {
@@ -194,17 +193,13 @@ public class CurriculumEnrichmentService {
                 score -= 15;
             }
 
-            if (conceptPattern.matcher(title).find()) {
-                score += 10;
-            }
+            if (conceptPattern.matcher(title).find()) score += 10;
 
             String titleLower = title.toLowerCase();
             if (!subject.isBlank() && titleLower.contains(subject.toLowerCase())) score += 5;
-            
+
             for (String part : topic.split("[\\s,]+")) {
-                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) {
-                    score += 5;
-                }
+                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) score += 5;
             }
 
             if (score > bestScore) {
@@ -218,12 +213,9 @@ public class CurriculumEnrichmentService {
             return bestVideo;
         }
 
-        // 1차 필터(길이/문제풀이/자막 등)를 통과하지 못했을 경우의 폴백 — 자막 있는 첫번째 영상 사용
-        log.info("[{}주차] 엄격한 유튜브 매칭 실패, 폴백으로 자막 있는 첫번째 검색 결과 사용", curriculum.getWeekNumber());
-        return allCandidates.stream()
-                .filter(YoutubeApiService.VideoMeta::hasCaptions)
-                .findFirst()
-                .orElse(null);
+        // 조건 매칭 실패 시 폴백 — 검색 단계에서 이미 자막 있는 영상만 후보로 존재
+        log.info("[{}주차] 엄격한 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
+        return allCandidates.isEmpty() ? null : allCandidates.get(0);
     }
 
     // --- Step C: LLM 키워드 추출 ---
