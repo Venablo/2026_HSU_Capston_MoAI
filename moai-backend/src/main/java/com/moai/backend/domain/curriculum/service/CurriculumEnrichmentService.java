@@ -180,6 +180,7 @@ public class CurriculumEnrichmentService {
             String title = video.title() != null ? video.title() : "";
             if (problemPattern.matcher(title).find()) continue;
             if (metaPattern.matcher(title).find()) continue;
+            if (!video.hasCaptions()) continue;
 
             int score = 0;
             long duration = video.durationSec() != null ? video.durationSec() : 0;
@@ -217,9 +218,12 @@ public class CurriculumEnrichmentService {
             return bestVideo;
         }
 
-        // 1차 필터(길이/문제풀이 등)를 통과하지 못했을 경우의 폴백
-        log.info("[{}주차] 엄격한 유튜브 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
-        return allCandidates.isEmpty() ? null : allCandidates.get(0);
+        // 1차 필터(길이/문제풀이/자막 등)를 통과하지 못했을 경우의 폴백 — 자막 있는 첫번째 영상 사용
+        log.info("[{}주차] 엄격한 유튜브 매칭 실패, 폴백으로 자막 있는 첫번째 검색 결과 사용", curriculum.getWeekNumber());
+        return allCandidates.stream()
+                .filter(YoutubeApiService.VideoMeta::hasCaptions)
+                .findFirst()
+                .orElse(null);
     }
 
     // --- Step C: LLM 키워드 추출 ---

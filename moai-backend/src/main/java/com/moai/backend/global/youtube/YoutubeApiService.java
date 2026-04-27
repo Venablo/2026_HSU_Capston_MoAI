@@ -100,7 +100,8 @@ public class YoutubeApiService {
         String title = item.path("snippet").path("title").asText("");
         Long durationSec = parseDuration(item.path("contentDetails").path("duration").asText(null));
         Long viewCount   = parseViewCount(item.path("statistics").path("viewCount").asText(null));
-        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount));
+        boolean hasCaptions = "true".equalsIgnoreCase(item.path("contentDetails").path("caption").asText("false"));
+        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions));
     }
 
     public List<VideoMeta> searchVideos(String query, int maxResults) {
@@ -149,7 +150,8 @@ public class YoutubeApiService {
             String title = v.path("snippet").path("title").asText("");
             Long durationSec = parseDuration(v.path("contentDetails").path("duration").asText(null));
             Long viewCount   = parseViewCount(v.path("statistics").path("viewCount").asText(null));
-            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount));
+            boolean hasCaptions = "true".equalsIgnoreCase(v.path("contentDetails").path("caption").asText("false"));
+            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions));
         }
         return results;
     }
@@ -214,5 +216,5 @@ public class YoutubeApiService {
     }
 
     public record VideoMeta(String videoId, String title, String url, boolean embeddable,
-                            Long durationSec, Long viewCount) {}
+                            Long durationSec, Long viewCount, boolean hasCaptions) {}
 }

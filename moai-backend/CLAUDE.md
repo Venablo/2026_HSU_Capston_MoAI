@@ -182,6 +182,28 @@ graph TB
     자막 스크래핑 실패 시 해당 주차 resources는 빈 배열로 저장하고 계속 진행.
 - **퀴즈 응시 이력 조회**: api_spec의 GET /api/learning-rooms/{roomId}/quiz-attempts는 GET /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-attempts로 변경.
 
+## Commit Message Format
+
+사용자가 **"깃허브 변경사항 설명"** 이라고 말하면, 아래 형식으로 커밋 제목과 상세 설명을 작성한다.
+
+**형식 규칙**
+- 제목: `feat:` / `fix:` / `refactor:` 등 prefix + 한 줄 요약 (한국어)
+- 상세: 변경 단위(Phase 또는 기능명)별로 구분, 각 항목마다 파일 경로 + 변경 내용을 `—` 로 서술
+- 파일 경로는 `domain/…` / `global/…` 형태(패키지 기준 축약)로 표기
+- 신규 파일은 "신규", 기존 수정은 "수정"으로 명시
+
+**예시 출력 형식**
+```
+feat: [변경 요약 제목]
+
+  [기능/Phase명]
+  - 파일경로.java 신규/수정 — 구체적 변경 내용
+  - 파일경로.java 수정 — 구체적 변경 내용
+
+  [기능/Phase명 2]
+  - 파일경로.java 수정 — 구체적 변경 내용
+```
+
 ## RTK Mode (Windows)
 
 You are running in RTK compatibility mode on Windows.
