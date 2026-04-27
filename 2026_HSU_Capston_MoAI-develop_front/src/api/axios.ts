@@ -126,6 +126,7 @@ console.log('[axios] instance created — timeout:', api.defaults.timeout, 'ms, 
  *     pendingQueue 에 들어가서 갱신 완료 후 자동으로 재시도
  */
 let isRefreshing = false
+let refreshingSetAt = 0   // epoch ms when isRefreshing was set — used for deadlock detection
 
 /**
  * 토큰 갱신이 진행 중일 때 대기 중인 요청들의 콜백 큐.
@@ -247,6 +248,17 @@ api.interceptors.response.use(
 
       // 이미 다른 요청이 갱신 중이라면 이 요청은 큐에 넣고 대기
       if (isRefreshing) {
+        // Deadlock guard: if the refresh has been running for > 15 s it will never
+        // resolve. Force-reset the flag, drain the queue with a rejection, and
+        // redirect to login so the app does not hang forever.
+        if (Date.now() - refreshingSetAt > 15_000) {
+          isRefreshing = false
+          refreshingSetAt = 0
+          flushPendingQueue(null, new Error('Token refresh deadlock — forcing reset'))
+          clearStoredAuth()
+          window.location.href = '/'
+          return Promise.reject(new MoaiApiError(401, 'REFRESH_TIMEOUT', '세션이 만료되었습니다. 다시 로그인해 주세요.'))
+        }
         return new Promise((resolve, reject) => {
           pendingQueue.push({
             resolve: (newToken: string) => {
@@ -263,6 +275,7 @@ api.interceptors.response.use(
 
       // 이 요청이 최초 갱신 시도 — isRefreshing 플래그 설정
       isRefreshing = true
+      refreshingSetAt = Date.now()
 
       try {
         // POST /api/auth/refresh — 공개 엔드포인트이므로 인터셉터를 거치지 않도록
@@ -271,7 +284,7 @@ api.interceptors.response.use(
         const rawRefresh = await axios.post(
           `${import.meta.env.VITE_API_BASE_URL}/api/auth/refresh`,
           { refreshToken: storedRefreshToken },
-          { headers: { 'Content-Type': 'application/json' } },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 10_000 },
         )
         const refreshBody = deepCamelCase(rawRefresh.data) as {
           success: boolean
@@ -300,6 +313,7 @@ api.interceptors.response.use(
       } finally {
         // 성공/실패 여부에 관계없이 플래그 초기화
         isRefreshing = false
+        refreshingSetAt = 0
       }
     }
 
