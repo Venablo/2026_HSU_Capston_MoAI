@@ -26,6 +26,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
 import { fetchStudyMatch } from '../../../services/aiSummaryService'
+import { acceptStudySuggestion } from '../../../services/apiService'
 import type { SummaryItem } from '../monitoring/SummaryDetailModal'
 import MonitoringModal from '../monitoring/MonitoringModal'
 import SummaryDetailModal from '../monitoring/SummaryDetailModal'
@@ -54,6 +55,7 @@ export default function ClassroomModals() {
 
     // 각 모달의 비동기 로딩 상태
     const [matchLoading, setMatchLoading] = useState(false)
+    const [matchError,   setMatchError]   = useState<string | null>(null)
 
     // ── monitoring → summary-detail 전환 ────────────────────────────────────
     // summaryItems은 StudyClassroom이 getMaterialDetail() 호출 시 이미 받아서
@@ -92,17 +94,38 @@ export default function ClassroomModals() {
 
     // ── meta-evaluation → study-matching 전환 ───────────────────────────────
     const handleMatching = async (evaluation: MetaEvaluationResponse) => {
+        console.log('[Matching] 매칭 신청 버튼 클릭 — comprehensionScore:', evaluation.comprehensionScore)
         setMatchLoading(true)
+        setMatchError(null)
         try {
+            console.log('[Matching] fetchStudyMatch API 호출 시작…')
             const match = await fetchStudyMatch(evaluation)
+            console.log('[Matching] fetchStudyMatch 성공 — partnerId:', match.partnerId)
             open('study-matching', { type: 'study-matching', match })
+        } catch (e) {
+            console.error('[Matching] fetchStudyMatch 실패:', e)
+            setMatchError(
+                e instanceof Error
+                    ? e.message
+                    : '매칭 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+            )
         } finally {
             setMatchLoading(false)
         }
     }
 
     // ── study-matching → 사이드바 상태 갱신 (파트너 연결 완료) ───────────────
-    const handleConnect = () => {
+    const handleConnect = async () => {
+        if (modal === 'study-matching' && modalData?.type === 'study-matching') {
+            console.log('[Connect] 연결하기 버튼 클릭 — suggestionId:', modalData.match.partnerId)
+            try {
+                await acceptStudySuggestion(modalData.match.partnerId)
+                console.log('[Connect] acceptStudySuggestion 성공')
+            } catch (e) {
+                // 수락 실패 시에도 로컬 상태는 업데이트 (UX 일관성 유지)
+                console.error('[Connect] acceptStudySuggestion 실패 (로컬 상태는 업데이트):', e)
+            }
+        }
         setMetacogComplete(true)
         setPartnerConnected(true)
         close()
@@ -210,6 +233,7 @@ export default function ClassroomModals() {
                     onClose={close}
                     onRequestMatching={() => handleMatching(modalData.evaluation)}
                     loading={matchLoading}
+                    errorMessage={matchError ?? undefined}
                 />
             )}
 

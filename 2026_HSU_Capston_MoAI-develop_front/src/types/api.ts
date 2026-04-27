@@ -142,6 +142,8 @@ export interface CurriculumWeekDetail {
 
 export interface UpdateProgressRequest {
   completionRate: number
+  /** 실제 누적 시청 시간(초). 서버 측 조작 방지 검증에 사용된다. */
+  watchedSeconds?: number
 }
 
 export interface UpdateProgressResponse {

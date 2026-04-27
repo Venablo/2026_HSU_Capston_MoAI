@@ -7,6 +7,7 @@ export interface MetaEvaluationModalProps {
     onClose: () => void
     onRequestMatching: () => void
     loading?: boolean
+    errorMessage?: string
 }
 
 export default function MetaEvaluationModal({
@@ -14,6 +15,7 @@ export default function MetaEvaluationModal({
     onClose,
     onRequestMatching,
     loading = false,
+    errorMessage,
 }: MetaEvaluationModalProps) {
     return (
         <Modal onClose={onClose} wide>
@@ -67,6 +69,11 @@ export default function MetaEvaluationModal({
                     </div>
                 </div>
 
+                {errorMessage && (
+                    <p style={{ color: '#ef4444', fontSize: '12px', textAlign: 'center', margin: '0 0 8px' }}>
+                        ⚠ {errorMessage}
+                    </p>
+                )}
                 <div className="modal-meta-eval__btn-row">
                     <button
                         className="btn-ghost"

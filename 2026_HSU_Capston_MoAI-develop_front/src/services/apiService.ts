@@ -100,17 +100,18 @@ import type {
  * @returns       - envelope.data (T 타입)
  */
 async function unwrap<T>(promise: Promise<{ data: ApiResponse<T> }>): Promise<T> {
-  // axios 는 응답을 { data: <실제 JSON 바디> } 구조로 감싸서 반환한다.
-  // 여기서 data 가 바로 백엔드의 envelope ({ success, data, message, timestamp }) 이다.
   const { data: envelope } = await promise
 
-  // success === false 는 HTTP 상태는 200 이지만 비즈니스 로직이 실패한 경우
-  // (현재 스펙에서는 드문 케이스지만, 향후 확장을 위해 처리)
+  // HTTP 202 Accepted bodies can arrive empty; deepCamelCase returns non-objects as-is,
+  // leaving envelope as "" or undefined. Treat as a successful no-data response.
+  if (envelope === null || envelope === undefined || typeof envelope !== 'object') {
+    return null as unknown as T
+  }
+
   if (!envelope.success) {
     throw new Error(envelope.message ?? 'API 요청이 실패했습니다.')
   }
 
-  // envelope.data 가 바로 컴포넌트에서 사용하는 실제 데이터
   return envelope.data
 }
 
