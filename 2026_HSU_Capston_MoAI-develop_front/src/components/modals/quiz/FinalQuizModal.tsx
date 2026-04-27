@@ -83,7 +83,6 @@ const ANALYZE_MESSAGES = [
 
 const MAX_ANALYSIS_WAIT_MS = 120_000
 const MAX_ANALYSIS_ERRORS = 8
-const SUBMIT_TIMEOUT_MS = 30_000
 
 interface Props {
     roomId: string
@@ -147,44 +146,29 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
 
     // ── ④ 전체 제출 ──────────────────────────────────────────────────────────
     const handleSubmit = useCallback(async () => {
-        console.log('[FinalQuiz] 제출 버튼 클릭 — quizId:', quiz?.quizId, 'roomId:', roomId, 'weekId:', weekId)
-        if (!quiz) {
-            console.warn('[FinalQuiz] quiz 데이터가 없어 제출을 중단합니다.')
-            return
-        }
+        if (!quiz) return
         setPhase('submitting')
 
+        // 답안 배열을 API 형식으로 변환
         const formattedAnswers: FinalQuizAnswer[] = quiz.questions.map((q, i) => ({
             questionId: q.questionId,
             answer:     answers[i] || '(미작성)',
         }))
 
-        const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(
-                () => reject(new Error('제출 요청이 시간 초과되었습니다. 네트워크를 확인하고 다시 시도해 주세요.')),
-                SUBMIT_TIMEOUT_MS,
-            ),
-        )
-
-        let estimatedSec = 3
         try {
-            console.log('[FinalQuiz] submitFinalQuiz API 호출 시작…')
-            const result = await Promise.race([
-                submitFinalQuiz(roomId, weekId, { quizId: quiz.quizId, answers: formattedAnswers }),
-                timeoutPromise,
-            ])
-            estimatedSec = result?.estimatedSec ?? 3
-            console.log('[FinalQuiz] submitFinalQuiz 성공 — estimatedSec:', estimatedSec)
+            const { estimatedSec } = await submitFinalQuiz(roomId, weekId, {
+                quizId:  quiz.quizId,
+                answers: formattedAnswers,
+            })
+
+            // 제출 성공 → 분석 화면으로 전환 + 폴링 시작
+            setPhase('analyzing')
+            startPolling(estimatedSec)
         } catch (e) {
-            console.error('[FinalQuiz] submitFinalQuiz 실패:', e)
             setErrorMessage(e instanceof Error ? e.message : '제출에 실패했습니다. 다시 시도해 주세요.')
             setPhase('error')
-            return
         }
-
-        setPhase('analyzing')
-        startPolling(estimatedSec)
-    }, [quiz, answers, roomId, weekId, startPolling])
+    }, [quiz, answers, roomId, weekId])
 
     // ── ⑤ 폴링: GET /quiz-report ─────────────────────────────────────────────
     const startPolling = useCallback((estimatedSec: number) => {
@@ -301,10 +285,8 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
 
     // ── 렌더: AI 분석 중 ─────────────────────────────────────────────────────
     if (phase === 'submitting' || phase === 'analyzing') {
-        // 'submitting' 단계는 사용자가 닫을 수 있음 (서버 응답 대기 중)
-        // 'analyzing' 단계는 AI 채점 진행 중이므로 닫기 방지
         return (
-            <Modal onClose={phase === 'submitting' ? onClose : () => {}} wide>
+            <Modal onClose={() => {}} wide>
                 {/* 분석 중에는 닫기 방지: onClose에 빈 함수 전달 */}
                 <div className="fq-analyzing">
                     <div className="fq-analyzing__icon">
