@@ -1,56 +1,71 @@
 import sys
 import json
+import time
+import random
+import os
+import http.cookiejar
+import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
-def check_has_subtitle(video_id):
-    """수동/자동 자막 모두 포함하여 자막 존재 여부만 확인 (fetch 성공 여부로 판단)."""
-    ytt = YouTubeTranscriptApi()
-    for langs in [["ko"], ["en"]]:
+COOKIE_FILE = "cookies.txt"
+
+def get_session_with_cookies(cookie_file):
+    """
+    [최신 버전 변경점] cookies.txt 파일을 읽어 requests.Session에 직접 주입합니다.
+    """
+    session = requests.Session()
+    if os.path.exists(cookie_file):
         try:
-            ytt.fetch(video_id, languages=langs)
-            sys.exit(0)
-        except Exception:
-            continue
+            # 유튜브에서 추출한 Netscape 포맷의 쿠키를 파이썬에서 읽을 수 있게 변환
+            cookie_jar = http.cookiejar.MozillaCookieJar(cookie_file)
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies = cookie_jar
+        except Exception as e:
+            print(f"Warning: 쿠키 파일을 로드할 수 없습니다 ({e}).", file=sys.stderr)
+    return session
+
+def check_has_subtitle(video_id):
     try:
-        ytt.fetch(video_id)
+        session = get_session_with_cookies(COOKIE_FILE)
+        # [최신 버전 변경점] 클래스를 인스턴스화 할 때 http_client로 세션(쿠키)을 전달합니다.
+        ytt_api = YouTubeTranscriptApi(http_client=session)
+        # list_transcripts() -> list() 로 메서드 이름이 변경되었습니다.
+        ytt_api.list(video_id)
         sys.exit(0)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print(f"Error checking transcripts: {e}", file=sys.stderr)
         sys.exit(1)
 
 def fetch_with_priority(video_id):
-    """우선순위: 수동 한국어 → 수동 영어 → 자동 한국어 → 자동 영어 → 기타"""
-    ytt = YouTubeTranscriptApi()
+    session = get_session_with_cookies(COOKIE_FILE)
+    ytt_api = YouTubeTranscriptApi(http_client=session)
 
     try:
-        transcript_list = ytt.list(video_id)
+        # 자막 목록 조회
+        transcript_list = ytt_api.list(video_id)
+    except Exception as e:
+        raise Exception(f"목록 조회 실패: {e}")
 
-        for find_method, langs in [
-            ("find_manually_created_transcript", ["ko"]),
-            ("find_manually_created_transcript", ["en"]),
-            ("find_generated_transcript",        ["ko"]),
-            ("find_generated_transcript",        ["en"]),
-        ]:
-            try:
-                return getattr(transcript_list, find_method)(langs).fetch()
-            except Exception:
-                continue
-
-        # 위 네 가지 모두 없으면 첫 번째 자막 사용
-        for t in transcript_list:
-            return t.fetch()
-
-    except Exception:
-        pass
-
-    # list() 자체가 실패한 경우 fetch() 직접 시도 (폴백)
-    for langs in [["ko"], ["en"]]:
+    # 1. 원하는 언어/유형 순서대로 탐색
+    for find_method, langs in [
+        ("find_manually_created_transcript", ["ko"]),
+        ("find_manually_created_transcript", ["en"]),
+        ("find_generated_transcript",        ["ko"]),
+        ("find_generated_transcript",        ["en"]),
+    ]:
         try:
-            return ytt.fetch(video_id, languages=langs)
+            return getattr(transcript_list, find_method)(langs).fetch()
         except Exception:
             continue
 
-    return ytt.fetch(video_id)
+    # 2. 위 조건에 맞는게 없다면 첫 번째 자막 반환
+    for t in transcript_list:
+        try:
+            return t.fetch()
+        except Exception:
+            continue
+
+    return None
 
 def main():
     if len(sys.argv) < 2:
@@ -59,14 +74,17 @@ def main():
 
     video_id = sys.argv[1]
 
+    # 단건 실시간 처리 환경이라면 주석 처리하세요. 대량 수집 시에는 활성화 필수.
+    time.sleep(random.uniform(1, 3))
+
     if "--check" in sys.argv:
         check_has_subtitle(video_id)
         return
 
     try:
         transcript = fetch_with_priority(video_id)
-        if transcript is None:
-            raise Exception("No transcript found")
+        if not transcript:
+            raise Exception("No transcript found (어떤 자막도 추출하지 못했습니다).")
 
         result = [
             {
