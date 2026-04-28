@@ -287,8 +287,16 @@ public class CurriculumEnrichmentService {
         );
 
         String materialTitle = curriculum.getWeekNumber() + "주차 학습 자료";
-        String s3Directory = "materials/" + curriculum.getRoom().getId();
-        String fileBaseName = curriculum.getId();
+        String subject = nullSafe(context.subject()).replaceAll("[\\s/]", "_");
+        String levelKo = switch (nullSafe(context.level())) {
+            case "beginner" -> "기초";
+            case "intermediate" -> "중급";
+            case "advanced" -> "고급";
+            default -> nullSafe(context.level());
+        };
+        int totalWeeks = curriculum.getRoom().getDurationWeeks();
+        String s3Directory = "materials/" + subject + "_" + levelKo + "_" + totalWeeks + "주";
+        String fileBaseName = curriculum.getWeekNumber() + "주차_" + curriculum.getTopic().replaceAll("[\\s/\\[\\]]", "_");
 
         // 2. Markdown 생성 → S3 업로드
         try {
