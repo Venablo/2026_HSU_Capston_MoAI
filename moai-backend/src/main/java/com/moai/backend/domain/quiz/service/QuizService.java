@@ -41,6 +41,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -365,9 +367,16 @@ public class QuizService {
                 .build();
         quizReportRepository.save(report);
 
-        // 비동기 채점 시작 — self 프록시 경유로 @Async 활성화
-        self.gradeFinalQuizAsync(report.getId(), quiz.getId(), user.getId(),
-                room.getId(), curriculum.getId(), request.getAnswers());
+        // 트랜잭션 커밋 완료 후 비동기 채점 시작 (커밋 전 조회 오류 방지)
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        self.gradeFinalQuizAsync(report.getId(), quiz.getId(), user.getId(),
+                                room.getId(), curriculum.getId(), request.getAnswers());
+                    }
+                }
+        );
 
         return new FinalQuizSubmitResponseDto(report.getId(), "analyzing", (short) 15);
     }
@@ -377,6 +386,7 @@ public class QuizService {
     public void gradeFinalQuizAsync(String reportId, String quizId, String userId,
                                      String roomId, String curriculumId,
                                      List<FinalQuizSubmitRequestDto.AnswerItem> answers) {
+        log.info("비동기 채점 시작: reportId={}", reportId);
         try {
             QuizReport report = quizReportRepository.findById(reportId)
                     .orElseThrow(() -> new CustomException(ErrorCode.QUIZ_NOT_FOUND));
