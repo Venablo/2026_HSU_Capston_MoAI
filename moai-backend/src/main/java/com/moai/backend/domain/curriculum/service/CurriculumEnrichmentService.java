@@ -182,9 +182,9 @@ public class CurriculumEnrichmentService {
             if (metaPattern.matcher(title).find()) continue;
 
             int score = 0;
+            if (video.hasCaptions()) score += 10; // 수동 자막 보너스
+
             long duration = video.durationSec() != null ? video.durationSec() : 0;
-            
-            // Duration constraints from V15 logic
             if (duration >= 1200 && duration <= 7200) {
                 score += 15;
             } else if (duration >= 600) {
@@ -193,17 +193,13 @@ public class CurriculumEnrichmentService {
                 score -= 15;
             }
 
-            if (conceptPattern.matcher(title).find()) {
-                score += 10;
-            }
+            if (conceptPattern.matcher(title).find()) score += 10;
 
             String titleLower = title.toLowerCase();
             if (!subject.isBlank() && titleLower.contains(subject.toLowerCase())) score += 5;
-            
+
             for (String part : topic.split("[\\s,]+")) {
-                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) {
-                    score += 5;
-                }
+                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) score += 5;
             }
 
             if (score > bestScore) {
@@ -217,8 +213,8 @@ public class CurriculumEnrichmentService {
             return bestVideo;
         }
 
-        // 1차 필터(길이/문제풀이 등)를 통과하지 못했을 경우의 폴백
-        log.info("[{}주차] 엄격한 유튜브 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
+        // 조건 매칭 실패 시 폴백 — 검색 단계에서 이미 자막 있는 영상만 후보로 존재
+        log.info("[{}주차] 엄격한 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
         return allCandidates.isEmpty() ? null : allCandidates.get(0);
     }
 
@@ -291,8 +287,16 @@ public class CurriculumEnrichmentService {
         );
 
         String materialTitle = curriculum.getWeekNumber() + "주차 학습 자료";
-        String s3Directory = "materials/" + curriculum.getRoom().getId();
-        String fileBaseName = curriculum.getId();
+        String subject = nullSafe(context.subject()).replaceAll("[\\s/]", "_");
+        String levelKo = switch (nullSafe(context.level())) {
+            case "beginner" -> "기초";
+            case "intermediate" -> "중급";
+            case "advanced" -> "고급";
+            default -> nullSafe(context.level());
+        };
+        int totalWeeks = curriculum.getRoom().getDurationWeeks();
+        String s3Directory = "materials/" + subject + "_" + levelKo + "_" + totalWeeks + "주";
+        String fileBaseName = curriculum.getWeekNumber() + "주차_" + curriculum.getTopic().replaceAll("[\\s/\\[\\]]", "_");
 
         // 2. Markdown 생성 → S3 업로드
         try {
