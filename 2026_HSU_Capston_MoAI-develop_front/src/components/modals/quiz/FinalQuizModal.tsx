@@ -21,12 +21,14 @@
  *  ④ POST /quizzes/final/submit
  *      → HTTP 202 Accepted
  *      → { reportId, status: 'analyzing', estimatedSec } 수신
+ *      phase: 'submitting' → 'submitted' → 'analyzing'
  *      │
  *      ▼
  *  ⑤ "AI 분석 중" 로딩 화면 표시
  *     estimatedSec 간격으로 GET /quiz-report 폴링
+ *     status === 'completed' 수신 즉시 리포트 화면으로 전환
  *      │
- *      └── status = 'completed' → 리포트 화면으로 전환
+ *      └── status = 'completed' + data ready → 리포트 화면
  *      │
  *      ▼
  *  ⑥ AI 종합 분석 리포트 표시
@@ -59,7 +61,6 @@ import {
 } from 'recharts'
 
 // ── 레이더 차트 데이터 변환 ────────────────────────────────────────────────────
-// recharts RadarChart는 { subject: string, value: number } 배열을 요구한다.
 function toRadarData(radarMap: Record<string, number>) {
     return Object.entries(radarMap).map(([subject, value]) => ({ subject, value }))
 }
@@ -68,12 +69,12 @@ function toRadarData(radarMap: Record<string, number>) {
 type Phase =
     | 'loading-questions' // 문제 로딩 중
     | 'answering'         // 문제 풀기 (step 1~N)
-    | 'submitting'        // 제출 중
-    | 'analyzing'         // AI 분석 중 (폴링)
-    | 'report'            // 리포트 표시
-    | 'error'             // API 오류
+    | 'submitting'        // POST /quizzes/final/submit 진행 중
+    | 'submitted'         // POST 202 수신 완료, 폴링 시작 전
+    | 'analyzing'         // 폴링 중 (status = 'analyzing' 또는 'completed' but data pending)
+    | 'report'            // status = 'completed' + data 확인 → 리포트 표시
+    | 'error'
 
-// ── Props 정의 ────────────────────────────────────────────────────────────────
 const ANALYZE_MESSAGES = [
     'AI가 답변을 분석하고 있습니다...',
     '키워드 적중률을 계산하는 중...',
@@ -82,34 +83,38 @@ const ANALYZE_MESSAGES = [
 ]
 
 const MAX_ANALYSIS_WAIT_MS = 120_000
-const MAX_ANALYSIS_ERRORS = 8
+const MAX_ANALYSIS_ERRORS  = 8
 
 interface Props {
     roomId: string
     weekId: string
     onClose: () => void
+    /** Called when the user dismisses the completed report (before onClose) */
+    onComplete?: () => void
+    /** Skip answering and jump straight to the existing report */
+    reviewMode?: boolean
 }
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────────────
-export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
-    const [phase,       setPhase]       = useState<Phase>('loading-questions')
-    const [quiz,        setQuiz]        = useState<FinalQuizResponse | null>(null)
-    const [answers,     setAnswers]     = useState<string[]>([])  // 각 문제 답안
-    const [step,        setStep]        = useState(0)              // 현재 문제 인덱스 (0-based)
-    const [report,        setReport]        = useState<QuizReportResponse | null>(null)
-    const [analyzeMsg,    setAnalyzeMsg]    = useState(ANALYZE_MESSAGES[0])
-    const [errorMessage,  setErrorMessage]  = useState('')
+export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, reviewMode = false }: Props) {
+    const [phase,        setPhase]        = useState<Phase>(reviewMode ? 'analyzing' : 'loading-questions')
+    const [quiz,         setQuiz]         = useState<FinalQuizResponse | null>(null)
+    const [answers,      setAnswers]      = useState<string[]>([])
+    const [step,         setStep]         = useState(0)
+    const [report,       setReport]       = useState<QuizReportResponse | null>(null)
+    const [analyzeMsg,   setAnalyzeMsg]   = useState(ANALYZE_MESSAGES[0])
+    const [errorMessage, setErrorMessage] = useState('')
 
-    // 폴링 인터벌 ID — unmount 시 반드시 clearInterval 필요
-    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    // 분석 메시지 인덱스 (폴링 중 메시지 순환 표시용)
-    const analyzeStepRef = useRef(0)
-    const msgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const pollStartedAtRef = useRef(0)
+    const pollRef           = useRef<ReturnType<typeof setInterval> | null>(null)
+    const msgIntervalRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+    const pollStoppedRef    = useRef(false)   // guard against stale callbacks after stop
+    const analyzeStepRef    = useRef(0)
+    const pollStartedAtRef  = useRef(0)
     const pollErrorCountRef = useRef(0)
 
-    // ── 폴링 정지 (cleanup) ───────────────────────────────────────────────────
+    // ── 폴링 정지 ─────────────────────────────────────────────────────────────
     const stopPolling = useCallback(() => {
+        pollStoppedRef.current = true
         if (pollRef.current !== null) {
             clearInterval(pollRef.current)
             pollRef.current = null
@@ -122,8 +127,9 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
 
     useEffect(() => () => stopPolling(), [stopPolling])
 
-    // ── ① 문제 로드 ──────────────────────────────────────────────────────────
+    // ── ① 문제 로드 (review mode에서는 건너뜀) ──────────────────────────────
     useEffect(() => {
+        if (reviewMode) return
         let cancelled = false
         const load = async () => {
             try {
@@ -142,14 +148,89 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
         }
         load()
         return () => { cancelled = true }
-    }, [roomId, weekId])
+    }, [roomId, weekId, reviewMode])
+
+    // ── ⑤ 폴링: GET /quiz-report ─────────────────────────────────────────────
+    const startPolling = useCallback((estimatedSec: number) => {
+        stopPolling()
+        pollStoppedRef.current  = false  // reset for new polling cycle
+        analyzeStepRef.current  = 0
+        pollStartedAtRef.current  = Date.now()
+        pollErrorCountRef.current = 0
+        setAnalyzeMsg(ANALYZE_MESSAGES[0])
+        setPhase('analyzing')
+
+        const failPolling = (message: string) => {
+            stopPolling()
+            setErrorMessage(message)
+            setPhase('error')
+        }
+
+        const timedOut = () => Date.now() - pollStartedAtRef.current > MAX_ANALYSIS_WAIT_MS
+
+        msgIntervalRef.current = setInterval(() => {
+            analyzeStepRef.current = (analyzeStepRef.current + 1) % ANALYZE_MESSAGES.length
+            setAnalyzeMsg(ANALYZE_MESSAGES[analyzeStepRef.current])
+        }, 3_000)
+
+        const pollReport = async () => {
+            if (pollStoppedRef.current) return  // component unmounted or polling stopped
+
+            if (timedOut()) {
+                failPolling('AI 분석 시간이 예상보다 길어지고 있습니다. 잠시 후 다시 시도해 주세요.')
+                return
+            }
+
+            try {
+                const result = await getQuizReport(roomId, weekId)
+
+                if (pollStoppedRef.current) return  // recheck after async
+
+                pollErrorCountRef.current = 0
+
+                if (result.status === 'failed') {
+                    failPolling('AI 분석 중 오류가 발생했습니다. 다시 시도해 주세요.')
+                    return
+                }
+
+                // Immediately navigate to report the moment data is fully ready
+                if (result.status === 'completed' && result.radarData && Array.isArray(result.questions)) {
+                    stopPolling()
+                    setReport(result)
+                    setPhase('report')
+                    return
+                }
+
+                // status = 'completed' but data not fully populated yet — keep polling
+                // status = 'analyzing' — keep polling
+                if (result.status === 'completed' || result.status === 'analyzing') {
+                    return
+                }
+
+                // Truly unexpected status
+                failPolling('AI 분석 결과 형식이 올바르지 않습니다. 다시 시도해 주세요.')
+            } catch {
+                if (pollStoppedRef.current) return
+                pollErrorCountRef.current += 1
+                if (pollErrorCountRef.current >= MAX_ANALYSIS_ERRORS || timedOut()) {
+                    failPolling('AI 분석 결과를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
+                }
+            }
+        }
+
+        const delaySec = Math.min(Math.max(Number(estimatedSec) || 3, 3), 5)
+        // Set interval BEFORE the initial call so stopPolling() inside
+        // pollReport() can properly clear it when status = 'completed' arrives.
+        pollRef.current = setInterval(pollReport, delaySec * 1000)
+        void pollReport()
+
+    }, [roomId, weekId, stopPolling])
 
     // ── ④ 전체 제출 ──────────────────────────────────────────────────────────
     const handleSubmit = useCallback(async () => {
         if (!quiz) return
         setPhase('submitting')
 
-        // 답안 배열을 API 형식으로 변환
         const formattedAnswers: FinalQuizAnswer[] = quiz.questions.map((q, i) => ({
             questionId: q.questionId,
             answer:     answers[i] || '(미작성)',
@@ -161,80 +242,20 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                 answers: formattedAnswers,
             })
 
-            // 제출 성공 → 분석 화면으로 전환 + 폴링 시작
-            setPhase('analyzing')
+            // 202 received — briefly mark as submitted, then start polling (→ 'analyzing')
+            setPhase('submitted')
             startPolling(estimatedSec)
         } catch (e) {
             setErrorMessage(e instanceof Error ? e.message : '제출에 실패했습니다. 다시 시도해 주세요.')
             setPhase('error')
         }
-    }, [quiz, answers, roomId, weekId])
+    }, [quiz, answers, roomId, weekId, startPolling])
 
-    // ── ⑤ 폴링: GET /quiz-report ─────────────────────────────────────────────
-    const startPolling = useCallback((estimatedSec: number) => {
-        stopPolling()
-        analyzeStepRef.current = 0
-        pollStartedAtRef.current = Date.now()
-        pollErrorCountRef.current = 0
-        setAnalyzeMsg(ANALYZE_MESSAGES[0])
-
-        const failPolling = (message: string) => {
-            stopPolling()
-            setErrorMessage(message)
-            setPhase('error')
-        }
-
-        const timedOut = () => Date.now() - pollStartedAtRef.current > MAX_ANALYSIS_WAIT_MS
-
-        // 분석 메시지 순환: 3초마다 메시지 변경
-        msgIntervalRef.current = setInterval(() => {
-            analyzeStepRef.current = (analyzeStepRef.current + 1) % ANALYZE_MESSAGES.length
-            setAnalyzeMsg(ANALYZE_MESSAGES[analyzeStepRef.current])
-        }, 3_000)
-
-        const pollReport = async () => {
-            if (timedOut()) {
-                failPolling('AI 분석 시간이 예상보다 길어지고 있습니다. 잠시 후 다시 시도해 주세요.')
-                return
-            }
-
-            try {
-                const result = await getQuizReport(roomId, weekId)
-                pollErrorCountRef.current = 0
-
-                if (result.status === 'failed') {
-                    failPolling('AI 분석 중 오류가 발생했습니다. 다시 시도해 주세요.')
-                    return
-                }
-
-                if (
-                    result.status === 'completed'
-                    && result.radarData
-                    && Array.isArray(result.questions)
-                ) {
-                    stopPolling()
-                    setReport(result)
-                    setPhase('report')
-                    return
-                }
-
-                if (result.status !== 'analyzing') {
-                    failPolling('AI 분석 결과 형식이 올바르지 않습니다. 다시 시도해 주세요.')
-                }
-            } catch {
-                pollErrorCountRef.current += 1
-                if (pollErrorCountRef.current >= MAX_ANALYSIS_ERRORS || timedOut()) {
-                    failPolling('AI 분석 결과를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
-                }
-            }
-        }
-
-        void pollReport()
-
-        const delaySec = Math.min(Math.max(Number(estimatedSec) || 3, 3), 5)
-        pollRef.current = setInterval(pollReport, delaySec * 1000)
-
-    }, [roomId, weekId, stopPolling])
+    // ── review mode: 기존 리포트 즉시 조회 ──────────────────────────────────
+    useEffect(() => {
+        if (!reviewMode) return
+        startPolling(3)
+    }, [reviewMode, startPolling])
 
     // ── 현재 문제 데이터 ──────────────────────────────────────────────────────
     const questions  = quiz?.questions ?? []
@@ -250,7 +271,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
         })
     }
 
-    // 현재 문제에 답이 작성됐는지 확인
     const hasAnswer = currentAns.trim().length > 0
 
     // ── 렌더: 오류 ──────────────────────────────────────────────────────────
@@ -283,19 +303,25 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
         )
     }
 
-    // ── 렌더: AI 분석 중 ─────────────────────────────────────────────────────
-    if (phase === 'submitting' || phase === 'analyzing') {
+    // ── 렌더: 제출 중 / AI 분석 중 ───────────────────────────────────────────
+    // Covers: submitting, submitted, analyzing
+    // onClose is a no-op while analysis is in progress to prevent premature exit.
+    if (phase === 'submitting' || phase === 'submitted' || phase === 'analyzing') {
+        const statusMsg = phase === 'submitting'
+            ? '답안을 제출하는 중입니다...'
+            : phase === 'submitted'
+                ? '제출 완료! AI 분석을 시작합니다...'
+                : analyzeMsg
+
         return (
             <Modal onClose={() => {}} wide>
-                {/* 분석 중에는 닫기 방지: onClose에 빈 함수 전달 */}
                 <div className="fq-analyzing">
                     <div className="fq-analyzing__icon">
                         <BrainCircuit size={48} strokeWidth={1.2} style={{ color: 'var(--color-purple-500)' }} />
                     </div>
                     <h3 className="fq-analyzing__title">AI 종합 분석 중</h3>
-                    <p className="fq-analyzing__msg">{analyzeMsg}</p>
+                    <p className="fq-analyzing__msg">{statusMsg}</p>
 
-                    {/* 진행 도트 애니메이션 */}
                     <div className="fq-analyzing__dots">
                         {[0, 1, 2].map(i => (
                             <div
@@ -317,14 +343,13 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
 
     // ── 렌더: AI 분석 리포트 ─────────────────────────────────────────────────
     if (phase === 'report' && report) {
-        const radarData = toRadarData(report.radarData ?? {})
+        const radarData       = toRadarData(report.radarData ?? {})
         const reportQuestions = Array.isArray(report.questions) ? report.questions : []
-        const correctCount = reportQuestions.filter(q => q.isCorrect).length
+        const correctCount    = reportQuestions.filter(q => q.isCorrect).length
 
         return (
             <Modal onClose={onClose} wide>
                 <div className="fq-report">
-                    {/* 상단 총점 */}
                     <div className="fq-report__header">
                         <div className="fq-report__trophy">
                             <Trophy size={28} strokeWidth={1.5} />
@@ -336,7 +361,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                         </p>
                     </div>
 
-                    {/* 레이더 차트 */}
                     <div className="fq-report__chart-wrap">
                         <p className="fq-report__chart-label">역량 분석 레이더</p>
                         <ResponsiveContainer width="100%" height={220}>
@@ -357,12 +381,11 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                         </ResponsiveContainer>
                     </div>
 
-                    {/* 문항별 AI 해설 */}
                     <div className="fq-report__questions">
                         <p className="fq-report__questions-title">문항별 AI 해설</p>
                         {reportQuestions.map(q => {
                             const gainedKeywords = q.gainedKeywords ?? []
-                            const weakKeywords = q.weakKeywords ?? q.missingKeywords ?? []
+                            const weakKeywords   = q.weakKeywords ?? q.missingKeywords ?? []
 
                             return (
                                 <div
@@ -377,7 +400,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                                         <span className="fq-report__q-num">Q{q.order}</span>
                                         {q.isCorrect
                                             ? <CheckCircle2 size={14} strokeWidth={2} style={{ color: '#10b981' }} />
-                                            : <XCircle size={14} strokeWidth={2} style={{ color: '#ef4444' }} />
+                                            : <XCircle     size={14} strokeWidth={2} style={{ color: '#ef4444' }} />
                                         }
                                         <span className="fq-report__q-score">
                                             {q.score}/{q.maxScore}점
@@ -399,7 +422,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                         })}
                     </div>
 
-                    <button className="fq-report__close-btn" onClick={onClose}>
+                    <button className="fq-report__close-btn" onClick={() => { onComplete?.(); onClose() }}>
                         확인
                     </button>
                 </div>
@@ -411,7 +434,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
     return (
         <Modal onClose={onClose} wide>
             <div className="fq-quiz">
-                {/* 헤더 */}
                 <div className="fq-quiz__header">
                     <div className="fq-quiz__badge">
                         <Zap size={13} strokeWidth={2} />
@@ -420,7 +442,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                     <span className="fq-quiz__step">{step + 1} / {totalSteps}</span>
                 </div>
 
-                {/* 진행 바 */}
                 <div className="fq-quiz__progress-track">
                     <div
                         className="fq-quiz__progress-fill"
@@ -428,22 +449,18 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                     />
                 </div>
 
-                {/* 퀴즈 제목 */}
                 <h3 className="fq-quiz__title">{quiz?.title}</h3>
 
-                {/* 현재 문제 */}
                 {currentQ && (
                     <>
                         <p className="fq-quiz__question">{currentQ.question}</p>
 
-                        {/* 힌트 */}
                         {currentQ.tip && (
                             <p className="fq-quiz__tip">
                                 💡 힌트: {currentQ.tip}
                             </p>
                         )}
 
-                        {/* 답안 입력 */}
                         <textarea
                             className="fq-quiz__textarea"
                             value={currentAns}
@@ -458,7 +475,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                     </>
                 )}
 
-                {/* 이전/다음 버튼 */}
                 <div className="fq-quiz__nav">
                     <button
                         className="fq-quiz__nav-btn"
@@ -478,7 +494,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                             <ChevronRight size={16} strokeWidth={2} />
                         </button>
                     ) : (
-                        // 마지막 문제: 제출 버튼
                         <button
                             className={`fq-quiz__submit-btn ${
                                 answers.every(a => a.trim().length > 0)
@@ -493,7 +508,6 @@ export default function FinalQuizModal({ roomId, weekId, onClose }: Props) {
                     )}
                 </div>
 
-                {/* 미작성 문제 표시 */}
                 <div className="fq-quiz__dots">
                     {answers.map((ans, i) => (
                         <div

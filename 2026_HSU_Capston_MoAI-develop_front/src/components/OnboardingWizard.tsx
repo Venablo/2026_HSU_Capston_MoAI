@@ -40,14 +40,14 @@ import { createLearningRoom, getOnboardingKeywords } from '../services/apiServic
 import type { CreateLearningRoomRequest, CreateLearningRoomResponse } from '../types/api'
 
 // ── 상수 ──────────────────────────────────────────────────────────────────────
-const LEVELS      = ['입문 (개념부터 차근차근)', '초급 (기본기는 있어요)', '중급 (심화 내용 중심으로)', '고급 (실전 위주로)']
+const LEVELS      = ['초급 (개념부터 차근차근)', '중급 (심화 내용 중심으로)', '고급 (실전 위주로)']
 const DURATIONS   = ['4주', '8주', '10주', '12주', '16주']
 const INTENSITIES = ['하루 1시간', '하루 2시간', '하루 3시간', '하루 4시간+']
-const LEVEL_CHARS = ['입', '초', '중', '고']
+const LEVEL_CHARS = ['초', '중', '고']
 
 // UI 난이도 인덱스 → API level 문자열
 const LEVEL_MAP: CreateLearningRoomRequest['level'][] = [
-    'beginner', 'beginner', 'intermediate', 'advanced',
+    'beginner', 'intermediate', 'advanced',
 ]
 
 // UI 강도 문자열 → 시간(숫자)

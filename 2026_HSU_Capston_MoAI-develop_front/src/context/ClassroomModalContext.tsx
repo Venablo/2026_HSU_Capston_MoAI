@@ -32,8 +32,11 @@ interface ClassroomModalContextValue {
     metacogComplete: boolean
     /** True once the user has connected with a study partner */
     partnerConnected: boolean
+    /** True once the user has submitted the final quiz and viewed the report */
+    quizSubmitted: boolean
     setMetacogComplete: (v: boolean) => void
     setPartnerConnected: (v: boolean) => void
+    setQuizSubmitted: (v: boolean) => void
     /**
      * 현재 학습 중인 주차 ID (weekId).
      * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
@@ -52,6 +55,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const [modalData,        setModalData]        = useState<ModalData | null>(null)
     const [metacogComplete,  setMetacogComplete]  = useState(false)
     const [partnerConnected, setPartnerConnected] = useState(false)
+    const [quizSubmitted,    setQuizSubmitted]    = useState(false)
     // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
     const [currentWeekId,    setCurrentWeekId]    = useState<string | null>(null)
 
@@ -70,6 +74,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             modal, modalData, open, close,
             metacogComplete,  setMetacogComplete,
             partnerConnected, setPartnerConnected,
+            quizSubmitted,    setQuizSubmitted,
             currentWeekId,    setCurrentWeekId,
         }}>
             {children}

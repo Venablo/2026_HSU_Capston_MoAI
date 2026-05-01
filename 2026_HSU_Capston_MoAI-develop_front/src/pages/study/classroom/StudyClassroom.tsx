@@ -34,6 +34,7 @@ import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
+import { fetchStudyMatch } from '../../../services/aiSummaryService'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
 import { useAuth } from '../../../context/AuthContext'
 import {
@@ -150,7 +151,8 @@ function StudyClassroomContent() {
     const [quizAttempts,  setQuizAttempts]  = useState<QuizAttemptListItem[] | null>(null)
     const [quizLoading,   setQuizLoading]   = useState(false)
 
-    const { open, metacogComplete, partnerConnected, setCurrentWeekId, setMetacogComplete } = useClassroomModal()
+    const { open, metacogComplete, partnerConnected, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted } = useClassroomModal()
+    const [matchLoading, setMatchLoading] = useState(false)
     const { nickname, refreshToken, clearAuth } = useAuth()
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
@@ -317,13 +319,14 @@ function StudyClassroomContent() {
         setVideos(null)
         setQuizAttempts(null)
         setMetacogComplete(false)
+        setQuizSubmitted(false)
         getCurriculumWeek(roomId, weekId)
             .then(detail => {
                 applyWeekDetail(detail)
             })
             .catch(e => setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.'))
             .finally(() => setWeekLoading(false))
-    }, [roomId, weekData?.weekId, applyWeekDetail, setMetacogComplete])
+    }, [roomId, weekData?.weekId, applyWeekDetail, setMetacogComplete, setQuizSubmitted])
 
     // ── 영상 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
     const loadVideosForWeek = useCallback((showLoading = true) => {
@@ -479,6 +482,17 @@ function StudyClassroomContent() {
             })
             .catch(() => { /* 진행률 업데이트 실패 시 조용히 무시 */ })
     }, [roomId, weekData])
+
+    // ── 스터디 매칭 신청 (사이드바 버튼) ────────────────────────────────────
+    const handleRequestMatching = useCallback(async () => {
+        setMatchLoading(true)
+        try {
+            const match = await fetchStudyMatch({ comprehensionScore: 0, strongKeywords: [], weakKeywords: [] })
+            open('study-matching', { type: 'study-matching', match })
+        } finally {
+            setMatchLoading(false)
+        }
+    }, [open])
 
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
     const { playerHostRef } = useYouTubePlayer({
@@ -943,25 +957,28 @@ function StudyClassroomContent() {
                                     <BrainCircuit size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                     메타인지 확인
                                 </div>
-                                <p className="metacog-card__desc">
-                                    {activeVideoId
-                                        ? progress >= 40
-                                            ? '방금 배운 내용을 AI에게 소리 내어 설명해보세요. 이해도를 실시간 분석해 드립니다.'
-                                            : `영상 시청률이 40% 이상이어야 시작할 수 있습니다. 현재 ${progress}%입니다.`
-                                        : '대표 영상이 준비되면 메타인지 학습을 시작할 수 있습니다.'}
-                                </p>
-                                <button
-                                    className="metacog-card__btn"
-                                    onClick={() => open('reverse-learning', {
-                                        type:        'reverse-learning',
-                                        conceptName: weekData?.topic ?? '',
-                                        roomId,
-                                        weekId:      weekData?.weekId,
-                                    })}
-                                    disabled={!canStartMetacog}
-                                >
-                                    AI에게 설명하기
-                                </button>
+                                {canStartMetacog ? (
+                                    <>
+                                        <p className="metacog-card__desc">
+                                            방금 배운 내용을 AI에게 소리 내어 설명해보세요. 이해도를 실시간 분석해 드립니다.
+                                        </p>
+                                        <button
+                                            className="metacog-card__btn"
+                                            onClick={() => open('reverse-learning', {
+                                                type:        'reverse-learning',
+                                                conceptName: weekData?.topic ?? '',
+                                                roomId,
+                                                weekId:      weekData?.weekId,
+                                            })}
+                                        >
+                                            AI에게 설명하기
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="metacog-card__status">
+                                        커리큘럼 진행률이 40% 이상 도달하면 메타인지 확인을 시작할 수 있습니다.
+                                    </p>
+                                )}
                             </div>
                         ) : (
                             <div className="metacog-card metacog-card--complete">
@@ -975,36 +992,56 @@ function StudyClassroomContent() {
                                 <p className="metacog-card__desc" style={{ margin: '4px 0 0' }}>
                                     거꾸로 학습이 완료되었습니다.
                                 </p>
+                                {!partnerConnected && (
+                                    <button
+                                        className="metacog-card__btn"
+                                        style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        onClick={handleRequestMatching}
+                                        disabled={matchLoading}
+                                    >
+                                        {matchLoading
+                                            ? <><Loader2 size={14} strokeWidth={2} className="animate-spin" /> 매칭 중...</>
+                                            : <><Users size={14} strokeWidth={2} /> 스터디 매칭 신청</>}
+                                    </button>
+                                )}
                             </div>
                         )}
 
                         {/* 주간 파이널 퀴즈 카드 */}
-                        <div className={`weekly-quiz-card${canStartFinalQuiz ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
+                        <div className={`weekly-quiz-card${(canStartFinalQuiz || quizSubmitted) ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
                             <div
                                 className="weekly-quiz-card__title"
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                             >
-                                {canStartFinalQuiz
+                                {(canStartFinalQuiz || quizSubmitted)
                                     ? <Trophy size={16} strokeWidth={1.5} />
                                     : <Lock   size={16} strokeWidth={1.5} />}
                                 주간 최종 퀴즈
                             </div>
                             <p className="weekly-quiz-card__desc">
-                                {canStartFinalQuiz
-                                    ? `Week ${weekData?.weekNumber ?? ''} 전체 내용 최종 평가! 도전해보세요.`
-                                    : '메타인지 평가를 완료하면 잠금이 해제됩니다.'}
+                                {quizSubmitted
+                                    ? 'AI 종합 분석 리포트를 다시 확인해보세요.'
+                                    : canStartFinalQuiz
+                                        ? `Week ${weekData?.weekNumber ?? ''} 전체 내용 최종 평가! 도전해보세요.`
+                                        : '메타인지 확인 완료 후 진행 가능합니다.'}
                             </p>
-                            {canStartFinalQuiz && weekData && (
+                            {weekData && (
                                 <button
                                     className="weekly-quiz-card__btn"
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                                    onClick={() => open('final-quiz', {
-                                        type:   'final-quiz',
-                                        roomId,
-                                        weekId: weekData.weekId,
-                                    })}
+                                    disabled={!quizSubmitted && !canStartFinalQuiz}
+                                    onClick={() => {
+                                        if (quizSubmitted || canStartFinalQuiz) {
+                                            open('final-quiz', {
+                                                type:       'final-quiz',
+                                                roomId,
+                                                weekId:     weekData.weekId,
+                                                ...(quizSubmitted ? { reviewMode: true } : {}),
+                                            })
+                                        }
+                                    }}
                                 >
-                                    퀴즈 도전하기
+                                    {quizSubmitted ? '퀴즈 결과 복습하기' : '퀴즈 도전하기'}
                                     <ArrowRight size={13} strokeWidth={1.5} />
                                 </button>
                             )}
