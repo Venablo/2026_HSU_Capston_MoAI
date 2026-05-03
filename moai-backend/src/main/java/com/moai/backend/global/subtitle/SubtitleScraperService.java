@@ -36,38 +36,60 @@ public class SubtitleScraperService {
     private String scriptPath;
 
     private String resolvedScriptPath;
+    private String resolvedCookiePath;
 
-    /**
-     * 앱 시작 시 subtitle_scraper.py를 classpath에서 읽어 임시 파일로 추출한다.
-     * 이렇게 하면 앱의 working directory에 관계없이 스크립트를 항상 찾을 수 있다.
-     */
     @PostConstruct
     public void resolveScript() {
         // 1. 설정된 경로에 파일이 직접 존재하면 그대로 사용
         File configured = new File(scriptPath);
         if (configured.exists()) {
             resolvedScriptPath = configured.getAbsolutePath();
+            resolvedCookiePath = resolveSiblingCookiePath(configured.getParentFile());
             log.info("Subtitle scraper script found at configured path: {}", resolvedScriptPath);
             return;
         }
 
-        // 2. classpath에서 로드 (working directory 무관)
+        // 2. classpath에서 로드 — 스크립트와 cookies.txt를 같은 임시 디렉토리에 추출
         ClassPathResource resource = new ClassPathResource("scripts/subtitle_scraper.py");
         if (resource.exists()) {
             try {
-                File tempScript = File.createTempFile("subtitle_scraper", ".py");
+                File tempDir = Files.createTempDirectory("moai_subtitle").toFile();
+                tempDir.deleteOnExit();
+
+                File tempScript = new File(tempDir, "subtitle_scraper.py");
                 tempScript.deleteOnExit();
                 Files.copy(resource.getInputStream(), tempScript.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 resolvedScriptPath = tempScript.getAbsolutePath();
+
+                resolvedCookiePath = resolveSiblingCookiePath(tempDir);
                 log.info("Subtitle scraper script extracted from classpath to: {}", resolvedScriptPath);
             } catch (IOException e) {
                 log.warn("Failed to extract subtitle scraper from classpath, falling back to configured path: {}", scriptPath);
                 resolvedScriptPath = scriptPath;
+                resolvedCookiePath = null;
             }
         } else {
             log.warn("Subtitle scraper script not found at '{}' or on classpath — scraping will be skipped", scriptPath);
             resolvedScriptPath = scriptPath;
+            resolvedCookiePath = null;
         }
+    }
+
+    private String resolveSiblingCookiePath(File directory) {
+        ClassPathResource cookieResource = new ClassPathResource("scripts/cookies.txt");
+        if (cookieResource.exists()) {
+            try {
+                File cookieFile = new File(directory, "cookies.txt");
+                cookieFile.deleteOnExit();
+                Files.copy(cookieResource.getInputStream(), cookieFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                log.info("cookies.txt extracted to: {}", cookieFile.getAbsolutePath());
+                return cookieFile.getAbsolutePath();
+            } catch (IOException e) {
+                log.warn("Failed to extract cookies.txt from classpath: {}", e.getMessage());
+            }
+        }
+        File sibling = new File(directory, "cookies.txt");
+        return sibling.exists() ? sibling.getAbsolutePath() : null;
     }
 
     private static final long TIMEOUT_SECONDS = 30;
@@ -90,6 +112,10 @@ public class SubtitleScraperService {
                 command.add(resolvedScriptPath);
                 command.add(videoId);
                 command.add("--check");
+                if (resolvedCookiePath != null) {
+                    command.add("--cookie-file");
+                    command.add(resolvedCookiePath);
+                }
 
                 ProcessBuilder pb = new ProcessBuilder(command);
                 pb.redirectErrorStream(true);
@@ -177,6 +203,10 @@ public class SubtitleScraperService {
         java.util.ArrayList<String> command = new java.util.ArrayList<>(commandPrefix);
         command.add(resolvedScriptPath);
         command.add(videoId);
+        if (resolvedCookiePath != null) {
+            command.add("--cookie-file");
+            command.add(resolvedCookiePath);
+        }
         return command;
     }
 

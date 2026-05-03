@@ -4,6 +4,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.moai.backend.domain.curriculum.entity.CurriculumResource;
 import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
+import com.moai.backend.domain.quiz.entity.Quiz;
+import com.moai.backend.domain.quiz.entity.QuizOption;
+import com.moai.backend.domain.quiz.entity.QuizQuestion;
+import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
+import com.moai.backend.domain.quiz.repository.QuizRepository;
 import com.moai.backend.domain.transcript.entity.VideoTranscript;
 import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
 import com.moai.backend.global.llm.LlmRequestDto;
@@ -24,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -40,6 +47,8 @@ public class CurriculumEnrichmentService {
     private final MaterialGeneratorService materialGeneratorService;
     private final S3Service s3Service;
     private final YoutubeApiService youtubeApiService;
+    private final QuizRepository quizRepository;
+    private final QuizQuestionRepository quizQuestionRepository;
 
     public record WeekEnrichmentContext(
             String curriculumId,
@@ -90,7 +99,7 @@ public class CurriculumEnrichmentService {
         // video_id를 resources JSON에 저장 (duration/viewCount 포함)
         CurriculumResource resource = new CurriculumResource(
                 "youtube", videoId, videoTitle, null, null,
-                videoMeta.durationSec(), videoMeta.viewCount()
+                videoMeta.durationSec(), videoMeta.viewCount(), null
         );
         curriculum.updateResources(List.of(resource));
         weeklyCurriculumRepository.save(curriculum);
@@ -306,7 +315,7 @@ public class CurriculumEnrichmentService {
             );
             String mdSize = formatFileSize(mdBytes.length);
             if (mdUrl != null) {
-                resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null));
+                resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null, null));
                 log.info("[{}주차] Markdown 업로드 완료 — size: {}", curriculum.getWeekNumber(), mdSize);
             } else {
                 log.info("[{}주차] Markdown 생성 완료 ({}) — S3 비활성화로 저장 스킵", curriculum.getWeekNumber(), mdSize);
@@ -477,7 +486,301 @@ public class CurriculumEnrichmentService {
         return items == null || items.isEmpty() ? "" : String.join(", ", items);
     }
 
+    // --- 약점 키워드 보충 enrichment ---
+
+    /**
+     * 파이널 퀴즈 완료 후 미해소 약점 키워드가 있을 때 다음 주차에 보충 콘텐츠를 추가한다.
+     * 영상(최소 수로 커버), 통합 학습 자료 1개, 약점 퀴즈 1세트를 생성한다.
+     */
+    @Async("curriculumTaskExecutor")
+    @Transactional
+    public void enrichWithWeaknessKeywords(String curriculumId, List<String> weaknessKeywords,
+                                            String subject, String level) {
+        if (weaknessKeywords == null || weaknessKeywords.isEmpty()) return;
+
+        WeeklyCurriculum curriculum = weeklyCurriculumRepository.findById(curriculumId).orElse(null);
+        if (curriculum == null) {
+            log.warn("weakness enrichment 대상 커리큘럼을 찾을 수 없음: curriculumId={}", curriculumId);
+            return;
+        }
+
+        // 이미 약점 보충 콘텐츠가 있으면 스킵 (멱등성)
+        boolean alreadyEnriched = curriculum.getResources() != null &&
+                curriculum.getResources().stream().anyMatch(r -> "weakness".equals(r.getTag()));
+        if (alreadyEnriched) {
+            log.info("[{}주차] 약점 보충 enrichment 이미 완료됨 — 스킵", curriculum.getWeekNumber());
+            return;
+        }
+
+        log.info("[{}주차] 약점 키워드 보충 enrichment 시작 — keywords: {}", curriculum.getWeekNumber(), weaknessKeywords);
+
+        // Step W-A: 약점 키워드별 YouTube 영상 검색 (videoId 기준 중복 제거)
+        List<CurriculumResource> weaknessVideos = findVideosForWeaknessKeywords(weaknessKeywords, subject);
+        if (!weaknessVideos.isEmpty()) {
+            List<CurriculumResource> resources = new ArrayList<>(
+                    curriculum.getResources() != null ? curriculum.getResources() : List.of());
+            resources.addAll(weaknessVideos);
+            curriculum.updateResources(resources);
+            weeklyCurriculumRepository.save(curriculum);
+        }
+
+        // Step W-B: 약점 키워드 통합 학습 자료 1개 생성
+        generateAndUploadWeaknessMaterial(curriculum, weaknessKeywords, subject, level);
+
+        // Step W-C: 약점 퀴즈 생성
+        generateWeaknessQuiz(curriculum, weaknessKeywords);
+
+        log.info("[{}주차] 약점 키워드 보충 enrichment 완료 — {}개 키워드, {}개 영상",
+                curriculum.getWeekNumber(), weaknessKeywords.size(), weaknessVideos.size());
+    }
+
+    private List<CurriculumResource> findVideosForWeaknessKeywords(List<String> keywords, String subject) {
+        if (!youtubeApiService.isEnabled()) return List.of();
+
+        // videoId 기준으로 중복 제거하며 탐색 — 한 영상이 여러 키워드를 커버하면 한 번만 추가
+        Map<String, YoutubeApiService.VideoMeta> byVideoId = new LinkedHashMap<>();
+
+        for (String keyword : keywords) {
+            String query = nullSafe(subject).isBlank()
+                    ? keyword + " 개념 강의"
+                    : subject + " " + keyword + " 개념 강의";
+            List<YoutubeApiService.VideoMeta> results = youtubeApiService.searchVideos(query, 5);
+            if (results.isEmpty()) {
+                results = youtubeApiService.searchVideos(keyword + " 강의", 3);
+            }
+
+            YoutubeApiService.VideoMeta best = results.stream()
+                    .filter(YoutubeApiService.VideoMeta::hasCaptions)
+                    .findFirst()
+                    .orElse(results.isEmpty() ? null : results.get(0));
+
+            if (best != null) {
+                byVideoId.putIfAbsent(best.videoId(), best);
+            }
+        }
+
+        return byVideoId.values().stream()
+                .map(v -> new CurriculumResource(
+                        "youtube", v.videoId(), v.title(), null, null,
+                        v.durationSec(), v.viewCount(), "weakness"))
+                .toList();
+    }
+
+    private void generateAndUploadWeaknessMaterial(WeeklyCurriculum curriculum,
+                                                    List<String> weaknessKeywords,
+                                                    String subject, String level) {
+        try {
+            String systemPrompt = """
+                    당신은 MoAI 학습 플랫폼의 학습 보충 자료 생성 전문가 AI입니다.
+
+                    학습자가 파이널 퀴즈에서 부족했던 약점 키워드들을 집중 보완하는 학습 자료를 생성하세요.
+
+                    ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
+                    {"study_material": "마크다운 학습 자료 전문"}
+
+                    ■ 학습 자료 필수 구성:
+                    ### 🔁 약점 보충 학습 목표
+                    (왜 이 키워드들이 부족했는지, 무엇을 보완해야 하는지 1문단)
+
+                    ### 키워드별 심화 정리
+                    (각 약점 키워드마다 정의→원리→예시→자주 하는 실수 구조로 최소 300자 이상 상세 서술)
+
+                    ### 비교 정리표
+                    (키워드들 간 차이점·공통점 마크다운 표)
+
+                    ### 핵심 암기 포인트 & 체크리스트
+
+                    ■ 필수 규칙:
+                    1. 전체 2500자 이상
+                    2. 학습자가 틀렸던 개념에 특히 집중
+                    3. 모든 내용 한국어, 전문 용어는 영어 병기 (예: 정규화(Normalization))
+                    """;
+
+            String userMessage = String.format(
+                    "과목: %s\n난이도: %s\n%d주차 약점 키워드: %s",
+                    nullSafe(subject), nullSafe(level),
+                    (int) curriculum.getWeekNumber(),
+                    String.join(", ", weaknessKeywords)
+            );
+
+            LlmRequestDto request = LlmRequestDto.builder()
+                    .systemPrompt(systemPrompt)
+                    .userMessage(userMessage)
+                    .build();
+
+            WeaknessMaterialResponse response = llmService.callJson(request, WeaknessMaterialResponse.class);
+            if (response == null || response.getStudyMaterial() == null || response.getStudyMaterial().isBlank()) {
+                log.warn("[{}주차] 약점 학습 자료 LLM 응답 없음", curriculum.getWeekNumber());
+                return;
+            }
+
+            MaterialContent content = new MaterialContent(
+                    curriculum.getWeekNumber() + "주차 약점 보충 자료",
+                    List.of(new MaterialContent.Section("약점 보충 학습", response.getStudyMaterial()))
+            );
+
+            String subjectKey = nullSafe(subject).replaceAll("[\\s/]", "_");
+            String levelKo = switch (nullSafe(level)) {
+                case "beginner" -> "기초";
+                case "intermediate" -> "중급";
+                case "advanced" -> "고급";
+                default -> nullSafe(level);
+            };
+            int totalWeeks = curriculum.getRoom().getDurationWeeks();
+            String s3Directory = "materials/" + subjectKey + "_" + levelKo + "_" + totalWeeks + "주";
+            String keywordsSlug = weaknessKeywords.stream()
+                    .limit(3)
+                    .map(k -> k.replaceAll("[\\s/\\[\\]()]", "_"))
+                    .collect(Collectors.joining("_"));
+            String fileBaseName = curriculum.getWeekNumber() + "주차_약점보충_" + keywordsSlug;
+            String materialTitle = curriculum.getWeekNumber() + "주차 약점 보충 자료";
+
+            List<CurriculumResource> resources = new ArrayList<>(
+                    curriculum.getResources() != null ? curriculum.getResources() : List.of());
+
+            try {
+                byte[] mdBytes = materialGeneratorService.generateMarkdown(content);
+                String mdUrl = s3Service.upload(s3Directory, fileBaseName + ".md", mdBytes, "text/markdown");
+                String mdSize = formatFileSize(mdBytes.length);
+                if (mdUrl != null) {
+                    resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null, "weakness"));
+                    log.info("[{}주차] 약점 Markdown 업로드 완료 — size: {}", curriculum.getWeekNumber(), mdSize);
+                } else {
+                    resources.add(new CurriculumResource("md", null, materialTitle, null, mdSize, null, null, "weakness"));
+                    log.info("[{}주차] 약점 Markdown 생성 완료 ({}) — S3 비활성화로 저장 스킵", curriculum.getWeekNumber(), mdSize);
+                }
+            } catch (Exception e) {
+                log.warn("[{}주차] 약점 Markdown 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            }
+
+            curriculum.updateResources(resources);
+            weeklyCurriculumRepository.save(curriculum);
+
+        } catch (Exception e) {
+            log.warn("[{}주차] 약점 학습 자료 생성 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+        }
+    }
+
+    private void generateWeaknessQuiz(WeeklyCurriculum curriculum, List<String> weaknessKeywords) {
+        try {
+            if (quizRepository.findByCurriculumIdAndQuizType(curriculum.getId(), "weakness_remediation").isPresent()) {
+                return;
+            }
+
+            List<String> capped = weaknessKeywords.stream().limit(5).toList();
+
+            String systemPrompt = """
+                    당신은 MoAI 학습 플랫폼의 약점 보충 퀴즈 출제 AI입니다.
+
+                    학습자가 파이널 퀴즈에서 부족했던 약점 키워드를 타겟으로 객관식 퀴즈를 생성하세요.
+
+                    ■ 출력: 순수 JSON (코드블록 없이)
+                    {
+                      "questions": [
+                        {
+                          "question": "객관식 문제 (개념 이해를 직접 검증하는 질문)",
+                          "options": [
+                            {"label": "A", "text": "보기1"},
+                            {"label": "B", "text": "보기2"},
+                            {"label": "C", "text": "보기3"},
+                            {"label": "D", "text": "보기4"}
+                          ],
+                          "answer": "정답라벨",
+                          "related_keyword": "관련 약점 키워드",
+                          "explanation": "정답 근거 (2~3문장, 오답 분석 포함)"
+                        }
+                      ]
+                    }
+
+                    ■ 필수 규칙:
+                    1. 각 약점 키워드당 최소 1문제, 최대 5문제 총합
+                    2. 4지선다 객관식, 단순 암기가 아닌 이해도 검증 질문
+                    3. related_keyword는 반드시 입력된 약점 키워드 중 하나
+                    4. explanation에 왜 다른 선택지가 틀렸는지도 간략히 포함
+                    """;
+
+            String userMessage = String.format(
+                    "주차 주제: %s\n약점 키워드: %s",
+                    curriculum.getTopic(), String.join(", ", capped)
+            );
+
+            LlmRequestDto request = LlmRequestDto.builder()
+                    .systemPrompt(systemPrompt)
+                    .userMessage(userMessage)
+                    .build();
+
+            WeaknessQuizResponse response = llmService.callJson(request, WeaknessQuizResponse.class);
+            if (response == null || response.getQuestions() == null || response.getQuestions().isEmpty()) {
+                log.warn("[{}주차] 약점 퀴즈 LLM 응답 없음", curriculum.getWeekNumber());
+                return;
+            }
+
+            Quiz quiz = Quiz.builder()
+                    .curriculum(curriculum)
+                    .quizType("weakness_remediation")
+                    .title(curriculum.getWeekNumber() + "주차 약점 보충 퀴즈")
+                    .build();
+            quizRepository.save(quiz);
+
+            short order = 1;
+            for (WeaknessQuizResponse.QuestionItem qi : response.getQuestions()) {
+                List<QuizOption> options = qi.getOptions() == null ? List.of() :
+                        qi.getOptions().stream()
+                                .map(o -> new QuizOption(o.getLabel(), o.getText()))
+                                .toList();
+
+                QuizQuestion question = QuizQuestion.builder()
+                        .quiz(quiz)
+                        .questionType("multiple")
+                        .question(qi.getQuestion())
+                        .options(options)
+                        .answer(qi.getAnswer())
+                        .questionOrder(order++)
+                        .relatedKeyword(qi.getRelatedKeyword())
+                        .build();
+                quizQuestionRepository.save(question);
+            }
+
+            log.info("[{}주차] 약점 퀴즈 생성 완료 — {}문제", curriculum.getWeekNumber(), response.getQuestions().size());
+        } catch (Exception e) {
+            log.warn("[{}주차] 약점 퀴즈 생성 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+        }
+    }
+
     // --- LLM 응답 DTO (내부 클래스) ---
+
+    @Getter
+    @NoArgsConstructor
+    static class WeaknessMaterialResponse {
+        @JsonProperty("study_material")
+        private String studyMaterial;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    static class WeaknessQuizResponse {
+        private List<QuestionItem> questions;
+
+        @Getter
+        @NoArgsConstructor
+        static class QuestionItem {
+            private String question;
+            private List<OptionItem> options;
+            private String answer;
+
+            @JsonProperty("related_keyword")
+            private String relatedKeyword;
+
+            private String explanation;
+        }
+
+        @Getter
+        @NoArgsConstructor
+        static class OptionItem {
+            private String label;
+            private String text;
+        }
+    }
 
     @Getter
     @NoArgsConstructor

@@ -30,10 +30,11 @@ public class CurriculumService {
 
     public CurriculumListResponseDto getCurriculumList(String email, String roomId) {
         LearningRoom room = findRoomByOwner(email, roomId);
+        short currentWeek = room.getCurrentWeek();
 
         List<CurriculumListResponseDto.CurriculumSummary> weeks =
                 weeklyCurriculumRepository.findByRoomIdOrderByWeekNumber(room.getId()).stream()
-                        .map(CurriculumListResponseDto.CurriculumSummary::from)
+                        .map(c -> CurriculumListResponseDto.CurriculumSummary.from(c, currentWeek))
                         .toList();
 
         return new CurriculumListResponseDto(weeks);
@@ -44,6 +45,10 @@ public class CurriculumService {
 
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
+
+        if (curriculum.getWeekNumber() > room.getCurrentWeek()) {
+            throw new CustomException(ErrorCode.WEEK_LOCKED);
+        }
 
         return CurriculumDetailResponseDto.from(curriculum);
     }
@@ -58,6 +63,10 @@ public class CurriculumService {
         // 1. 해당 주차 진척도 업데이트
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
+
+        if (curriculum.getWeekNumber() > room.getCurrentWeek()) {
+            throw new CustomException(ErrorCode.WEEK_LOCKED);
+        }
 
         // 영상 시청분은 최대 40%까지만 기여한다.
         // 프론트가 전체 영상 시청률(0~100)을 보내면 0~40으로 환산,
@@ -87,15 +96,20 @@ public class CurriculumService {
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
 
-        // resources에서 youtube 타입만 추출, durationSec/viewCount는 YouTube Data API 연동 전까지 null
+        // 일반 영상 먼저, 약점 영상 다음 순서로 반환
         List<RecommendedVideoListResponseDto.VideoSummary> videos;
         if (curriculum.getResources() == null) {
             videos = Collections.emptyList();
         } else {
             videos = curriculum.getResources().stream()
                     .filter(r -> "youtube".equals(r.getType()))
+                    .sorted((a, b) -> {
+                        boolean aWeak = "weakness".equals(a.getTag());
+                        boolean bWeak = "weakness".equals(b.getTag());
+                        return Boolean.compare(aWeak, bWeak); // false(normal) < true(weakness)
+                    })
                     .map(r -> new RecommendedVideoListResponseDto.VideoSummary(
-                            r.getVideoId(), r.getTitle(), r.getDurationSec(), r.getViewCount()
+                            r.getVideoId(), r.getTitle(), r.getDurationSec(), r.getViewCount(), r.getTag()
                     ))
                     .toList();
         }

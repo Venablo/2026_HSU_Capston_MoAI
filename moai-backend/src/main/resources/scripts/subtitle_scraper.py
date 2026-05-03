@@ -7,8 +7,6 @@ import http.cookiejar
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
-COOKIE_FILE = "cookies.txt"
-
 def get_session_with_cookies(cookie_file):
     """
     [최신 버전 변경점] cookies.txt 파일을 읽어 requests.Session에 직접 주입합니다.
@@ -24,20 +22,18 @@ def get_session_with_cookies(cookie_file):
             print(f"Warning: 쿠키 파일을 로드할 수 없습니다 ({e}).", file=sys.stderr)
     return session
 
-def check_has_subtitle(video_id):
+def check_has_subtitle(video_id, cookie_file):
     try:
-        session = get_session_with_cookies(COOKIE_FILE)
-        # [최신 버전 변경점] 클래스를 인스턴스화 할 때 http_client로 세션(쿠키)을 전달합니다.
+        session = get_session_with_cookies(cookie_file)
         ytt_api = YouTubeTranscriptApi(http_client=session)
-        # list_transcripts() -> list() 로 메서드 이름이 변경되었습니다.
         ytt_api.list(video_id)
         sys.exit(0)
     except Exception as e:
         print(f"Error checking transcripts: {e}", file=sys.stderr)
         sys.exit(1)
 
-def fetch_with_priority(video_id):
-    session = get_session_with_cookies(COOKIE_FILE)
+def fetch_with_priority(video_id, cookie_file):
+    session = get_session_with_cookies(cookie_file)
     ytt_api = YouTubeTranscriptApi(http_client=session)
 
     try:
@@ -69,20 +65,31 @@ def fetch_with_priority(video_id):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python subtitle_scraper.py <video_id> [--check]", file=sys.stderr)
+        print("Usage: python subtitle_scraper.py <video_id> [--check] [--cookie-file <path>]", file=sys.stderr)
         sys.exit(1)
 
     video_id = sys.argv[1]
+    args = sys.argv[2:]
 
-    # 단건 실시간 처리 환경이라면 주석 처리하세요. 대량 수집 시에는 활성화 필수.
-    time.sleep(random.uniform(1, 3))
+    cookie_file = None
+    if "--cookie-file" in args:
+        idx = args.index("--cookie-file")
+        if idx + 1 < len(args):
+            cookie_file = args[idx + 1]
+    if cookie_file is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate = os.path.join(script_dir, "cookies.txt")
+        cookie_file = candidate if os.path.exists(candidate) else "cookies.txt"
 
-    if "--check" in sys.argv:
-        check_has_subtitle(video_id)
+    # 대량 수집 시에만 활성화. 단건 실시간 처리 환경에서는 아래 줄을 주석 처리하세요.
+    # time.sleep(random.uniform(1, 3))
+
+    if "--check" in args:
+        check_has_subtitle(video_id, cookie_file)
         return
 
     try:
-        transcript = fetch_with_priority(video_id)
+        transcript = fetch_with_priority(video_id, cookie_file)
         if not transcript:
             raise Exception("No transcript found (어떤 자막도 추출하지 못했습니다).")
 

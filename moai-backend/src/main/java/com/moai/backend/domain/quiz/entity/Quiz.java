@@ -29,7 +29,7 @@ public class Quiz {
     @JoinColumn(name = "curriculum_id", nullable = false)
     private WeeklyCurriculum curriculum;
 
-    @Column(name = "quiz_type", nullable = false, length = 15)
+    @Column(name = "quiz_type", nullable = false, length = 30)
     private String quizType;
 
     @Column(name = "title", nullable = false, length = 200)
