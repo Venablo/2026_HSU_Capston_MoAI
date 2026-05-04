@@ -28,4 +28,6 @@ public class CurriculumResource {
 
     @JsonProperty("view_count")
     private Long viewCount;
+
+    private String tag;
 }
