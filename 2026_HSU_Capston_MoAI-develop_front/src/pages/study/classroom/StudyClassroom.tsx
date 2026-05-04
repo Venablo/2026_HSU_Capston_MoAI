@@ -51,6 +51,7 @@ import {
     updateProfile,
     logout,
 } from '../../../services/apiService'
+import { MoaiApiError } from '../../../api/axios'
 import type {
     EventType,
     LearningEventPayload,
@@ -145,11 +146,21 @@ function StudyClassroomContent() {
     const [allWeeks,     setAllWeeks]     = useState<CurriculumWeekSummary[]>([])
     const [weekDropdown, setWeekDropdown] = useState(false)
 
+    // 잠금 상태: 초기 로드 시 설정된 현재 진행 가능한 최대 weekNumber
+    const [unlockedUpToWeekNumber, setUnlockedUpToWeekNumber] = useState<number | null>(null)
+    // 잠긴 주차 접근 시 표시되는 토스트 메시지
+    const [lockedToast, setLockedToast] = useState<string | null>(null)
+
     // 탭별 데이터 (lazy-load)
     const [videos,        setVideos]        = useState<RecommendedVideo[] | null>(null)
     const [videosLoading, setVideosLoading] = useState(false)
     const [quizAttempts,  setQuizAttempts]  = useState<QuizAttemptListItem[] | null>(null)
     const [quizLoading,   setQuizLoading]   = useState(false)
+
+    // 아코디언 / 더 보기 UI 상태
+    const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
+    const [quizCorrectOpen,   setQuizCorrectOpen]   = useState(true)
+    const [quizWrongOpen,     setQuizWrongOpen]     = useState(true)
 
     const { open, metacogComplete, partnerConnected, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted } = useClassroomModal()
     const [matchLoading, setMatchLoading] = useState(false)
@@ -301,6 +312,7 @@ function StudyClassroomContent() {
                 setAllWeeks(weeks)
                 // 진행 중인 첫 번째 주차 선택, 없으면 마지막 주차
                 const active = weeks.find(w => w.completionRate < 100) ?? weeks[weeks.length - 1]
+                setUnlockedUpToWeekNumber(active.weekNumber)
                 return getCurriculumWeek(roomId, active.weekId)
             })
             .then(detail => {
@@ -313,6 +325,13 @@ function StudyClassroomContent() {
     // ── 주차 전환 ─────────────────────────────────────────────────────────────
     const handleWeekSwitch = useCallback((weekId: string) => {
         if (!roomId || weekId === weekData?.weekId) { setWeekDropdown(false); return }
+
+        // 롤백용 스냅샷 — 403 발생 시 이전 상태로 복원
+        const prevWeekData      = weekData
+        const prevVideos        = videos
+        const prevQuizAttempts  = quizAttempts
+        const prevQuizSubmitted = quizSubmitted
+
         setWeekDropdown(false)
         setWeekLoading(true)
         setWeekError(null)
@@ -324,9 +343,36 @@ function StudyClassroomContent() {
             .then(detail => {
                 applyWeekDetail(detail)
             })
-            .catch(e => setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.'))
+            .catch(e => {
+                const isLocked =
+                    e instanceof MoaiApiError &&
+                    e.status === 403 &&
+                    (e.errorCode === 'CURRICULUM_002' || e.errorCode === 'PREVIOUS_WEEK_NOT_COMPLETED')
+
+                if (isLocked) {
+                    // 이전 주차 상태 복원 — UI 데드락 방지
+                    if (prevWeekData) {
+                        setWeekData(prevWeekData)
+                        setCurrentWeekId(prevWeekData.weekId)
+                        setMetacogComplete((Number(prevWeekData.completionRate) || 0) >= 70)
+                    }
+                    setVideos(prevVideos)
+                    setQuizAttempts(prevQuizAttempts)
+                    setQuizSubmitted(prevQuizSubmitted)
+                    setLockedToast('아직 잠긴 주차입니다. 이전 주차를 먼저 완료해주세요.')
+                } else {
+                    setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.')
+                }
+            })
             .finally(() => setWeekLoading(false))
-    }, [roomId, weekData?.weekId, applyWeekDetail, setMetacogComplete, setQuizSubmitted])
+    }, [roomId, weekData, videos, quizAttempts, quizSubmitted, applyWeekDetail, setCurrentWeekId, setMetacogComplete, setQuizSubmitted])
+
+    // ── 잠긴 주차 토스트 자동 닫기 ───────────────────────────────────────────
+    useEffect(() => {
+        if (!lockedToast) return
+        const t = window.setTimeout(() => setLockedToast(null), 4000)
+        return () => window.clearTimeout(t)
+    }, [lockedToast])
 
     // ── 영상 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
     const loadVideosForWeek = useCallback((showLoading = true) => {
@@ -435,7 +481,11 @@ function StudyClassroomContent() {
                     open('monitoring', {
                         type:        'monitoring',
                         conceptName: material.title,
-                        reason:      `${eventType} 패턴 감지 — 보충 자료를 준비했어요.`,
+                        reason:      result.eventType === 'video_rewind'
+                            ? '해당 구간을 3회 이상 뒤로 감기 하신 것을 감지했어요. AI가 3분 만에 이해할 수 있는 핵심 요약본과 추천 영상을 준비해 두었습니다.'
+                            : result.eventType === 'video_pause'
+                                ? '영상을 일시정지하신 것을 감지했어요. 이해가 어려운 부분이 있다면 AI 요약본을 확인해 보세요.'
+                                : '학습 중 이탈을 감지했어요. 집중도 유지를 위한 AI 핵심 요약본을 준비했습니다.',
                         summaryItems: material.summaryItems.map(s => ({
                             letter:      s.label,
                             title:       s.title,
@@ -501,10 +551,13 @@ function StudyClassroomContent() {
         onProgressMilestone: handleProgressMilestone,
     })
 
+    const isWeekLocked = (w: CurriculumWeekSummary) =>
+        unlockedUpToWeekNumber !== null && w.weekNumber > unlockedUpToWeekNumber
+
     const progress = Number(weekData?.completionRate) || 0
     const safeResources = weekData?.resources ?? []
     const safeKeywords = weekData?.keywords ?? []
-    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 40)
+    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 100)
     const canStartFinalQuiz = Boolean(weekData && metacogComplete && progress >= 70)
 
     return (
@@ -523,10 +576,13 @@ function StudyClassroomContent() {
                                 onChange={e => setSearchValue(e.target.value)}
                                 onFocus={() => setSearchFocus(true)}
                                 onKeyDown={e => {
-                                    if (e.key === 'Enter' && filteredWeeks[0]) {
-                                        handleWeekSwitch(filteredWeeks[0].weekId)
-                                        setSearchValue('')
-                                        setSearchFocus(false)
+                                    if (e.key === 'Enter') {
+                                        const first = filteredWeeks.find(w => !isWeekLocked(w))
+                                        if (first) {
+                                            handleWeekSwitch(first.weekId)
+                                            setSearchValue('')
+                                            setSearchFocus(false)
+                                        }
                                     }
                                 }}
                                 style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '160px', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}
@@ -549,18 +605,33 @@ function StudyClassroomContent() {
                                     <div style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                                         검색 결과가 없습니다.
                                     </div>
-                                ) : filteredWeeks.map(w => (
-                                    <button key={w.weekId} onClick={() => { handleWeekSwitch(w.weekId); setSearchValue(''); setSearchFocus(false) }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: 'var(--color-text-primary)',
-                                        }}>
-                                        <span>Week {w.weekNumber}: {w.topic}</span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{Number(w.completionRate).toFixed(0)}%</span>
-                                    </button>
-                                ))}
+                                ) : filteredWeeks.map(w => {
+                                    const locked = isWeekLocked(w)
+                                    return (
+                                        <button key={w.weekId}
+                                            onClick={() => {
+                                                if (!locked) {
+                                                    handleWeekSwitch(w.weekId)
+                                                    setSearchValue('')
+                                                    setSearchFocus(false)
+                                                }
+                                            }}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                width: '100%', padding: '9px 14px', background: 'none', border: 'none',
+                                                textAlign: 'left', fontSize: '13px',
+                                                cursor: locked ? 'not-allowed' : 'pointer',
+                                                opacity: locked ? 0.45 : 1,
+                                                color: locked ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+                                            }}>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                {locked && <Lock size={11} strokeWidth={1.5} />}
+                                                Week {w.weekNumber}: {w.topic}
+                                            </span>
+                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{Number(w.completionRate).toFixed(0)}%</span>
+                                        </button>
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
@@ -691,25 +762,37 @@ function StudyClassroomContent() {
                                 borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
                                 minWidth: '280px', maxHeight: '320px', overflowY: 'auto', marginTop: '4px',
                             }}>
-                                {allWeeks.map(w => (
-                                    <button
-                                        key={w.weekId}
-                                        onClick={() => handleWeekSwitch(w.weekId)}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '10px 16px', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: w.weekId === weekData?.weekId ? 'var(--color-purple-600, #7c3aed)' : 'var(--color-text-primary, #111)',
-                                            background: w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
-                                            fontWeight: w.weekId === weekData?.weekId ? 600 : 400,
-                                        }}
-                                    >
-                                        <span>Week {w.weekNumber}: {w.topic}</span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
-                                            {Number(w.completionRate).toFixed(0)}%
-                                        </span>
-                                    </button>
-                                ))}
+                                {allWeeks.map(w => {
+                                    const locked = isWeekLocked(w)
+                                    return (
+                                        <button
+                                            key={w.weekId}
+                                            onClick={() => !locked && handleWeekSwitch(w.weekId)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                width: '100%', padding: '10px 16px', border: 'none',
+                                                textAlign: 'left', fontSize: '13px',
+                                                cursor: locked ? 'not-allowed' : 'pointer',
+                                                opacity: locked ? 0.45 : 1,
+                                                color: locked
+                                                    ? 'var(--color-text-muted, #9ca3af)'
+                                                    : w.weekId === weekData?.weekId
+                                                        ? 'var(--color-purple-600, #7c3aed)'
+                                                        : 'var(--color-text-primary, #111)',
+                                                background: w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
+                                                fontWeight: w.weekId === weekData?.weekId ? 600 : 400,
+                                            }}
+                                        >
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {locked && <Lock size={12} strokeWidth={1.5} />}
+                                                Week {w.weekNumber}: {w.topic}
+                                            </span>
+                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
+                                                {Number(w.completionRate).toFixed(0)}%
+                                            </span>
+                                        </button>
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
@@ -863,7 +946,7 @@ function StudyClassroomContent() {
                         </div>
                     )}
 
-                    {/* 탭: AI 핵심 요약 (주차 keywords) */}
+                    {/* 탭: AI 핵심 요약 (주차 keywords) — 더 보기/접기 */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
                             <div
@@ -872,21 +955,45 @@ function StudyClassroomContent() {
                             >
                                 <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                 핵심 키워드
+                                {safeKeywords.length > 0 && (
+                                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 400 }}>
+                                        총 {safeKeywords.length}개
+                                    </span>
+                                )}
                             </div>
                             {weekLoading ? <TabLoading /> :
                             safeKeywords.length === 0
                                 ? <TabEmpty message="키워드 데이터가 없습니다." />
-                                : safeKeywords.map((kw, i) => (
-                                    <div key={i} className="classroom__summary-row">
-                                        <div className="classroom__summary-dot" />
-                                        <div className="classroom__summary-text">{kw}</div>
-                                    </div>
-                                ))
+                                : (() => {
+                                    const PREVIEW = 4
+                                    const shown = keywordsExpanded ? safeKeywords : safeKeywords.slice(0, PREVIEW)
+                                    const hasMore = safeKeywords.length > PREVIEW
+                                    return (
+                                        <>
+                                            {shown.map((kw, i) => (
+                                                <div key={i} className="classroom__summary-row">
+                                                    <div className="classroom__summary-dot" />
+                                                    <div className="classroom__summary-text">{kw}</div>
+                                                </div>
+                                            ))}
+                                            {hasMore && (
+                                                <button
+                                                    className="classroom__accordion-toggle"
+                                                    onClick={() => setKeywordsExpanded(v => !v)}
+                                                >
+                                                    {keywordsExpanded
+                                                        ? '접기 ↑'
+                                                        : `더 보기 +${safeKeywords.length - PREVIEW}개`}
+                                                </button>
+                                            )}
+                                        </>
+                                    )
+                                })()
                             }
                         </div>
                     )}
 
-                    {/* 탭: 퀴즈 내역 */}
+                    {/* 탭: 퀴즈 내역 — 정답/오답 그룹 아코디언 */}
                     {tab === 'quiz' && (
                         <div className="classroom__quiz-history">
                             <div
@@ -897,7 +1004,6 @@ function StudyClassroomContent() {
                                 퀴즈 내역
                             </div>
                             {quizLoading ? <TabLoading /> : (() => {
-                                // Defensive: treat non-array (wrapped response) as empty
                                 const list = Array.isArray(quizAttempts) ? quizAttempts : []
                                 if (quizAttempts === null) return null
                                 if (list.length === 0) return (
@@ -918,16 +1024,45 @@ function StudyClassroomContent() {
                                         </button>
                                     </div>
                                 )
-                                return list.map((item, i) => (
-                                    <div key={item.attemptId} className="classroom__quiz-row">
-                                        <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
-                                        <div className="classroom__quiz-result-row">
-                                            <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
-                                                {item.isCorrect ? '정답' : '오답'}
-                                            </span>
-                                        </div>
+                                const correctItems = list.filter(q => q.isCorrect)
+                                const wrongItems   = list.filter(q => !q.isCorrect)
+                                const renderGroup = (
+                                    items: typeof list,
+                                    label: string,
+                                    isOpen: boolean,
+                                    toggle: () => void,
+                                    colorClass: string,
+                                ) => items.length === 0 ? null : (
+                                    <div className="classroom__quiz-group">
+                                        <button
+                                            className={`classroom__quiz-group-header ${colorClass}`}
+                                            onClick={toggle}
+                                        >
+                                            <span>{label} ({items.length})</span>
+                                            <ChevronRight
+                                                size={14}
+                                                strokeWidth={2}
+                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}
+                                            />
+                                        </button>
+                                        {isOpen && items.map((item, i) => (
+                                            <div key={item.attemptId} className="classroom__quiz-row">
+                                                <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
+                                                <div className="classroom__quiz-result-row">
+                                                    <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
+                                                        {item.isCorrect ? '정답' : '오답'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))
+                                )
+                                return (
+                                    <>
+                                        {renderGroup(correctItems, '✓ 정답', quizCorrectOpen, () => setQuizCorrectOpen(v => !v), 'classroom__quiz-group-header--correct')}
+                                        {renderGroup(wrongItems,   '✗ 오답', quizWrongOpen,   () => setQuizWrongOpen(v => !v),   'classroom__quiz-group-header--wrong')}
+                                    </>
+                                )
                             })()}
                         </div>
                     )}
@@ -976,7 +1111,8 @@ function StudyClassroomContent() {
                                     </>
                                 ) : (
                                     <p className="metacog-card__status">
-                                        커리큘럼 진행률이 40% 이상 도달하면 메타인지 확인을 시작할 수 있습니다.
+                                        영상을 100% 시청한 후 시작할 수 있습니다.{' '}
+                                        {progress > 0 && progress < 100 && `(현재 ${progress}%)`}
                                     </p>
                                 )}
                             </div>
@@ -1081,6 +1217,14 @@ function StudyClassroomContent() {
 
             {/* ── 모달 ── */}
             <ClassroomModals />
+
+            {/* ── 잠긴 주차 토스트 알림 ── */}
+            {lockedToast && (
+                <div className="sc-locked-toast">
+                    <Lock size={14} strokeWidth={1.5} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                    {lockedToast}
+                </div>
+            )}
         </>
     )
 }

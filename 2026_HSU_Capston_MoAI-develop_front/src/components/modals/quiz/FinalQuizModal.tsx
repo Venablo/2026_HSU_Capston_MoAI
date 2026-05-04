@@ -457,7 +457,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
 
                         {currentQ.tip && (
                             <p className="fq-quiz__tip">
-                                💡 힌트: {currentQ.tip}
+                                💡 힌트: {currentQ.tip.replace(/^(💡\s*)?힌트\s*:\s*/i, '')}
                             </p>
                         )}
 
@@ -488,7 +488,9 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                     {step < totalSteps - 1 ? (
                         <button
                             className={`fq-quiz__nav-btn fq-quiz__nav-btn--next ${hasAnswer ? '' : 'fq-quiz__nav-btn--dim'}`}
-                            onClick={() => setStep(s => s + 1)}
+                            onClick={() => { if (hasAnswer) setStep(s => s + 1) }}
+                            disabled={!hasAnswer}
+                            title={hasAnswer ? undefined : '답변을 입력한 후 다음으로 이동할 수 있습니다.'}
                         >
                             다음
                             <ChevronRight size={16} strokeWidth={2} />
@@ -500,7 +502,8 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                                     ? 'fq-quiz__submit-btn--active'
                                     : 'fq-quiz__submit-btn--dim'
                             }`}
-                            onClick={handleSubmit}
+                            onClick={() => { if (answers.every(a => a.trim().length > 0)) handleSubmit() }}
+                            disabled={!answers.every(a => a.trim().length > 0)}
                         >
                             <Trophy size={15} strokeWidth={1.5} />
                             전체 제출하고 AI 평가받기

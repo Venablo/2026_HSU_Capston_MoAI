@@ -72,6 +72,22 @@ export default function MetaEvaluationModal({
                         닫기
                     </button>
                 </div>
+
+                {/* 하단 중앙 완료 텍스트 */}
+                <p style={{
+                    textAlign: 'center',
+                    marginTop: '14px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#059669',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                }}>
+                    <CheckCircle2 size={13} strokeWidth={2} />
+                    메타인지 평가가 완료되었습니다. 파이널 퀴즈에 도전해보세요!
+                </p>
             </div>
         </Modal>
     )
