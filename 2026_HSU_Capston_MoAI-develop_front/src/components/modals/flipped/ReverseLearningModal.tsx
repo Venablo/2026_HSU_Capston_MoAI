@@ -362,6 +362,14 @@ export default function ReverseLearningModal({
                     </p>
                 )}
 
+                {/* 설명 완료 안내 — 버튼 위에 배치 */}
+                {canFinish && (
+                    <p className="modal-reverse__finish-hint">
+                        <CheckCircle2 size={13} strokeWidth={2} style={{ display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
+                        메타인지 평가가 완료되었습니다! 이제 우측의 [주간 최종 퀴즈]에 도전하여 학습을 마무리해보세요.
+                    </p>
+                )}
+
                 {/* 하단 버튼 */}
                 <div className="modal-reverse__btn-row">
                     <button
@@ -396,14 +404,6 @@ export default function ReverseLearningModal({
                         )}
                     </button>
                 </div>
-
-                {/* 설명 완료 안내 */}
-                {canFinish && (
-                    <p className="modal-reverse__finish-hint">
-                        <CheckCircle2 size={13} strokeWidth={2} style={{ display: 'inline', marginRight: '4px' }} />
-                        대화가 준비됐어요! 평가를 받거나 계속 질문에 답할 수 있어요.
-                    </p>
-                )}
             </div>
         </Modal>
     )

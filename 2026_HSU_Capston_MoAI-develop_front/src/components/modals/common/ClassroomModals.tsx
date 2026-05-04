@@ -43,7 +43,7 @@ import type { EndFlippedResponse } from '../../../types/api'
 export default function ClassroomModals() {
     const {
         modal, modalData, open, close,
-        setMetacogComplete, setPartnerConnected,
+        setMetacogComplete, setPartnerConnected, setPartnerInfo,
         setQuizSubmitted,
         currentWeekId,
     } = useClassroomModal()
@@ -91,6 +91,8 @@ export default function ClassroomModals() {
     const handleConnect = () => {
         setMetacogComplete(true)
         setPartnerConnected(true)
+        // 매칭 데이터를 컨텍스트에 저장 (localStorage 포함) — 사이드바 채팅 위젯에서 사용
+        if (modalData?.type === 'study-matching') setPartnerInfo(modalData.match)
         close()
     }
 

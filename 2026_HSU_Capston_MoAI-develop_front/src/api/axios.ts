@@ -194,7 +194,7 @@ async function refreshAndRetry(
   // 갱신 후 재시도한 요청이 또 401/403을 받은 경우, 진짜 권한·서버 문제이므로
   // 갱신을 다시 시도하지 않고 에러를 그대로 전파한다.
   // (이 플래그가 없으면 refresh 성공 → retry → 403 → refresh 성공 → ... 무한루프)
-  if ((error.config as Record<string, unknown>)?._retried === true) {
+  if ((error.config as unknown as Record<string, unknown>)?._retried === true) {
     console.log('[axios] Already retried after refresh — propagating as genuine error:', originalStatus, originalErrorCode)
     return Promise.reject(new MoaiApiError(originalStatus, originalErrorCode, originalMessage))
   }
@@ -223,7 +223,7 @@ async function refreshAndRetry(
           if (error.config) {
             console.log('[axios] Retrying (queued) with new token...')
             error.config.headers.Authorization = `Bearer ${newToken}`
-            ;(error.config as Record<string, unknown>)._retried = true
+            ;(error.config as unknown as Record<string, unknown>)._retried = true
             resolve(api(error.config))
           }
         },
@@ -253,7 +253,7 @@ async function refreshAndRetry(
     if (error.config) {
       console.log('[axios] Retrying with new token...')
       error.config.headers.Authorization = `Bearer ${newAccessToken}`
-      ;(error.config as Record<string, unknown>)._retried = true
+      ;(error.config as unknown as Record<string, unknown>)._retried = true
       return api(error.config)
     }
   } catch (refreshError) {
