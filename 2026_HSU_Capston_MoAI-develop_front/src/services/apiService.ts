@@ -172,6 +172,7 @@ function normalizeResource(value: unknown): ResourceItem | null {
     title,
     url,
     size: stringValue(obj.size) || stringValue(obj.fileSize) || '-',
+    tag: stringValue(obj.tag) || undefined,
   }
 }
 
@@ -212,6 +213,7 @@ function normalizeWeekSummary(value: unknown): CurriculumWeekSummary | null {
     weekNumber: numberValue(obj.weekNumber),
     topic: stringValue(obj.topic, 'Untitled week'),
     completionRate: numberValue(obj.completionRate),
+    locked: Boolean(obj.locked ?? obj.isLocked),
   }
 }
 
@@ -230,6 +232,7 @@ function normalizeRecommendedVideo(value: unknown): RecommendedVideo | null {
     viewCount: numberValue(obj.viewCount),
     isMain: Boolean(obj.isMain),
     thumbnailUrl: stringValue(obj.thumbnailUrl) || undefined,
+    tag: stringValue(obj.tag) || undefined,
   }
 }
 

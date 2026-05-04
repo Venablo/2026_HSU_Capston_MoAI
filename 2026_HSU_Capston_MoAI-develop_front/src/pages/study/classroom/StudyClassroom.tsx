@@ -677,25 +677,39 @@ function StudyClassroomContent() {
                                 borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
                                 minWidth: '280px', maxHeight: '320px', overflowY: 'auto', marginTop: '4px',
                             }}>
-                                {allWeeks.map(w => (
+                                {allWeeks.map(w => {
+                                    const isLocked = w.locked === true
+                                    return (
                                     <button
                                         key={w.weekId}
-                                        onClick={() => handleWeekSwitch(w.weekId)}
+                                        disabled={isLocked}
+                                        onClick={() => !isLocked && handleWeekSwitch(w.weekId)}
                                         style={{
                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                             width: '100%', padding: '10px 16px', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: w.weekId === weekData?.weekId ? 'var(--color-purple-600, #7c3aed)' : 'var(--color-text-primary, #111)',
-                                            background: w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
-                                            fontWeight: w.weekId === weekData?.weekId ? 600 : 400,
+                                            textAlign: 'left',
+                                            cursor: isLocked ? 'not-allowed' : 'pointer',
+                                            fontSize: '13px',
+                                            color: isLocked
+                                                ? 'var(--color-text-secondary, #9ca3af)'
+                                                : w.weekId === weekData?.weekId
+                                                    ? 'var(--color-purple-600, #7c3aed)'
+                                                    : 'var(--color-text-primary, #111)',
+                                            background: !isLocked && w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
+                                            fontWeight: !isLocked && w.weekId === weekData?.weekId ? 600 : 400,
+                                            opacity: isLocked ? 0.55 : 1,
                                         }}
                                     >
-                                        <span>Week {w.weekNumber}: {w.topic}</span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            {isLocked && <Lock size={11} strokeWidth={1.5} />}
+                                            Week {w.weekNumber}: {w.topic}
+                                        </span>
                                         <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
-                                            {Number(w.completionRate).toFixed(0)}%
+                                            {isLocked ? '잠금' : `${Number(w.completionRate).toFixed(0)}%`}
                                         </span>
                                     </button>
-                                ))}
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
@@ -760,41 +774,66 @@ function StudyClassroomContent() {
                             {weekLoading ? <TabLoading /> : !weekData ? null :
                             safeResources.length === 0
                                 ? <TabEmpty message="AI 교안 생성 중이거나 아직 연결된 교안이 없습니다. 잠시 뒤 자동으로 다시 확인합니다." />
-                                : safeResources.map((res, i) => {
-                                    const viewUrl = resolveResourceUrl(res.url)
-                                    const downloadUrl = withDownloadParam(viewUrl)
-
+                                : (() => {
+                                    const normalDocs = safeResources.filter(r => r.tag !== 'weakness')
+                                    const weakDocs   = safeResources.filter(r => r.tag === 'weakness')
+                                    const renderDocItem = (res: typeof safeResources[number], i: number) => {
+                                        const viewUrl = resolveResourceUrl(res.url)
+                                        const downloadUrl = withDownloadParam(viewUrl)
+                                        return (
+                                            <div
+                                                key={i}
+                                                className="classroom__doc-item"
+                                                role="button"
+                                                tabIndex={0}
+                                                onClick={() => openResource(viewUrl)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                        e.preventDefault()
+                                                        openResource(viewUrl)
+                                                    }
+                                                }}
+                                            >
+                                                <div className="classroom__doc-icon" style={{ color: res.tag === 'weakness' ? '#f59e0b' : 'var(--color-purple-500)' }}>
+                                                    {resourceIcon(res.type)}
+                                                </div>
+                                                <div className="classroom__doc-info">
+                                                    <div className="classroom__doc-name">{res.title}</div>
+                                                    <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
+                                                </div>
+                                                <a
+                                                    href={downloadUrl}
+                                                    className="classroom__doc-download"
+                                                    onClick={e => e.stopPropagation()}
+                                                >
+                                                    다운로드
+                                                </a>
+                                            </div>
+                                        )
+                                    }
                                     return (
-                                    <div
-                                        key={i}
-                                        className="classroom__doc-item"
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={() => openResource(viewUrl)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                e.preventDefault()
-                                                openResource(viewUrl)
-                                            }
-                                        }}
-                                    >
-                                        <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
-                                            {resourceIcon(res.type)}
-                                        </div>
-                                        <div className="classroom__doc-info">
-                                            <div className="classroom__doc-name">{res.title}</div>
-                                            <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
-                                        </div>
-                                        <a
-                                            href={downloadUrl}
-                                            className="classroom__doc-download"
-                                            onClick={e => e.stopPropagation()}
-                                        >
-                                            다운로드
-                                        </a>
-                                    </div>
+                                        <>
+                                            {normalDocs.map((res, i) => renderDocItem(res, i))}
+                                            {weakDocs.length > 0 && (
+                                                <>
+                                                    <div style={{
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        margin: '16px 0 8px', padding: '6px 10px',
+                                                        background: 'rgba(245,158,11,0.08)',
+                                                        borderLeft: '3px solid #f59e0b',
+                                                        borderRadius: '0 6px 6px 0',
+                                                        fontSize: '12px', fontWeight: 600,
+                                                        color: '#b45309',
+                                                    }}>
+                                                        <BrainCircuit size={13} strokeWidth={1.5} />
+                                                        약점 보충 학습자료
+                                                    </div>
+                                                    {weakDocs.map((res, i) => renderDocItem(res, normalDocs.length + i))}
+                                                </>
+                                            )}
+                                        </>
                                     )
-                                })
+                                })()
                             }
                         </div>
                     )}
@@ -806,45 +845,72 @@ function StudyClassroomContent() {
                             videos === null ? null :
                             recommendedList.length === 0
                                 ? <TabEmpty message="AI 추천 영상 생성 중이거나 아직 연결된 영상이 없습니다. 잠시 뒤 자동으로 다시 확인합니다." />
-                                : recommendedList.map((v, i) => (
-                                    <a
-                                        key={i}
-                                        href={`https://www.youtube.com/watch?v=${v.videoId}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        style={{ textDecoration: 'none', color: 'inherit' }}
-                                    >
-                                        <div className="classroom__video-card" style={{ cursor: 'pointer' }}>
-                                            <div className="classroom__video-thumb">
-                                                <img
-                                                    src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                                                    alt={v.title}
-                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
-                                                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                                />
-                                                <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.9)', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
-                                                    <PlayCircle size={28} strokeWidth={1.5} />
-                                                </div>
-                                                {v.durationSec > 0 && (
-                                                    <div className="classroom__video-thumb-duration">
-                                                        {formatDuration(v.durationSec)}
+                                : (() => {
+                                    const normalVideos = recommendedList.filter(v => v.tag !== 'weakness')
+                                    const weakVideos   = recommendedList.filter(v => v.tag === 'weakness')
+                                    const renderVideoCard = (v: typeof recommendedList[number], i: number) => (
+                                        <a
+                                            key={i}
+                                            href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            style={{ textDecoration: 'none', color: 'inherit' }}
+                                        >
+                                            <div className="classroom__video-card" style={{ cursor: 'pointer' }}>
+                                                <div className="classroom__video-thumb">
+                                                    <img
+                                                        src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                                                        alt={v.title}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+                                                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                                    />
+                                                    <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.9)', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
+                                                        <PlayCircle size={28} strokeWidth={1.5} />
                                                     </div>
-                                                )}
-                                                {v.videoId === activeVideoId && (
-                                                    <div style={{ position: 'absolute', top: 6, left: 6, background: 'var(--color-purple-500,#7c3aed)', color: '#fff', fontSize: '10px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600 }}>
-                                                        재생 중
+                                                    {v.durationSec > 0 && (
+                                                        <div className="classroom__video-thumb-duration">
+                                                            {formatDuration(v.durationSec)}
+                                                        </div>
+                                                    )}
+                                                    {v.videoId === activeVideoId && (
+                                                        <div style={{ position: 'absolute', top: 6, left: 6, background: 'var(--color-purple-500,#7c3aed)', color: '#fff', fontSize: '10px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600 }}>
+                                                            재생 중
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="classroom__video-meta">
+                                                    <div className="classroom__video-title">{v.title}</div>
+                                                    <div className="classroom__video-channel">
+                                                        {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
                                                     </div>
-                                                )}
-                                            </div>
-                                            <div className="classroom__video-meta">
-                                                <div className="classroom__video-title">{v.title}</div>
-                                                <div className="classroom__video-channel">
-                                                    {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
                                                 </div>
                                             </div>
-                                        </div>
-                                    </a>
-                                ))
+                                        </a>
+                                    )
+                                    return (
+                                        <>
+                                            {normalVideos.map((v, i) => renderVideoCard(v, i))}
+                                            {weakVideos.length > 0 && (
+                                                <>
+                                                    <div style={{
+                                                        gridColumn: '1 / -1',
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        margin: '12px 0 4px', padding: '6px 10px',
+                                                        background: 'rgba(245,158,11,0.08)',
+                                                        borderLeft: '3px solid #f59e0b',
+                                                        borderRadius: '0 6px 6px 0',
+                                                        fontSize: '12px', fontWeight: 600,
+                                                        color: '#b45309',
+                                                    }}>
+                                                        <BrainCircuit size={13} strokeWidth={1.5} />
+                                                        약점 보충 영상
+                                                    </div>
+                                                    {weakVideos.map((v, i) => renderVideoCard(v, normalVideos.length + i))}
+                                                </>
+                                            )}
+                                        </>
+                                    )
+                                })()
                             }
                         </div>
                     )}

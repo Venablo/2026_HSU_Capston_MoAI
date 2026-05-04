@@ -81,8 +81,7 @@ def main():
         candidate = os.path.join(script_dir, "cookies.txt")
         cookie_file = candidate if os.path.exists(candidate) else "cookies.txt"
 
-    # 대량 수집 시에만 활성화. 단건 실시간 처리 환경에서는 아래 줄을 주석 처리하세요.
-    # time.sleep(random.uniform(1, 3))
+    time.sleep(random.uniform(1, 3))
 
     if "--check" in args:
         check_has_subtitle(video_id, cookie_file)

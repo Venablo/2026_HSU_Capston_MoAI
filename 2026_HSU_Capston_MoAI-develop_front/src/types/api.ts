@@ -120,6 +120,7 @@ export interface CurriculumWeekSummary {
   weekNumber: number
   topic: string
   completionRate: number
+  locked?: boolean
 }
 
 export interface ResourceItem {
@@ -127,6 +128,7 @@ export interface ResourceItem {
   title: string
   url: string
   size: string
+  tag?: string
 }
 
 export interface CurriculumWeekDetail {
@@ -155,6 +157,7 @@ export interface RecommendedVideo {
   viewCount: number
   isMain?: boolean      // true = this is the primary video for the week (main player)
   thumbnailUrl?: string
+  tag?: string          // "weakness" for weakness-remediation videos, undefined for normal
 }
 
 /** Wrapper shape returned by GET …/recommended-videos */
