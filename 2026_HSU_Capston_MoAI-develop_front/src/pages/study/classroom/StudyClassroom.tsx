@@ -84,6 +84,7 @@ function resourceIcon(type: string): ReactNode {
     if (type === 'pdf')  return <FileText size={20} strokeWidth={1.5} />
     if (type === 'docx') return <FileEdit size={20} strokeWidth={1.5} />
     if (type === 'zip')  return <Package  size={20} strokeWidth={1.5} />
+    if (type === 'md')   return <FileEdit size={20} strokeWidth={1.5} />
     return <FileText size={20} strokeWidth={1.5} />
 }
 
@@ -860,6 +861,29 @@ function StudyClassroomContent() {
                                 : safeResources.map((res, i) => {
                                     const viewUrl = resolveResourceUrl(res.url)
                                     const downloadUrl = withDownloadParam(viewUrl)
+
+                                    if (res.type === 'md') {
+                                        const mdViewerUrl = `/md-viewer?url=${encodeURIComponent(viewUrl)}`
+                                        return (
+                                        <a
+                                            key={i}
+                                            href={mdViewerUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="classroom__doc-item"
+                                            style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+                                        >
+                                            <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                                {resourceIcon(res.type)}
+                                            </div>
+                                            <div className="classroom__doc-info">
+                                                <div className="classroom__doc-name">{res.title}</div>
+                                                <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
+                                            </div>
+                                            <span className="classroom__doc-download">보기</span>
+                                        </a>
+                                        )
+                                    }
 
                                     return (
                                     <div
