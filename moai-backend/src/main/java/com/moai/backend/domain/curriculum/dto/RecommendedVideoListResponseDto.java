@@ -18,5 +18,6 @@ public class RecommendedVideoListResponseDto {
         private String title;
         private Long durationSec;
         private Long viewCount;
+        private String tag; // "weakness" for remediation videos, null for normal
     }
 }

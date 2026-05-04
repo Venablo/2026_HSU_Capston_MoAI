@@ -83,7 +83,7 @@ public class PatternDetectionService {
             max = Math.max(max, sec);
         }
 
-        if (max - min > REWIND_RANGE_SEC) {
+        if (max - min > REWIND_RANGE_SEC || max - min < 1.0) {
             return PatternResult.notTriggered();
         }
 

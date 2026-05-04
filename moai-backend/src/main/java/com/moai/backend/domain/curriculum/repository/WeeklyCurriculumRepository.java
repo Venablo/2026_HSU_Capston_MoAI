@@ -18,6 +18,8 @@ public interface WeeklyCurriculumRepository extends JpaRepository<WeeklyCurricul
 
     Optional<WeeklyCurriculum> findByIdAndRoomId(String id, String roomId);
 
+    Optional<WeeklyCurriculum> findByRoomIdAndWeekNumber(String roomId, Short weekNumber);
+
     @Modifying
     @Query("DELETE FROM WeeklyCurriculum wc WHERE wc.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);

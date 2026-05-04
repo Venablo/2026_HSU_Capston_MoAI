@@ -30,6 +30,7 @@ public enum ErrorCode {
 
     // Curriculum
     CURRICULUM_NOT_FOUND(404, "CURRICULUM_001", "주차 커리큘럼을 찾을 수 없습니다."),
+    WEEK_LOCKED(403, "CURRICULUM_002", "아직 잠긴 주차입니다. 이전 주차를 완료해야 합니다."),
 
     // Material
     MATERIAL_NOT_FOUND(404, "MATERIAL_001", "학습 자료를 찾을 수 없습니다."),

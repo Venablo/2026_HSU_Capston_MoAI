@@ -2,6 +2,7 @@ package com.moai.backend.domain.quiz.service;
 
 import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
+import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
@@ -71,6 +72,7 @@ public class QuizService {
     private final UserKeywordRepository userKeywordRepository;
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
+    private final CurriculumEnrichmentService curriculumEnrichmentService;
 
     @Autowired
     @Lazy
@@ -468,6 +470,9 @@ public class QuizService {
             // 주차 진척도 +30% (100% 초과 방지) 및 학습실 재계산
             updateCompletionRates(curriculum, room);
 
+            // 주차 완료(100%) 시 다음 주차 unlock 및 약점 키워드 보충 트리거
+            advanceWeekIfCompleted(curriculum, room, userId, curriculumId);
+
         } catch (JsonProcessingException e) {
             log.error("파이널 퀴즈 리포트 JSON 직렬화 실패", e);
             markReportFailed(reportId);
@@ -739,6 +744,39 @@ public class QuizService {
                 .divide(BigDecimal.valueOf(allWeeks.size()), 2, RoundingMode.HALF_UP);
 
         room.updateCompletionRate(average);
+    }
+
+    /**
+     * 파이널 퀴즈 완료로 주차가 100%가 됐을 때 다음 주차를 unlock하고,
+     * 미해소 약점 키워드가 있으면 다음 주차에 보충 콘텐츠를 비동기 생성한다.
+     */
+    private void advanceWeekIfCompleted(WeeklyCurriculum curriculum, LearningRoom room,
+                                         String userId, String curriculumId) {
+        if (curriculum.getCompletionRate().compareTo(MAX_COMPLETION) < 0) return;
+        if (curriculum.getWeekNumber() >= room.getDurationWeeks()) return;
+
+        short nextWeekNumber = (short) (curriculum.getWeekNumber() + 1);
+        room.updateCurrentWeek(nextWeekNumber);
+
+        List<UserKeyword> unresolvedWeaknesses =
+                userKeywordRepository
+                        .findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc(
+                                userId, curriculumId, "weakness", (short) 1);
+
+        if (unresolvedWeaknesses.isEmpty()) return;
+
+        List<String> keywordNames = unresolvedWeaknesses.stream()
+                .map(UserKeyword::getKeyword)
+                .distinct()
+                .toList();
+
+        weeklyCurriculumRepository.findByRoomIdAndWeekNumber(room.getId(), nextWeekNumber)
+                .ifPresent(nextCurriculum ->
+                        curriculumEnrichmentService.enrichWithWeaknessKeywords(
+                                nextCurriculum.getId(), keywordNames,
+                                room.getSubject(), room.getLevel()
+                        )
+                );
     }
 
     // ──────────────────────────────────────────────

@@ -20,13 +20,15 @@ public class CurriculumListResponseDto {
         private int weekNumber;
         private String topic;
         private BigDecimal completionRate;
+        private boolean isLocked;
 
-        public static CurriculumSummary from(WeeklyCurriculum curriculum) {
+        public static CurriculumSummary from(WeeklyCurriculum curriculum, short currentWeek) {
             return new CurriculumSummary(
                     curriculum.getId(),
                     curriculum.getWeekNumber(),
                     curriculum.getTopic(),
-                    curriculum.getCompletionRate()
+                    curriculum.getCompletionRate(),
+                    curriculum.getWeekNumber() > currentWeek
             );
         }
     }

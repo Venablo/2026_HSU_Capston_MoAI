@@ -71,4 +71,8 @@ public class LearningRoom extends BaseTimeEntity {
     public void updateCompletionRate(BigDecimal completionRate) {
         this.completionRate = completionRate;
     }
+
+    public void updateCurrentWeek(Short currentWeek) {
+        this.currentWeek = currentWeek;
+    }
 }
