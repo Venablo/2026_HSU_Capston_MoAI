@@ -29,14 +29,14 @@ export default function SummaryDetailModal({
 }: SummaryDetailModalProps) {
     return (
         <Modal onClose={onClose} wide>
-            <div className="modal-summary animate-slide-up">
+            <div className="modal-summary animate-slide-up" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
                 <div className="modal-summary__badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                     <Sparkles size={14} strokeWidth={2} />
                     AI 생성 요약본
                 </div>
-                <h3 className="modal-summary__title">{conceptName} 핵심 요약</h3>
+                <h3 className="modal-summary__title" style={{ marginBottom: '14px' }}>{conceptName} 핵심 요약</h3>
 
-                <div className="modal-summary__list">
+                <div className="modal-summary__list" style={{ flex: 1, maxHeight: '320px', overflowY: 'auto' }}>
                     {summaryItems.map((item, i) => (
                         <div
                             key={item.letter}
