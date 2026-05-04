@@ -60,6 +60,7 @@ public enum ErrorCode {
     STUDY_GROUP_NOT_FOUND(404, "STUDY_003", "스터디 그룹을 찾을 수 없습니다."),
     STUDY_GROUP_ACCESS_DENIED(403, "STUDY_004", "스터디 그룹에 접근 권한이 없습니다."),
     STUDY_GROUP_EXPIRED(403, "STUDY_005", "스터디 기간이 만료되었습니다."),
+    STUDY_SUGGESTION_DISABLED(403, "STUDY_006", "스터디 매칭 기능이 비활성화되어 있습니다."),
 
     // Chat
     CHAT_GROUP_ACCESS_DENIED(403, "CHAT_001", "채팅방에 접근 권한이 없습니다."),

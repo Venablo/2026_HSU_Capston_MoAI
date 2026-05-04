@@ -231,7 +231,7 @@
 - [x] StudyGroupRepository, StudyMemberRepository, StudySuggestionRepository
 - [x] domain/notification/repository/NotificationRepository.java — findByUserIdAndIsReadFalseOrderByCreatedAtDesc
 
-### 7-2. 매칭 엔진 서비스
+### 7-2. 매칭 엔진 서비스 (사용자 트리거 비동기 실행)
 - [x] domain/study/service/MatchingEngineService.java
 - [x] UserKeywordRepository에 매칭용 메서드 추가:
   - 약점 조회: findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc (curriculumId 필터, 7일 필터 제거 — curriculumId로 이미 주차 스코프 한정)
@@ -240,7 +240,13 @@
 - [x] StudySuggestionRepository에 중복 매칭 방지 쿼리 추가:
   - existsActiveOrPendingBetween(userId, partnerId) — 두 사용자 간 active/pending_acceptance 그룹 존재 여부 확인
 - [x] LlmMatchingResult DTO 생성 (selectedIndex, matchScore, matchReason)
-- [x] tryMatch()를 @Async로 변경 — LLM 호출이 포함되므로 flipped/end 응답을 차단하지 않도록 비동기 실행
+- [x] tryMatch()는 @Async("matchingExecutor")로 비동기 실행 — 사용자 트리거 매칭 API에서 호출되며, 컨트롤러는 즉시 202 Accepted 반환. 결과는 SSE로 통보
+- [x] 사용자 트리거 매칭 API (POST /api/learning-rooms/{roomId}/match)
+- [x] MatchingController 구현
+- [x] MatchRequestDto, MatchRequestResponseDto 생성
+- [x] ErrorCode.STUDY_SUGGESTION_DISABLED 추가
+- [x] AsyncConfig + matchingExecutor 빈 정의
+- [x] study_no_candidate SSE 이벤트 타입 추가
 - [x] tryMatch(User user, LearningRoom room, WeeklyCurriculum curriculum) 메서드:
   1. UserKeyword에서 현재 사용자의 약점 키워드 조회 (curriculumId 필터, weakness_count >= 3, is_resolved=false, weakness_count DESC 정렬)
   2. 동일 키워드를 strength로 가진 다른 사용자 조회 — 후보자 최대 5명 수집 (중복 제거)

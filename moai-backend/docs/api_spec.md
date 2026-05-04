@@ -63,7 +63,7 @@
 | **6. 거꾸로 학습 (Flipped Learning)** |
 | 21 | POST | /api/learning-rooms/{roomId}/flipped/start | 세션 시작 | JWT |
 | 22 | SSE | /api/learning-rooms/{roomId}/flipped/stream | AI 역질문 SSE 스트리밍 | JWT |
-| 23 | POST | /api/learning-rooms/{roomId}/flipped/end | 세션 종료 + 최종 평가 + 매칭 엔진 | JWT |
+| 23 | POST | /api/learning-rooms/{roomId}/flipped/end | 세션 종료 + 최종 평가 | JWT |
 | 24 | GET | /api/learning-rooms/{roomId}/flipped/result/{sessionId} | 평가 결과 + 대화 기록 조회 | JWT |
 | **7. 키워드 (User Keywords)** |
 | 25 | GET | /api/learning-rooms/{roomId}/keywords | 강점·약점 키워드 목록 | JWT |
@@ -72,22 +72,23 @@
 | 27 | POST | /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final/submit | 파이널 퀴즈 답안 제출 (비동기) | JWT |
 | 28 | GET | /api/learning-rooms/{roomId}/curriculum/{weekId}/quiz-report | AI 종합 분석 리포트 | JWT |
 | **9. 스터디 매칭 (Study Matching)** |
-| 29 | GET | /api/study-groups/suggestions | 매칭 제안 목록 조회 | JWT |
-| 30 | POST | /api/study-groups/suggestions/{id}/accept | 스터디 제안 수락 | JWT |
-| 31 | POST | /api/study-groups/suggestions/{id}/reject | 스터디 제안 거절 | JWT |
-| 32 | GET | /api/study-groups/{groupId} | 스터디 그룹 상세 | JWT |
-| 33 | GET | /api/study-groups/{groupId}/messages | 채팅 이력 조회 | JWT |
-| 34 | WS | /ws/study-groups/{groupId} | 실시간 채팅 WebSocket | JWT |
+| 29 | POST | /api/learning-rooms/{roomId}/match | 사용자 트리거 매칭 요청 (202 Accepted) | JWT |
+| 30 | GET | /api/study-groups/suggestions | 매칭 제안 목록 조회 | JWT |
+| 31 | POST | /api/study-groups/suggestions/{id}/accept | 스터디 제안 수락 | JWT |
+| 32 | POST | /api/study-groups/suggestions/{id}/reject | 스터디 제안 거절 | JWT |
+| 33 | GET | /api/study-groups/{groupId} | 스터디 그룹 상세 | JWT |
+| 34 | GET | /api/study-groups/{groupId}/messages | 채팅 이력 조회 | JWT |
+| 35 | WS | /ws/study-groups/{groupId} | 실시간 채팅 WebSocket | JWT |
 | **10. 알림 (Notifications)** |
-| 35 | SSE | /api/notifications/stream | 실시간 알림 SSE 연결 | JWT |
-| 36 | GET | /api/notifications | 읽지 않은 알림 목록 조회 | JWT |
-| 37 | PATCH | /api/notifications/{id}/read | 알림 읽음 처리 | JWT |
+| 36 | SSE | /api/notifications/stream | 실시간 알림 SSE 연결 | JWT |
+| 37 | GET | /api/notifications | 읽지 않은 알림 목록 조회 | JWT |
+| 38 | PATCH | /api/notifications/{id}/read | 알림 읽음 처리 | JWT |
 | **11. 마이페이지 (My Page)** |
-| 38 | GET | /api/users/me | 프로필 전체 조회 | JWT |
-| 39 | PATCH | /api/users/me | 프로필 수정 | JWT |
-| 40 | PATCH | /api/users/me/keywords | 관심 키워드 수정 | JWT |
-| 41 | DELETE | /api/users/me | 회원 탈퇴 | JWT |
-| 42 | GET | /api/users/me/learning-history | 학습실 이력 목록 | JWT |
+| 39 | GET | /api/users/me | 프로필 전체 조회 | JWT |
+| 40 | PATCH | /api/users/me | 프로필 수정 | JWT |
+| 41 | PATCH | /api/users/me/keywords | 관심 키워드 수정 | JWT |
+| 42 | DELETE | /api/users/me | 회원 탈퇴 | JWT |
+| 43 | GET | /api/users/me/learning-history | 학습실 이력 목록 | JWT |
 
 ---
 
@@ -640,7 +641,7 @@ data: {"type": "done", "interactionId": "uuid-xxx"}
 
 ### POST /api/learning-rooms/{roomId}/flipped/end (JWT 필요)
 
-세션 종료 + AI 최종 평가 + 매칭 엔진 자동 실행
+세션 종료 + AI 최종 평가
 
 **REQUEST BODY**
 ```json
@@ -662,7 +663,7 @@ data: {"type": "done", "interactionId": "uuid-xxx"}
 }
 ```
 
-> 백엔드 처리 순서: ① AI 최종 평가 ② USER_KEYWORDS 업데이트 ③ 매칭 엔진 실행 ④ 매칭 대상 발견 시 SSE 알림 푸시
+> 백엔드 처리 순서: ① AI 최종 평가 ② USER_KEYWORDS 업데이트 ③ 주차 진척도 +30% 반영 ④ 학습실 전체 진척도 재계산
 
 ### GET /api/learning-rooms/{roomId}/flipped/result/{sessionId} (JWT 필요)
 
@@ -801,8 +802,28 @@ AI 종합 분석 리포트 — 폴링으로 status 확인 후 completed 시 표�
 
 ## 9. 스터디 매칭 (Study Matching)
 
-> 매칭 트리거: POST /flipped/end 처리 시 자동 실행
+> 매칭 트리거: 사용자가 POST /api/learning-rooms/{roomId}/match 호출 시 비동기 실행
 > 매칭 조건: 동일 키워드 + created_at 7일 이내 + Redis 토큰 존재(온라인)
+
+### POST /api/learning-rooms/{roomId}/match (JWT 필요)
+
+사용자 트리거 매칭 요청 — 비동기 실행, 즉시 202 Accepted 반환
+
+**REQUEST BODY**
+```json
+{ "curriculumId": "wk1000000-...-000001" }
+```
+
+**RESPONSE 202 Accepted**
+```json
+{
+  "success": true,
+  "data": { "status": "searching" }
+}
+```
+
+> 결과는 SSE /api/notifications/stream으로 전달 (`study_match` 성공, `study_no_candidate` 후보 없음)
+> 에러: 403 STUDY_006(studySuggestionEnabled=false), 404 USER_001 / ROOM_001 / CURRICULUM_001
 
 ### GET /api/study-groups/suggestions (JWT 필요)
 
@@ -936,6 +957,11 @@ AI 종합 분석 리포트 — 폴링으로 status 확인 후 completed 시 표�
 **SSE 이벤트 — 매칭 제안**
 ```
 data: {"type":"study_match","message":"완벽한 상호 보완 파트너를 찾았습니다!","suggestionId":"sug1...","partner":{"nickname":"B학생(멘토)","role":"mentor","strengthKeyword":"고립성_완벽이해"},"matchScore":0.98,"matchKeyword":"고립성(Isolation)_개념"}
+```
+
+**SSE 이벤트 — 매칭 후보 없음**
+```
+data: {"type":"study_no_candidate","message":"현재 매칭 가능한 파트너가 없습니다"}
 ```
 
 **SSE 이벤트 — 상대방 수락**

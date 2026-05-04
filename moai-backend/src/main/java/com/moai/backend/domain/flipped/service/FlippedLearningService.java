@@ -11,7 +11,6 @@ import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
-import com.moai.backend.domain.study.service.MatchingEngineService;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
@@ -55,7 +54,6 @@ public class FlippedLearningService {
     private final LlmService llmService;
     private final RedisTemplate<String, String> redisTemplate;
     private final PlatformTransactionManager transactionManager;
-    private final MatchingEngineService matchingEngineService;
 
     // Redis 키 접두사
     private static final String REDIS_PREFIX = "moai:flipped:";
@@ -278,15 +276,10 @@ public class FlippedLearningService {
         // weakKeywords: 기존 weakness count 증가 또는 새 weakness INSERT
         upsertWeaknesses(user, room, curriculum, evaluation.getWeakKeywords());
 
-        // 5. 매칭 엔진 실행
-        if (Boolean.TRUE.equals(user.getStudySuggestionEnabled())) {
-            matchingEngineService.tryMatch(user, room, curriculum);
-        }
-
-        // 6. 주차 진척도 += 30%, 학습실 전체 진척도 재계산
+        // 5. 주차 진척도 += 30%, 학습실 전체 진척도 재계산
         updateCompletionRates(curriculum, room);
 
-        // 7. Redis 세션 상태 정리
+        // 6. Redis 세션 상태 정리
         cleanupSessionState(sessionId);
 
         return new FlippedEndResponseDto(

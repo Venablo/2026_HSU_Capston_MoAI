@@ -4,6 +4,7 @@ import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
+import com.moai.backend.domain.notification.dto.SseSimpleEvent;
 import com.moai.backend.domain.notification.dto.SseStudyMatchEvent;
 import com.moai.backend.domain.notification.entity.Notification;
 import com.moai.backend.domain.notification.repository.NotificationRepository;
@@ -47,7 +48,7 @@ public class MatchingEngineService {
 
     private static final int MAX_CANDIDATES = 5;
 
-    @Async
+    @Async("matchingExecutor")
     @Transactional
     public void tryMatch(User currentUser, LearningRoom room, WeeklyCurriculum curriculum) {
         try {
@@ -100,8 +101,11 @@ public class MatchingEngineService {
             }
         }
 
-        // Step 4: 후보자가 없으면 종료
-        if (candidateMap.isEmpty()) return;
+        // Step 4: 후보자가 없으면 SSE로 알림 후 종료
+        if (candidateMap.isEmpty()) {
+            pushNoCandidateNotification(currentUser);
+            return;
+        }
 
         List<Candidate> candidates = new ArrayList<>(candidateMap.values());
 
@@ -357,6 +361,28 @@ public class MatchingEngineService {
 
         log.info("매칭 성공 - mentee: {}, mentor: {}, keyword: {}, score: {}",
                 mentee.getId(), mentor.getId(), matchKeyword, matchScore);
+    }
+
+    /**
+     * 후보자가 없을 때 사용자에게 매칭 실패 알림을 전송한다.
+     * - notifications 테이블에 type="study_no_candidate" 레코드 INSERT
+     * - SSE로 동일 타입 이벤트 푸시
+     */
+    private void pushNoCandidateNotification(User currentUser) {
+        String message = "현재 매칭 가능한 파트너가 없습니다";
+
+        Notification notification = Notification.builder()
+                .user(currentUser)
+                .type("study_no_candidate")
+                .message(message)
+                .referenceId(null)
+                .build();
+        notificationRepository.save(notification);
+
+        notificationService.pushSse(currentUser.getId(),
+                new SseSimpleEvent("study_no_candidate", message));
+
+        log.info("매칭 후보자 없음 - userId: {}", currentUser.getId());
     }
 
     @Getter

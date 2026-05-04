@@ -25,4 +25,20 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 사용자 트리거 매칭 엔진 전용 스레드 풀.
+     * 매칭 API(POST /api/learning-rooms/{roomId}/match) 호출 시 LLM 매칭 로직이
+     * 이 풀에서 비동기로 실행되어 컨트롤러는 즉시 202 Accepted를 반환한다.
+     */
+    @Bean(name = "matchingExecutor")
+    public TaskExecutor matchingExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(5);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("match-");
+        executor.initialize();
+        return executor;
+    }
 }
