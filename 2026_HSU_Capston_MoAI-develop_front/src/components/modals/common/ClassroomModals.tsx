@@ -23,8 +23,10 @@
  * ============================================================================
  */
 
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
+import { acceptStudySuggestion } from '../../../services/apiService'
 import type { SummaryItem } from '../monitoring/SummaryDetailModal'
 import MonitoringModal from '../monitoring/MonitoringModal'
 import SummaryDetailModal from '../monitoring/SummaryDetailModal'
@@ -47,6 +49,8 @@ export default function ClassroomModals() {
         setQuizSubmitted,
         currentWeekId,
     } = useClassroomModal()
+
+    const [connecting, setConnecting] = useState(false)
 
     // URL 파라미터에서 roomId를 가져온다.
     // 이 컴포넌트는 /study/:studyId/classroom 라우트 내부에서 렌더링되므로 항상 존재한다.
@@ -87,12 +91,22 @@ export default function ClassroomModals() {
     // Fallback: onSessionEnd was not provided (should not happen in normal flow).
     const handleEvaluationFallback = (_explanation: string) => { close() }
 
-    // ── study-matching → 사이드바 상태 갱신 (파트너 연결 완료) ───────────────
-    const handleConnect = () => {
+    // ── study-matching → acceptStudySuggestion API 호출 → 사이드바 상태 갱신 ──
+    // partnerId 필드에는 SSE 수신 시 저장된 suggestionId가 들어 있다.
+    // groupId는 양쪽 모두 수락 완료 시 백엔드가 study_accepted SSE로 푸시한다.
+    const handleConnect = async () => {
+        if (!modalData || modalData.type !== 'study-matching') return
+        setConnecting(true)
+        try {
+            await acceptStudySuggestion(modalData.match.partnerId)
+        } catch {
+            // 네트워크 오류여도 UI는 낙관적으로 연결 처리
+        } finally {
+            setConnecting(false)
+        }
         setMetacogComplete(true)
         setPartnerConnected(true)
-        // 매칭 데이터를 컨텍스트에 저장 (localStorage 포함) — 사이드바 채팅 위젯에서 사용
-        if (modalData?.type === 'study-matching') setPartnerInfo(modalData.match)
+        setPartnerInfo(modalData.match)
         close()
     }
 
@@ -205,6 +219,7 @@ export default function ClassroomModals() {
                     match={modalData.match}
                     onClose={close}
                     onConnect={handleConnect}
+                    isConnecting={connecting}
                 />
             )}
 

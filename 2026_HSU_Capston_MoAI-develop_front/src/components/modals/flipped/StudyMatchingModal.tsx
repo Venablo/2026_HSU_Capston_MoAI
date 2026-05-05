@@ -1,4 +1,4 @@
-import { UserPlus, CheckCircle, ArrowLeftRight } from 'lucide-react'
+import { UserPlus, CheckCircle, ArrowLeftRight, Loader2 } from 'lucide-react'
 import Modal from '../common/Modal'
 import { useAuth } from '../../../context/AuthContext'
 import type { StudyMatchResponse } from '../../../types/aiEvents'
@@ -7,12 +7,14 @@ export interface StudyMatchingModalProps {
     match: StudyMatchResponse
     onClose: () => void
     onConnect: () => void
+    isConnecting?: boolean
 }
 
 export default function StudyMatchingModal({
     match,
     onClose,
     onConnect,
+    isConnecting = false,
 }: StudyMatchingModalProps) {
     const { nickname } = useAuth()
     const myName   = nickname ?? '나'
@@ -97,9 +99,12 @@ export default function StudyMatchingModal({
                         className="btn-primary modal-matching__connect-btn"
                         style={{ flex: 2, padding: '12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         onClick={onConnect}
+                        disabled={isConnecting}
                     >
-                        <CheckCircle size={14} strokeWidth={2} />
-                        연결하기
+                        {isConnecting
+                            ? <><Loader2 size={14} strokeWidth={2} className="animate-spin" />연결 중...</>
+                            : <><CheckCircle size={14} strokeWidth={2} />연결하기</>
+                        }
                     </button>
                 </div>
             </div>

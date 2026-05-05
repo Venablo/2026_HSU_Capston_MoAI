@@ -40,11 +40,14 @@ interface ClassroomModalContextValue {
     quizSubmitted: boolean
     /** Async matching status — persisted in localStorage so it survives page reload */
     matchStatus: MatchStatus
+    /** Study group ID received via study_accepted SSE — enables WebSocket chat */
+    groupId: string | null
     setMetacogComplete: (v: boolean) => void
     setPartnerConnected: (v: boolean) => void
     setPartnerInfo: (info: StudyMatchResponse | null) => void
     setQuizSubmitted: (v: boolean) => void
     setMatchStatus: (v: MatchStatus) => void
+    setGroupId: (id: string | null) => void
     /**
      * 현재 학습 중인 주차 ID (weekId).
      * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
@@ -104,6 +107,16 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
         setPartnerInfoRaw(info)
     }
 
+    const [groupId, setGroupIdRaw] = useState<string | null>(
+        () => localStorage.getItem('moai_study_group_id'),
+    )
+
+    const setGroupId = (id: string | null) => {
+        if (id) localStorage.setItem('moai_study_group_id', id)
+        else    localStorage.removeItem('moai_study_group_id')
+        setGroupIdRaw(id)
+    }
+
     const open = (key: NonNullable<ModalKey>, data?: ModalData) => {
         setModalData(data ?? null)
         setModal(key)
@@ -122,6 +135,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             partnerInfo,      setPartnerInfo,
             quizSubmitted,    setQuizSubmitted,
             matchStatus,      setMatchStatus,
+            groupId,          setGroupId,
             currentWeekId,    setCurrentWeekId,
         }}>
             {children}

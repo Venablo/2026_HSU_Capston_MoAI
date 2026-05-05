@@ -52,6 +52,8 @@ import {
     logout,
     connectNotificationStream,
     requestStudyMatch,
+    connectGroupChat,
+    getGroupMessages,
 } from '../../../services/apiService'
 import { MoaiApiError } from '../../../api/axios'
 import type {
@@ -63,6 +65,8 @@ import type {
     QuizAttemptListItem,
     QuizAttemptDetail,
     NotificationItem,
+    ChatMessage,
+    WsChatSend,
 } from '../../../types/api'
 
 // ── 타입 정의 ─────────────────────────────────────────────────────────────────
@@ -183,9 +187,13 @@ function StudyClassroomContent() {
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
     const [chatInput,    setChatInput]    = useState('')
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
+    const wsRef         = useRef<WebSocket | null>(null)
 
-    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo } = useClassroomModal()
-    const [matchToast, setMatchToast] = useState<string | null>(null)
+    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId } = useClassroomModal()
+
+    interface MatchToastState { message: string; type: 'success' | 'warning' | 'error'; exiting: boolean }
+    const [matchToast,   setMatchToast]   = useState<MatchToastState | null>(null)
+    const toastTimerRef = useRef<number | null>(null)
     const { nickname, refreshToken, clearAuth } = useAuth()
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
@@ -574,30 +582,40 @@ function StudyClassroomContent() {
             setMatchStatus('searching')
         } catch (e) {
             if (e instanceof MoaiApiError && e.status === 403) {
-                setMatchToast('스터디 제안이 비활성화되어 있습니다. 마이페이지 → 설정에서 스터디 제안을 켜주세요.')
+                showMatchToast('스터디 제안이 비활성화되어 있습니다. 마이페이지 → 설정에서 스터디 제안을 켜주세요.', 'error')
             } else {
-                setMatchToast('스터디 매칭 요청에 실패했습니다. 잠시 후 다시 시도해주세요.')
+                showMatchToast('스터디 매칭 요청에 실패했습니다. 잠시 후 다시 시도해주세요.', 'error')
             }
         }
     }, [roomId, weekData?.weekId, setMatchStatus])
 
-    // ── 매칭 토스트 자동 닫기 ────────────────────────────────────────────────
-    useEffect(() => {
-        if (!matchToast) return
-        const t = window.setTimeout(() => setMatchToast(null), 5000)
-        return () => window.clearTimeout(t)
-    }, [matchToast])
+    // ── 매칭 토스트 표시 / 닫기 ─────────────────────────────────────────────
+    const showMatchToast = useCallback((message: string, type: MatchToastState['type']) => {
+        if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+        setMatchToast({ message, type, exiting: false })
+        // 3.7 s 후 exit 애니메이션 시작 → 300 ms 뒤 DOM에서 제거 (합계 4 s)
+        toastTimerRef.current = window.setTimeout(() => {
+            setMatchToast(prev => prev ? { ...prev, exiting: true } : null)
+            toastTimerRef.current = window.setTimeout(() => setMatchToast(null), 300)
+        }, 3700)
+    }, [])
+
+    const dismissMatchToast = useCallback(() => {
+        if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+        setMatchToast(prev => prev ? { ...prev, exiting: true } : null)
+        toastTimerRef.current = window.setTimeout(() => setMatchToast(null), 260)
+    }, [])
 
     // ── SSE 알림 스트림 — study_match / study_no_candidate 수신 ──────────────
     // Refs keep latest callbacks without triggering reconnect on every render
-    const openRef = useRef(open)
-    const setPartnerInfoRef = useRef(setPartnerInfo)
-    const setMatchStatusRef = useRef(setMatchStatus)
-    const setMatchToastRef  = useRef(setMatchToast)
-    openRef.current          = open
+    const openRef             = useRef(open)
+    const setPartnerInfoRef   = useRef(setPartnerInfo)
+    const setMatchStatusRef   = useRef(setMatchStatus)
+    const showMatchToastRef   = useRef(showMatchToast)
+    openRef.current           = open
     setPartnerInfoRef.current = setPartnerInfo
     setMatchStatusRef.current = setMatchStatus
-    setMatchToastRef.current  = setMatchToast
+    showMatchToastRef.current = showMatchToast
 
     useEffect(() => {
         const sse = connectNotificationStream()
@@ -607,30 +625,85 @@ function StudyClassroomContent() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
                 const match = {
-                    partnerId:       String(data.suggestionId ?? ''),
-                    partnerName:     String(data.partner?.nickname ?? '파트너'),
-                    partnerAvatar:   String(data.partner?.nickname ?? '파').charAt(0).toUpperCase(),
-                    partnerRole:     (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
-                    matchRate:       Math.round(Number(data.matchScore ?? 0) * 100),
+                    partnerId:        String(data.suggestionId ?? ''),
+                    partnerName:      String(data.partner?.nickname ?? '파트너'),
+                    partnerAvatar:    String(data.partner?.nickname ?? '파').charAt(0).toUpperCase(),
+                    partnerRole:      (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                    matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
                     partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
                 }
                 setPartnerInfoRef.current(match)
                 setMatchStatusRef.current('completed')
-                openRef.current('study-matching', { type: 'study-matching', match })
+                // 토스트를 먼저 보여준 뒤 1.5 s 후 모달 오픈
+                showMatchToastRef.current(
+                    '🎉 완벽한 상호 보완 파트너를 찾았습니다! 잠시 후 매칭 모달이 열립니다.',
+                    'success',
+                )
+                window.setTimeout(() => {
+                    openRef.current('study-matching', { type: 'study-matching', match })
+                }, 1500)
             } catch {}
         }
 
         const handleNoCandidate = () => {
-            setMatchToastRef.current('현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해주세요.')
+            showMatchToastRef.current(
+                '⚠️ 현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해 주세요.',
+                'warning',
+            )
             setMatchStatusRef.current('idle')
         }
 
-        sse.addEventListener('study_match', handleStudyMatch as EventListener)
+        // 상대방이 수락하면 백엔드가 groupId를 포함한 study_accepted SSE를 푸시한다.
+        const handleStudyAccepted = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                if (data.groupId) setGroupId(String(data.groupId))
+            } catch {}
+        }
+
+        sse.addEventListener('study_match',     handleStudyMatch     as EventListener)
         sse.addEventListener('study_no_candidate', handleNoCandidate)
+        sse.addEventListener('study_accepted',  handleStudyAccepted  as EventListener)
 
         return () => { sse.close() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // ── WebSocket 채팅 — groupId 확정 시 연결 ──────────────────────────────────
+    useEffect(() => {
+        if (!groupId) return
+
+        // 이전 대화 이력 로드
+        getGroupMessages(groupId)
+            .then(msgs => {
+                setChatMessages(msgs.map((m: ChatMessage) => ({
+                    id:   Number(m.messageId) || Date.now() + Math.random(),
+                    role: m.senderNickname === nickname ? 'me' : 'partner',
+                    text: m.content,
+                    time: new Date(m.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+                })))
+            })
+            .catch(() => {})
+
+        // WebSocket 연결
+        const ws = connectGroupChat(groupId)
+        wsRef.current = ws
+
+        ws.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data as string) as ChatMessage
+                setChatMessages(prev => [...prev, {
+                    id:   Number(msg.messageId) || Date.now(),
+                    role: msg.senderNickname === nickname ? 'me' : 'partner',
+                    text: msg.content,
+                    time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+                }])
+            } catch {}
+        }
+
+        return () => { ws.close(); wsRef.current = null }
+    }, [groupId, nickname])
 
     // ── 채팅 자동 스크롤 ────────────────────────────────────────────────────
     useEffect(() => {
@@ -638,11 +711,14 @@ function StudyClassroomContent() {
     }, [chatMessages])
 
     // ── 채팅 메시지 전송 ────────────────────────────────────────────────────
+    // groupId가 확정된 경우 WebSocket으로 전송. 백엔드가 모든 참여자에게 에코하므로
+    // 낙관적 추가 없이 onmessage에서만 chatMessages를 업데이트한다.
     const handleSendChat = useCallback(() => {
         const text = chatInput.trim()
         if (!text) return
-        const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-        setChatMessages(prev => [...prev, { id: Date.now(), role: 'me', text, time: now }])
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ content: text } satisfies WsChatSend))
+        }
         setChatInput('')
     }, [chatInput])
 
@@ -1486,43 +1562,53 @@ function StudyClassroomContent() {
                                     {/* 채팅 영역 */}
                                     {chatOpen && (
                                         <div className="partner-widget__chat">
-                                            <div className="partner-widget__chat-log">
-                                                {chatMessages.length === 0 ? (
-                                                    <p className="partner-widget__chat-placeholder">
-                                                        연결된 스터디 파트너와 대화를 시작해보세요!
-                                                        모르는 부분을 서로 질문하며 함께 학습할 수 있습니다.
-                                                    </p>
-                                                ) : chatMessages.map(msg => (
-                                                    <div
-                                                        key={msg.id}
-                                                        className={`partner-widget__chat-bubble-wrap ${msg.role === 'me' ? 'partner-widget__chat-bubble-wrap--me' : 'partner-widget__chat-bubble-wrap--partner'}`}
-                                                    >
-                                                        <div className={`partner-widget__chat-bubble ${msg.role === 'me' ? 'partner-widget__chat-bubble--me' : 'partner-widget__chat-bubble--partner'}`}>
-                                                            <span>{msg.text}</span>
-                                                            <span className="partner-widget__chat-time">{msg.time}</span>
-                                                        </div>
+                                            {!groupId ? (
+                                                /* 상대방 수락 대기 */
+                                                <p className="partner-widget__chat-placeholder" style={{ textAlign: 'center', padding: '16px 4px' }}>
+                                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin" style={{ display: 'block', margin: '0 auto 6px' }} />
+                                                    파트너가 수락하면 채팅이 열립니다.
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div className="partner-widget__chat-log">
+                                                        {chatMessages.length === 0 ? (
+                                                            <p className="partner-widget__chat-placeholder">
+                                                                연결된 스터디 파트너와 대화를 시작해보세요!
+                                                                모르는 부분을 서로 질문하며 함께 학습할 수 있습니다.
+                                                            </p>
+                                                        ) : chatMessages.map(msg => (
+                                                            <div
+                                                                key={msg.id}
+                                                                className={`partner-widget__chat-bubble-wrap ${msg.role === 'me' ? 'partner-widget__chat-bubble-wrap--me' : 'partner-widget__chat-bubble-wrap--partner'}`}
+                                                            >
+                                                                <div className={`partner-widget__chat-bubble ${msg.role === 'me' ? 'partner-widget__chat-bubble--me' : 'partner-widget__chat-bubble--partner'}`}>
+                                                                    <span>{msg.text}</span>
+                                                                    <span className="partner-widget__chat-time">{msg.time}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        <div ref={chatBottomRef} />
                                                     </div>
-                                                ))}
-                                                <div ref={chatBottomRef} />
-                                            </div>
 
-                                            {/* 입력창 */}
-                                            <div className="partner-widget__chat-input-row">
-                                                <input
-                                                    className="partner-widget__chat-input"
-                                                    value={chatInput}
-                                                    onChange={e => setChatInput(e.target.value)}
-                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() } }}
-                                                    placeholder="메시지 입력... (Enter 전송)"
-                                                />
-                                                <button
-                                                    className={`partner-widget__chat-send ${chatInput.trim() ? 'partner-widget__chat-send--active' : ''}`}
-                                                    onClick={handleSendChat}
-                                                    disabled={!chatInput.trim()}
-                                                >
-                                                    <Send size={13} strokeWidth={2} />
-                                                </button>
-                                            </div>
+                                                    {/* 입력창 */}
+                                                    <div className="partner-widget__chat-input-row">
+                                                        <input
+                                                            className="partner-widget__chat-input"
+                                                            value={chatInput}
+                                                            onChange={e => setChatInput(e.target.value)}
+                                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() } }}
+                                                            placeholder="메시지 입력... (Enter 전송)"
+                                                        />
+                                                        <button
+                                                            className={`partner-widget__chat-send ${chatInput.trim() ? 'partner-widget__chat-send--active' : ''}`}
+                                                            onClick={handleSendChat}
+                                                            disabled={!chatInput.trim()}
+                                                        >
+                                                            <Send size={13} strokeWidth={2} />
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1543,10 +1629,15 @@ function StudyClassroomContent() {
                 </div>
             )}
 
-            {/* ── 매칭 알림 토스트 (403 STUDY_006 / no candidate) ── */}
+            {/* ── 매칭 알림 top-toast ── */}
             {matchToast && (
-                <div className="sc-locked-toast" style={{ background: '#4c1d95', maxWidth: '420px', whiteSpace: 'normal', textAlign: 'center' }}>
-                    {matchToast}
+                <div className={`sc-match-toast sc-match-toast--${matchToast.type}${matchToast.exiting ? ' sc-match-toast--exit' : ''}`}>
+                    <span className="sc-match-toast__body">
+                        <span className="sc-match-toast__title">{matchToast.message}</span>
+                    </span>
+                    <button className="sc-match-toast__close" onClick={dismissMatchToast} aria-label="닫기">
+                        <X size={14} strokeWidth={2.5} />
+                    </button>
                 </div>
             )}
         </>
