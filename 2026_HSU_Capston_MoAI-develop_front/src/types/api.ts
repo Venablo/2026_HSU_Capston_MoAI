@@ -477,7 +477,7 @@ export interface WsChatSend {
 
 // ── 10. Notifications ─────────────────────────────────────────────────────────
 
-export type NotificationType = 'study_match' | 'study_rejected' | 'study_accepted'
+export type NotificationType = 'study_match' | 'study_rejected' | 'study_accepted' | 'study_no_candidate'
 
 export interface NotificationItem {
   notificationId: string
@@ -512,6 +512,10 @@ export type NotificationSseEvent =
       type: 'study_accepted'
       message: string
       groupId: string
+    }
+  | {
+      type: 'study_no_candidate'
+      message: string
     }
 
 // ── 11. My Page ───────────────────────────────────────────────────────────────

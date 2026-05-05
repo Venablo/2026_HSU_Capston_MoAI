@@ -34,7 +34,6 @@ import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
-import { fetchStudyMatch } from '../../../services/aiSummaryService'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
 import { useAuth } from '../../../context/AuthContext'
 import {
@@ -51,6 +50,8 @@ import {
     markNotificationRead,
     updateProfile,
     logout,
+    connectNotificationStream,
+    requestStudyMatch,
 } from '../../../services/apiService'
 import { MoaiApiError } from '../../../api/axios'
 import type {
@@ -183,8 +184,8 @@ function StudyClassroomContent() {
     const [chatInput,    setChatInput]    = useState('')
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
 
-    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted } = useClassroomModal()
-    const [matchLoading, setMatchLoading] = useState(false)
+    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo } = useClassroomModal()
+    const [matchToast, setMatchToast] = useState<string | null>(null)
     const { nickname, refreshToken, clearAuth } = useAuth()
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
@@ -566,14 +567,70 @@ function StudyClassroomContent() {
 
     // ── 스터디 매칭 신청 (사이드바 버튼) ────────────────────────────────────
     const handleRequestMatching = useCallback(async () => {
-        setMatchLoading(true)
+        if (!weekData?.weekId) return
         try {
-            const match = await fetchStudyMatch({ comprehensionScore: 0, strongKeywords: [], weakKeywords: [] })
-            open('study-matching', { type: 'study-matching', match })
-        } finally {
-            setMatchLoading(false)
+            await requestStudyMatch(roomId, weekData.weekId)
+            // 202 Accepted — 백그라운드 매칭 시작. SSE로 결과 수신.
+            setMatchStatus('searching')
+        } catch (e) {
+            if (e instanceof MoaiApiError && e.status === 403) {
+                setMatchToast('스터디 제안이 비활성화되어 있습니다. 마이페이지 → 설정에서 스터디 제안을 켜주세요.')
+            } else {
+                setMatchToast('스터디 매칭 요청에 실패했습니다. 잠시 후 다시 시도해주세요.')
+            }
         }
-    }, [open])
+    }, [roomId, weekData?.weekId, setMatchStatus])
+
+    // ── 매칭 토스트 자동 닫기 ────────────────────────────────────────────────
+    useEffect(() => {
+        if (!matchToast) return
+        const t = window.setTimeout(() => setMatchToast(null), 5000)
+        return () => window.clearTimeout(t)
+    }, [matchToast])
+
+    // ── SSE 알림 스트림 — study_match / study_no_candidate 수신 ──────────────
+    // Refs keep latest callbacks without triggering reconnect on every render
+    const openRef = useRef(open)
+    const setPartnerInfoRef = useRef(setPartnerInfo)
+    const setMatchStatusRef = useRef(setMatchStatus)
+    const setMatchToastRef  = useRef(setMatchToast)
+    openRef.current          = open
+    setPartnerInfoRef.current = setPartnerInfo
+    setMatchStatusRef.current = setMatchStatus
+    setMatchToastRef.current  = setMatchToast
+
+    useEffect(() => {
+        const sse = connectNotificationStream()
+
+        const handleStudyMatch = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                const match = {
+                    partnerId:       String(data.suggestionId ?? ''),
+                    partnerName:     String(data.partner?.nickname ?? '파트너'),
+                    partnerAvatar:   String(data.partner?.nickname ?? '파').charAt(0).toUpperCase(),
+                    partnerRole:     (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                    matchRate:       Math.round(Number(data.matchScore ?? 0) * 100),
+                    partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
+                }
+                setPartnerInfoRef.current(match)
+                setMatchStatusRef.current('completed')
+                openRef.current('study-matching', { type: 'study-matching', match })
+            } catch {}
+        }
+
+        const handleNoCandidate = () => {
+            setMatchToastRef.current('현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해주세요.')
+            setMatchStatusRef.current('idle')
+        }
+
+        sse.addEventListener('study_match', handleStudyMatch as EventListener)
+        sse.addEventListener('study_no_candidate', handleNoCandidate)
+
+        return () => { sse.close() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // ── 채팅 자동 스크롤 ────────────────────────────────────────────────────
     useEffect(() => {
@@ -1316,16 +1373,23 @@ function StudyClassroomContent() {
                                     거꾸로 학습이 완료되었습니다.
                                 </p>
                                 {!partnerConnected && (
-                                    <button
-                                        className="metacog-card__btn"
-                                        style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                        onClick={handleRequestMatching}
-                                        disabled={matchLoading}
-                                    >
-                                        {matchLoading
-                                            ? <><Loader2 size={14} strokeWidth={2} className="animate-spin" /> 매칭 중...</>
-                                            : <><Users size={14} strokeWidth={2} /> 스터디 매칭 신청</>}
-                                    </button>
+                                    matchStatus === 'searching' ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                                            <Search size={14} strokeWidth={2} className="animate-pulse" style={{ color: 'var(--color-purple-500)' }} />
+                                            <span style={{ fontSize: '12px', color: 'var(--color-purple-500)', fontWeight: 600 }}>
+                                                파트너 매칭 중...
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            className="metacog-card__btn"
+                                            style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                            onClick={handleRequestMatching}
+                                        >
+                                            <Users size={14} strokeWidth={2} />
+                                            멘토에게 스터디 요청하기
+                                        </button>
+                                    )
                                 )}
                             </div>
                         )}
@@ -1476,6 +1540,13 @@ function StudyClassroomContent() {
                 <div className="sc-locked-toast">
                     <Lock size={14} strokeWidth={1.5} style={{ color: '#f59e0b', flexShrink: 0 }} />
                     {lockedToast}
+                </div>
+            )}
+
+            {/* ── 매칭 알림 토스트 (403 STUDY_006 / no candidate) ── */}
+            {matchToast && (
+                <div className="sc-locked-toast" style={{ background: '#4c1d95', maxWidth: '420px', whiteSpace: 'normal', textAlign: 'center' }}>
+                    {matchToast}
                 </div>
             )}
         </>

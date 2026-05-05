@@ -19,6 +19,8 @@ export type ModalKey =
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
+export type MatchStatus = 'idle' | 'searching' | 'completed'
+
 interface ClassroomModalContextValue {
     /** Which modal is currently visible; null means none */
     modal: ModalKey
@@ -36,10 +38,13 @@ interface ClassroomModalContextValue {
     partnerInfo: StudyMatchResponse | null
     /** True once the user has submitted the final quiz and viewed the report */
     quizSubmitted: boolean
+    /** Async matching status — persisted in localStorage so it survives page reload */
+    matchStatus: MatchStatus
     setMetacogComplete: (v: boolean) => void
     setPartnerConnected: (v: boolean) => void
     setPartnerInfo: (info: StudyMatchResponse | null) => void
     setQuizSubmitted: (v: boolean) => void
+    setMatchStatus: (v: MatchStatus) => void
     /**
      * 현재 학습 중인 주차 ID (weekId).
      * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
@@ -60,6 +65,19 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const [quizSubmitted,   setQuizSubmitted]   = useState(false)
     // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
     const [currentWeekId,   setCurrentWeekId]   = useState<string | null>(null)
+
+    // matchStatus persists across page reloads so the searching animation survives refresh
+    const [matchStatus, setMatchStatusRaw] = useState<MatchStatus>(() => {
+        const stored = localStorage.getItem('moai_match_status')
+        if (stored === 'searching' || stored === 'completed') return stored
+        return 'idle'
+    })
+
+    const setMatchStatus = (v: MatchStatus) => {
+        if (v === 'idle') localStorage.removeItem('moai_match_status')
+        else localStorage.setItem('moai_match_status', v)
+        setMatchStatusRaw(v)
+    }
 
     // partnerConnected + partnerInfo are persisted across page reloads via localStorage
     const [partnerConnected, setPartnerConnectedRaw] = useState<boolean>(
@@ -103,6 +121,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             partnerConnected, setPartnerConnected,
             partnerInfo,      setPartnerInfo,
             quizSubmitted,    setQuizSubmitted,
+            matchStatus,      setMatchStatus,
             currentWeekId,    setCurrentWeekId,
         }}>
             {children}

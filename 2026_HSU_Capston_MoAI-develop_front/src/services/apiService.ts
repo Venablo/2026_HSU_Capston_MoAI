@@ -926,6 +926,21 @@ export async function getQuizReport(roomId: string, weekId: string): Promise<Qui
  */
 
 /**
+ * requestStudyMatch  —  POST /api/learning-rooms/{roomId}/match  (JWT 필요)
+ *
+ * 사용자가 "멘토에게 스터디 요청하기" 버튼을 클릭할 때 호출.
+ * 202 Accepted 반환 후 /api/notifications/stream SSE 로 매칭 결과가 푸시된다.
+ *   study_match        → 매칭 성공 (파트너 정보 포함)
+ *   study_no_candidate → 매칭 가능한 파트너 없음
+ *
+ * 에러:
+ *   403 STUDY_006 — studySuggestionEnabled = false (마이페이지에서 활성화 필요)
+ */
+export async function requestStudyMatch(roomId: string, curriculumId: string): Promise<void> {
+  await api.post(`/api/learning-rooms/${roomId}/match`, { curriculumId })
+}
+
+/**
  * getStudySuggestions  —  GET /api/study-groups/suggestions  (JWT 필요)
  *
  * 매칭 제안 목록 조회 (pending 상태만).

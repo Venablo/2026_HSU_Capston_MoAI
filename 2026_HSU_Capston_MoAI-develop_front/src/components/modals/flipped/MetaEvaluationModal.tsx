@@ -63,20 +63,10 @@ export default function MetaEvaluationModal({
                     </div>
                 </div>
 
-                <div className="modal-meta-eval__btn-row">
-                    <button
-                        className="btn-ghost"
-                        style={{ flex: 1, padding: '12px' }}
-                        onClick={onClose}
-                    >
-                        닫기
-                    </button>
-                </div>
-
-                {/* 하단 중앙 완료 텍스트 */}
+                {/* 완료 텍스트 — 버튼 위 12px 간격 */}
                 <p style={{
                     textAlign: 'center',
-                    marginTop: '14px',
+                    marginBottom: '12px',
                     fontSize: '12px',
                     fontWeight: 700,
                     color: '#059669',
@@ -88,6 +78,16 @@ export default function MetaEvaluationModal({
                     <CheckCircle2 size={13} strokeWidth={2} />
                     메타인지 평가가 완료되었습니다. 파이널 퀴즈에 도전해보세요!
                 </p>
+
+                <div className="modal-meta-eval__btn-row">
+                    <button
+                        className="btn-ghost"
+                        style={{ flex: 1, padding: '12px' }}
+                        onClick={onClose}
+                    >
+                        닫기
+                    </button>
+                </div>
             </div>
         </Modal>
     )
