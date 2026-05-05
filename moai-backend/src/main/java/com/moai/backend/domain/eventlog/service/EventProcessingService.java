@@ -50,6 +50,8 @@ public class EventProcessingService {
 
     // 되감기 구간 자막 조회 범위(초): 되감기 지점부터 앞으로 30초
     private static final int REWIND_LOOKAHEAD_SEC = 30;
+    // 일시정지/탭 이탈 자막 조회 범위(초): 이벤트 시점에서 뒤로 30초
+    private static final int PAUSE_LOOKBACK_SEC = 30;
 
     // ──────────────────────────────────────────────
     // 패턴1: 되감기 발동 처리
@@ -65,40 +67,89 @@ public class EventProcessingService {
      * 6) UserKeyword 약점 upsert
      */
     @Transactional
-    public RewindProcessResult processRewindPattern(User user, LearningRoom room,
+    public MaterialProcessResult processRewindPattern(User user, LearningRoom room,
                                                      WeeklyCurriculum curriculum,
                                                      String videoId, double rewindTargetSec,
                                                      String payloadJson) {
-        // 1. 이벤트 로그 저장
-        saveEventLog(user, curriculum, videoId, "video_rewind", payloadJson);
-
-        // 2. 되감기 지점부터 30초 앞 구간과 겹치는 자막 조회 (start_sec <= toSec AND end_sec >= fromSec)
         BigDecimal fromSec = BigDecimal.valueOf(rewindTargetSec);
         BigDecimal toSec = BigDecimal.valueOf(rewindTargetSec + REWIND_LOOKAHEAD_SEC);
+        return buildMaterialFromSegment(user, room, curriculum, videoId, "video_rewind",
+                fromSec, toSec, rewindTargetSec, payloadJson);
+    }
+
+    // ──────────────────────────────────────────────
+    // 패턴2: 일시정지 / 탭 이탈 처리
+    // ──────────────────────────────────────────────
+
+    /**
+     * 일시정지·탭 이탈 시 처리 흐름은 되감기와 동일하나,
+     * 자막 조회 구간이 이벤트 발생 시점 기준 **이전 30초**라는 점이 다르다.
+     * eventType은 "video_pause" 또는 "tab_departure" 중 하나가 들어온다.
+     */
+    @Transactional
+    public MaterialProcessResult processPauseOrDeparturePattern(User user, LearningRoom room,
+                                                                 WeeklyCurriculum curriculum,
+                                                                 String videoId, String eventType,
+                                                                 double eventTimeSec,
+                                                                 String payloadJson) {
+        double from = Math.max(0.0, eventTimeSec - PAUSE_LOOKBACK_SEC);
+        BigDecimal fromSec = BigDecimal.valueOf(from);
+        BigDecimal toSec = BigDecimal.valueOf(eventTimeSec);
+        return buildMaterialFromSegment(user, room, curriculum, videoId, eventType,
+                fromSec, toSec, eventTimeSec, payloadJson);
+    }
+
+    // ──────────────────────────────────────────────
+    // 공통 자료 생성 시퀀스
+    // ──────────────────────────────────────────────
+
+    private MaterialProcessResult buildMaterialFromSegment(User user, LearningRoom room,
+                                                            WeeklyCurriculum curriculum,
+                                                            String videoId, String eventType,
+                                                            BigDecimal fromSec, BigDecimal toSec,
+                                                            double segmentLabelSec,
+                                                            String payloadJson) {
+        // 1. 이벤트 로그 저장
+        saveEventLog(user, curriculum, videoId, eventType, payloadJson);
+
+        // 2. 구간과 겹치는 자막 조회 (start_sec <= toSec AND end_sec >= fromSec)
         List<VideoTranscript> transcripts = transcriptRepository
                 .findByCurriculumIdAndVideoIdAndStartSecLessThanEqualAndEndSecGreaterThanEqualOrderByChunkIndex(
                         curriculum.getId(), videoId, toSec, fromSec);
 
         String transcriptText = joinTranscriptTexts(transcripts);
         if (transcriptText.isBlank()) {
-            log.warn("되감기 구간 자막 없음 — curriculum={}, video={}, sec={}",
-                    curriculum.getId(), videoId, rewindTargetSec);
-            return new RewindProcessResult(Collections.emptyList(), null);
+            switch (eventType) {
+                case "video_rewind" -> log.warn("되감기 구간 자막 없음 — curriculum={}, video={}, from={}, to={}",
+                        curriculum.getId(), videoId, fromSec, toSec);
+                case "video_pause" -> log.warn("일시정지 구간 자막 없음 — curriculum={}, video={}, from={}, to={}",
+                        curriculum.getId(), videoId, fromSec, toSec);
+                case "tab_departure" -> log.warn("탭 이탈 구간 자막 없음 — curriculum={}, video={}, from={}, to={}",
+                        curriculum.getId(), videoId, fromSec, toSec);
+                default -> log.warn("이벤트 구간 자막 없음 — eventType={}, curriculum={}, video={}, from={}, to={}",
+                        eventType, curriculum.getId(), videoId, fromSec, toSec);
+            }
+            return new MaterialProcessResult(Collections.emptyList(), null);
         }
 
         // 3. LLM 키워드 추출 → 커리큘럼 키워드와 교집합 필터링
         List<String> filteredKeywords = extractAndFilterKeywords(transcriptText, curriculum);
 
         if (filteredKeywords.isEmpty()) {
-            log.info("되감기 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
-            return new RewindProcessResult(Collections.emptyList(), null);
+            switch (eventType) {
+                case "video_rewind" -> log.info("되감기 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
+                case "video_pause" -> log.info("일시정지 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
+                case "tab_departure" -> log.info("탭 이탈 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
+                default -> log.info("이벤트 구간에서 커리큘럼 키워드와 일치하는 키워드 없음 — eventType={}", eventType);
+            }
+            return new MaterialProcessResult(Collections.emptyList(), null);
         }
 
         // 4. LLM 요약 자료 생성 (필터링된 키워드 기반)
         LlmSummaryResult summary = generateSummary(filteredKeywords, transcriptText);
 
         // 5. CustomMaterial 저장
-        String videoSegment = formatVideoSegment(rewindTargetSec);
+        String videoSegment = formatVideoSegment(segmentLabelSec);
         CustomMaterial material = CustomMaterial.builder()
                 .user(user)
                 .room(room)
@@ -113,7 +164,7 @@ public class EventProcessingService {
         // 6. 필터링된 키워드마다 UserKeyword 약점 upsert
         upsertWeaknessKeywords(user, room, curriculum, filteredKeywords);
 
-        return new RewindProcessResult(filteredKeywords, material.getId());
+        return new MaterialProcessResult(filteredKeywords, material.getId());
     }
 
     // ──────────────────────────────────────────────
@@ -512,7 +563,7 @@ public class EventProcessingService {
     // 결과 레코드
     // ──────────────────────────────────────────────
 
-    public record RewindProcessResult(List<String> extractedKeywords, String materialId) {}
+    public record MaterialProcessResult(List<String> extractedKeywords, String materialId) {}
 
     public record QuizProcessResult(String quizId, String questionId) {}
 

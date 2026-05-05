@@ -6,8 +6,8 @@ import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.eventlog.dto.EventRequestDto;
 import com.moai.backend.domain.eventlog.dto.EventResponseDto;
+import com.moai.backend.domain.eventlog.service.EventProcessingService.MaterialProcessResult;
 import com.moai.backend.domain.eventlog.service.EventProcessingService.QuizProcessResult;
-import com.moai.backend.domain.eventlog.service.EventProcessingService.RewindProcessResult;
 import com.moai.backend.domain.eventlog.service.PatternDetectionService.PatternResult;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
@@ -89,7 +89,7 @@ public class EventLogService {
         }
 
         // 패턴 발동 → AI 요약 자료 생성 + 약점 키워드 저장
-        RewindProcessResult processResult = eventProcessingService.processRewindPattern(
+        MaterialProcessResult processResult = eventProcessingService.processRewindPattern(
                 user, room, curriculum, videoId, rewindTargetSec, payloadJson);
 
         return EventResponseDto.builder()
@@ -104,8 +104,8 @@ public class EventLogService {
                                                    WeeklyCurriculum curriculum, String videoId,
                                                    String payloadJson, String eventType,
                                                    double triggerSec) {
-        RewindProcessResult processResult = eventProcessingService.processRewindPattern(
-                user, room, curriculum, videoId, triggerSec, payloadJson);
+        MaterialProcessResult processResult = eventProcessingService.processPauseOrDeparturePattern(
+                user, room, curriculum, videoId, eventType, triggerSec, payloadJson);
 
         return EventResponseDto.builder()
                 .aiTriggered(true)
