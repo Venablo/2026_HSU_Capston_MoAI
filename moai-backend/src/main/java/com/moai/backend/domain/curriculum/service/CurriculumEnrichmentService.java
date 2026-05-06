@@ -11,6 +11,8 @@ import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
 import com.moai.backend.domain.transcript.entity.VideoTranscript;
 import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
+import com.moai.backend.domain.notification.dto.SseSimpleEvent;
+import com.moai.backend.domain.notification.service.NotificationService;
 import com.moai.backend.global.llm.LlmRequestDto;
 import com.moai.backend.global.llm.LlmService;
 import com.moai.backend.global.material.MaterialContent;
@@ -49,6 +51,7 @@ public class CurriculumEnrichmentService {
     private final YoutubeApiService youtubeApiService;
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository quizQuestionRepository;
+    private final NotificationService notificationService;
 
     public record WeekEnrichmentContext(
             String curriculumId,
@@ -271,7 +274,8 @@ public class CurriculumEnrichmentService {
             LlmKeywordResponse response = llmService.callJson(request, LlmKeywordResponse.class);
             return response.getKeywords();
         } catch (Exception e) {
-            log.warn("[{}주차] LLM 키워드 추출 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] LLM 키워드 추출 실패 (재시도 포함): {}", curriculum.getWeekNumber(), e.getMessage());
+            pushLlmErrorSse(curriculum, curriculum.getWeekNumber() + "주차 키워드 추출에 실패했습니다.");
             return null;
         }
     }
@@ -398,7 +402,8 @@ public class CurriculumEnrichmentService {
             LlmWeekDetailResponse detail = llmService.callJson(request, LlmWeekDetailResponse.class);
             return mapToMaterialContent(curriculum, detail);
         } catch (Exception e) {
-            log.warn("[{}주차] LLM 학습 자료 생성 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] LLM 학습 자료 생성 실패 (재시도 포함): {}", curriculum.getWeekNumber(), e.getMessage());
+            pushLlmErrorSse(curriculum, curriculum.getWeekNumber() + "주차 학습 자료 생성에 실패했습니다.");
             return null;
         }
     }
@@ -657,7 +662,8 @@ public class CurriculumEnrichmentService {
             weeklyCurriculumRepository.save(curriculum);
 
         } catch (Exception e) {
-            log.warn("[{}주차] 약점 학습 자료 생성 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] 약점 학습 자료 생성 실패 (재시도 포함): {}", curriculum.getWeekNumber(), e.getMessage());
+            pushLlmErrorSse(curriculum, curriculum.getWeekNumber() + "주차 약점 보충 자료 생성에 실패했습니다.");
         }
     }
 
@@ -743,7 +749,17 @@ public class CurriculumEnrichmentService {
 
             log.info("[{}주차] 약점 퀴즈 생성 완료 — {}문제", curriculum.getWeekNumber(), response.getQuestions().size());
         } catch (Exception e) {
-            log.warn("[{}주차] 약점 퀴즈 생성 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] 약점 퀴즈 생성 실패 (재시도 포함): {}", curriculum.getWeekNumber(), e.getMessage());
+            pushLlmErrorSse(curriculum, curriculum.getWeekNumber() + "주차 약점 보충 퀴즈 생성에 실패했습니다.");
+        }
+    }
+
+    private void pushLlmErrorSse(WeeklyCurriculum curriculum, String message) {
+        try {
+            String userId = curriculum.getRoom().getUser().getId();
+            notificationService.pushSse(userId, new SseSimpleEvent("llm_error", message));
+        } catch (Exception ex) {
+            log.warn("LLM 오류 SSE 전송 실패: {}", ex.getMessage());
         }
     }
 

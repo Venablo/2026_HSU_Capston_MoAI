@@ -48,10 +48,12 @@ public class EventProcessingService {
     private final UserKeywordRepository userKeywordRepository;
     private final LlmService llmService;
 
-    // 되감기 구간 자막 조회 범위(초): 되감기 지점부터 앞으로 30초
     private static final int REWIND_LOOKAHEAD_SEC = 30;
-    // 일시정지/탭 이탈 자막 조회 범위(초): 이벤트 시점에서 뒤로 30초
     private static final int PAUSE_LOOKBACK_SEC = 30;
+
+    // 한국어 문장 종결어미 패턴 — 구절은 허용, 문장은 거부
+    private static final java.util.regex.Pattern SENTENCE_ENDING =
+            java.util.regex.Pattern.compile(".+(니다|ㅂ니다|어요|아요|이요|한다|된다|였다|았다|었다|겠다|합니다|됩니다)$");
 
     // ──────────────────────────────────────────────
     // 패턴1: 되감기 발동 처리
@@ -132,14 +134,16 @@ public class EventProcessingService {
             return new MaterialProcessResult(Collections.emptyList(), null);
         }
 
-        // 3. LLM 키워드 추출 → 커리큘럼 키워드와 교집합 필터링
-        List<String> filteredKeywords = extractAndFilterKeywords(transcriptText, curriculum);
+        // 3. LLM 키워드 추출 — 탭 이탈은 단어 1개 전용 경로, 나머지는 커리큘럼 교집합 필터링
+        List<String> filteredKeywords = "tab_departure".equals(eventType)
+                ? extractSingleKeywordForDeparture(transcriptText, room.getSubject(), curriculum.getTopic())
+                : extractAndFilterKeywords(transcriptText, curriculum);
 
         if (filteredKeywords.isEmpty()) {
             switch (eventType) {
                 case "video_rewind" -> log.info("되감기 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
                 case "video_pause" -> log.info("일시정지 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
-                case "tab_departure" -> log.info("탭 이탈 구간에서 커리큘럼 키워드와 일치하는 키워드 없음");
+                case "tab_departure" -> log.info("탭 이탈 구간에서 대주제 관련 키워드 없음");
                 default -> log.info("이벤트 구간에서 커리큘럼 키워드와 일치하는 키워드 없음 — eventType={}", eventType);
             }
             return new MaterialProcessResult(Collections.emptyList(), null);
@@ -262,6 +266,48 @@ public class EventProcessingService {
         return transcripts.stream()
                 .map(VideoTranscript::getTextContent)
                 .collect(Collectors.joining(" "));
+    }
+
+    /**
+     * 탭 이탈 전용: 자막에서 방의 대주제와 관련된 핵심 단어 하나를 AI에게 추출 요청한다.
+     * 커리큘럼 키워드 목록과의 exact match 없이 대주제 관련성만 판단한다.
+     */
+    private List<String> extractSingleKeywordForDeparture(String transcriptText, String subject, String topic) {
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 강의 자막 분석 AI입니다.
+
+                역할: 학습자가 탭을 이탈한 구간의 자막에서 핵심 키워드 단어 하나를 추출합니다.
+
+                ■ 학습 대주제: %s
+                ■ 이번 주차 주제: %s
+
+                ■ 출력 형식: 순수 JSON (코드블록/마크다운 금지)
+                {"keyword": "단어"}
+
+                ■ 필수 규칙
+                1. 반드시 명사 또는 전문 용어 단 하나만 추출. 구절·문장·조사 금지.
+                2. 학습 대주제(%s)와 관련된 용어면 모두 유효. 별도 목록에 없어도 관련 개념이면 허용.
+                3. 자막 전체에서 핵심도가 가장 높은 단어 하나만 선택.
+                4. 자막이 너무 짧거나 대주제와 무관하면 빈 문자열: {"keyword": ""}
+                """.formatted(subject, topic, subject);
+
+        LlmRequestDto request = LlmRequestDto.builder()
+                .systemPrompt(systemPrompt)
+                .userMessage("자막 원문:\n" + transcriptText)
+                .build();
+
+        LlmSingleKeywordResult result = llmService.callJson(request, LlmSingleKeywordResult.class);
+        String keyword = result != null ? result.getKeyword() : null;
+
+        if (keyword == null || keyword.isBlank()) {
+            return Collections.emptyList();
+        }
+        String trimmed = keyword.trim();
+        if (SENTENCE_ENDING.matcher(trimmed).matches()) {
+            log.info("탭 이탈 키워드가 문장으로 추출됨 — 무시: {}", trimmed);
+            return Collections.emptyList();
+        }
+        return Collections.singletonList(trimmed);
     }
 
     /**
@@ -570,6 +616,13 @@ public class EventProcessingService {
     // ──────────────────────────────────────────────
     // LLM 응답 DTO (내부 클래스)
     // ──────────────────────────────────────────────
+
+    @Getter
+    @NoArgsConstructor
+    static class LlmSingleKeywordResult {
+        @JsonProperty("keyword")
+        private String keyword;
+    }
 
     @Getter
     @NoArgsConstructor

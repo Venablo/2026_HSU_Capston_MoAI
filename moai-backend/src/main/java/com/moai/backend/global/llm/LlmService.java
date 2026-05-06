@@ -40,17 +40,34 @@ public class LlmService {
 
     /**
      * Gemini API를 호출하고 응답 텍스트를 반환한다.
+     * 실패 시 오류 이유를 프롬프트에 추가하여 1회 재시도한다.
      */
     public LlmResponseDto call(LlmRequestDto request) {
-        String text = callGemini(request);
-        return new LlmResponseDto(text);
+        try {
+            return new LlmResponseDto(callGemini(request));
+        } catch (CustomException e) {
+            String retryReason = buildRetryReason(e);
+            log.warn("LLM call 첫 번째 시도 실패 — 재시도합니다. 사유: {}", retryReason);
+            return new LlmResponseDto(callGemini(appendRetryContext(request, retryReason)));
+        }
     }
 
     /**
      * Gemini API를 호출하고 응답을 JSON으로 파싱하여 반환한다.
      * 마크다운 코드블록(```json ... ```)이 감싸져 있으면 자동으로 제거한 뒤 파싱한다.
+     * 실패 시 오류 이유를 프롬프트에 추가하여 1회 재시도한다.
      */
     public <T> T callJson(LlmRequestDto request, Class<T> responseType) {
+        try {
+            return doCallJson(request, responseType);
+        } catch (CustomException e) {
+            String retryReason = buildRetryReason(e);
+            log.warn("LLM callJson 첫 번째 시도 실패 ({}) — 재시도합니다. 사유: {}", responseType.getSimpleName(), retryReason);
+            return doCallJson(appendRetryContext(request, retryReason), responseType);
+        }
+    }
+
+    private <T> T doCallJson(LlmRequestDto request, Class<T> responseType) {
         String text = callGemini(request);
         String json = stripCodeBlock(text);
         try {
@@ -59,6 +76,23 @@ public class LlmService {
             log.error("LLM 응답 JSON 파싱 실패: {}", json, e);
             throw new CustomException(ErrorCode.LLM_RESPONSE_PARSE_ERROR);
         }
+    }
+
+    private String buildRetryReason(CustomException e) {
+        return switch (e.getCode()) {
+            case "LLM_002" -> "응답이 올바른 JSON 형식이 아닙니다. 마크다운 코드블록(```json```)이나 부가 설명 없이 순수 JSON만 반환해 주세요.";
+            case "LLM_001" -> "API 호출에 실패했습니다. 동일한 요청을 다시 처리해 주세요.";
+            default -> "이전 응답 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
+        };
+    }
+
+    private LlmRequestDto appendRetryContext(LlmRequestDto original, String reason) {
+        return LlmRequestDto.builder()
+                .systemPrompt(original.getSystemPrompt())
+                .userMessage(original.getUserMessage() +
+                        "\n\n[재시도 요청] 이전 응답에서 다음 오류가 발생했습니다: " + reason +
+                        "\n위 오류를 참고하여 올바른 형식으로 다시 응답해 주세요.")
+                .build();
     }
 
     /**
