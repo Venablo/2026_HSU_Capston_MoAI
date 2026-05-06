@@ -144,6 +144,9 @@ export function useYouTubePlayer({
     // 탭 이탈 횟수 누적 카운터
     const tabDepartureCountRef = useRef<number>(0)
 
+    // 영상 종료 여부 — 종료 후 패턴 감지 억제에 사용
+    const videoEndedRef = useRef<boolean>(false)
+
     // onPatternDetected는 외부 props라 render마다 참조가 바뀔 수 있다.
     // ref로 감싸서 오래된 클로저(stale closure) 문제를 방지한다.
     const onPatternRef = useRef(onPatternDetected)
@@ -168,6 +171,9 @@ export function useYouTubePlayer({
 
             const state   = player.getPlayerState()
             const current = player.getCurrentTime()
+
+            // 영상 종료 후에는 패턴 감지를 억제한다 (모니터링 모달 방지)
+            if (videoEndedRef.current) return
 
             if (state === 1) {
                 // ── 재생 중(playing): 위치 변화로 되감기 및 스킵 감지 ─────────
@@ -251,6 +257,7 @@ export function useYouTubePlayer({
         tabDepartureCountRef.current = 0
         durationRef.current = 0
         reportedMilestonesRef.current = new Set()
+        videoEndedRef.current = false
 
         const host = playerHostRef.current
         if (host) {
@@ -291,13 +298,18 @@ export function useYouTubePlayer({
                         // 영상 종료(0)시 폴링 정지, 재생 재개(1)시 폴링 재시작
                         if (event.data === 0) {
                             stopPolling()
+                            videoEndedRef.current = true
                             // 영상 종료 → 100% 마일스톤
                             if (onProgressRef.current && !reportedMilestonesRef.current.has(100)) {
                                 reportedMilestonesRef.current.add(100)
                                 onProgressRef.current(100)
                             }
                         }
-                        if (event.data === 1) startPolling()
+                        if (event.data === 1) {
+                            // 재생 재개(재시작 포함) — 종료 플래그 해제
+                            videoEndedRef.current = false
+                            startPolling()
+                        }
                     },
                 },
             })
@@ -323,6 +335,9 @@ export function useYouTubePlayer({
         // document.visibilitychange 이벤트: 사용자가 다른 탭/앱으로 전환할 때 발생
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'hidden') {
+                // 영상 종료 후 탭 이탈은 학습 패턴이 아니므로 무시
+                if (videoEndedRef.current) return
+
                 tabDepartureCountRef.current += 1
                 const currentTime = playerRef.current?.getCurrentTime() ?? 0
 

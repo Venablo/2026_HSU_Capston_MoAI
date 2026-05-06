@@ -88,4 +88,6 @@ export type ModalData =
         /** Used by FinalQuizModal for getFinalQuiz / submitFinalQuiz / polling */
         roomId: string
         weekId: string
+        /** If true, skip answering and go straight to the existing report */
+        reviewMode?: boolean
       }

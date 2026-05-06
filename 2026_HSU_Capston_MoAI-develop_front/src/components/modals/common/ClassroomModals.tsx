@@ -11,7 +11,8 @@
  *   monitoring      → (AI 분석 fetch) → summary-detail
  *   fast-track      → quiz-pass
  *   reverse-learning → (SSE + endFlippedSession) → meta-evaluation
- *   meta-evaluation → (fetchStudyMatch) → study-matching
+ *   meta-evaluation → 닫기 (매칭 버튼은 사이드바로 이동)
+ *   사이드바 '스터디 매칭 신청' → (fetchStudyMatch) → study-matching
  *   study-matching  → (accept) → 사이드바 상태 갱신
  *   quiz-pass       → quiz-correct | quiz-incorrect
  *   final-quiz      → (내부에서 submit + 폴링) → 리포트 (모달 내부 처리)
@@ -25,7 +26,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
-import { fetchStudyMatch } from '../../../services/aiSummaryService'
+import { acceptStudySuggestion } from '../../../services/apiService'
 import type { SummaryItem } from '../monitoring/SummaryDetailModal'
 import MonitoringModal from '../monitoring/MonitoringModal'
 import SummaryDetailModal from '../monitoring/SummaryDetailModal'
@@ -44,16 +45,16 @@ import type { EndFlippedResponse } from '../../../types/api'
 export default function ClassroomModals() {
     const {
         modal, modalData, open, close,
-        setMetacogComplete, setPartnerConnected,
+        setMetacogComplete, setPartnerConnected, setPartnerInfo,
+        setQuizSubmitted,
         currentWeekId,
     } = useClassroomModal()
+
+    const [connecting, setConnecting] = useState(false)
 
     // URL 파라미터에서 roomId를 가져온다.
     // 이 컴포넌트는 /study/:studyId/classroom 라우트 내부에서 렌더링되므로 항상 존재한다.
     const { studyId: roomId = '' } = useParams<{ studyId: string }>()
-
-    // 각 모달의 비동기 로딩 상태
-    const [matchLoading, setMatchLoading] = useState(false)
 
     // ── monitoring → summary-detail 전환 ────────────────────────────────────
     // summaryItems은 StudyClassroom이 getMaterialDetail() 호출 시 이미 받아서
@@ -90,21 +91,22 @@ export default function ClassroomModals() {
     // Fallback: onSessionEnd was not provided (should not happen in normal flow).
     const handleEvaluationFallback = (_explanation: string) => { close() }
 
-    // ── meta-evaluation → study-matching 전환 ───────────────────────────────
-    const handleMatching = async (evaluation: MetaEvaluationResponse) => {
-        setMatchLoading(true)
+    // ── study-matching → acceptStudySuggestion API 호출 → 사이드바 상태 갱신 ──
+    // partnerId 필드에는 SSE 수신 시 저장된 suggestionId가 들어 있다.
+    // groupId는 양쪽 모두 수락 완료 시 백엔드가 study_accepted SSE로 푸시한다.
+    const handleConnect = async () => {
+        if (!modalData || modalData.type !== 'study-matching') return
+        setConnecting(true)
         try {
-            const match = await fetchStudyMatch(evaluation)
-            open('study-matching', { type: 'study-matching', match })
+            await acceptStudySuggestion(modalData.match.partnerId)
+        } catch {
+            // 네트워크 오류여도 UI는 낙관적으로 연결 처리
         } finally {
-            setMatchLoading(false)
+            setConnecting(false)
         }
-    }
-
-    // ── study-matching → 사이드바 상태 갱신 (파트너 연결 완료) ───────────────
-    const handleConnect = () => {
         setMetacogComplete(true)
         setPartnerConnected(true)
+        setPartnerInfo(modalData.match)
         close()
     }
 
@@ -208,8 +210,6 @@ export default function ClassroomModals() {
                 <MetaEvaluationModal
                     evaluation={modalData.evaluation}
                     onClose={close}
-                    onRequestMatching={() => handleMatching(modalData.evaluation)}
-                    loading={matchLoading}
                 />
             )}
 
@@ -219,6 +219,7 @@ export default function ClassroomModals() {
                     match={modalData.match}
                     onClose={close}
                     onConnect={handleConnect}
+                    isConnecting={connecting}
                 />
             )}
 
@@ -231,6 +232,8 @@ export default function ClassroomModals() {
                     roomId={modalData.roomId}
                     weekId={modalData.weekId}
                     onClose={close}
+                    onComplete={() => setQuizSubmitted(true)}
+                    reviewMode={modalData.reviewMode}
                 />
             )}
         </>

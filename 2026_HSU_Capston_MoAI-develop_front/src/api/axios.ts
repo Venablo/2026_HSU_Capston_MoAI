@@ -10,7 +10,7 @@
  *     - 401: accessToken 만료 → refreshToken으로 토큰 재발급 자동 시도
  *             재발급 성공 시 원본 요청 자동 재시도 (사용자는 아무것도 모름)
  *             재발급 실패 시 전체 인증 정보 삭제 후 로그인 화면 이동
- *     - 403: 권한 없음 — 오류 전파 (UI 레이어가 처리)
+ *     - 403: errorCode 가 TOKEN_EXPIRED_CODES 에 해당하면 갱신 후 재시도, 그 외 즉시 전파
  *     - 404: 리소스 없음 — 오류 전파
  *     - 500: 서버 내부 오류 — 오류 전파
  * ============================================================================
@@ -126,6 +126,7 @@ console.log('[axios] instance created — timeout:', api.defaults.timeout, 'ms, 
  *     pendingQueue 에 들어가서 갱신 완료 후 자동으로 재시도
  */
 let isRefreshing = false
+let refreshingSetAt = 0   // epoch ms when isRefreshing was set — used for deadlock detection
 
 /**
  * 토큰 갱신이 진행 중일 때 대기 중인 요청들의 콜백 큐.
@@ -151,6 +152,120 @@ function flushPendingQueue(newToken: string | null, error: unknown = null) {
 /** 인증 관련 localStorage 항목 전체 삭제 */
 function clearStoredAuth() {
   Object.values(TOKEN_KEYS).forEach(key => localStorage.removeItem(key))
+}
+
+/**
+ * 백엔드가 토큰 만료를 나타낼 때 사용하는 errorCode 화이트리스트.
+ *
+ * 403 응답의 errorCode 가 이 목록에 있을 때만 토큰 갱신을 시도한다.
+ * 비즈니스 로직 403 (예: PREVIOUS_WEEK_NOT_COMPLETED, FORBIDDEN) 은
+ * 이 목록에 포함되지 않으므로 갱신 없이 즉시 에러가 전파된다.
+ * clearStoredAuth() / 로그인 리다이렉트는 절대 비즈니스 403으로 인해 발생하지 않는다.
+ *
+ * 백엔드에서 새로운 토큰 만료 코드가 추가되면 여기에만 추가하면 된다.
+ */
+const TOKEN_EXPIRED_CODES = new Set([
+  'TOKEN_EXPIRED',
+  'INVALID_TOKEN',
+  'EXPIRED_TOKEN',
+  'JWT_EXPIRED',
+  'ACCESS_TOKEN_EXPIRED',
+])
+
+/**
+ * refreshAndRetry
+ *
+ * 401·403 수신 시 refreshToken 으로 accessToken 을 갱신한 뒤 원본 요청을 재시도한다.
+ * isRefreshing / pendingQueue 패턴으로 동시 다발 갱신 요청을 안전하게 직렬화한다.
+ *
+ * 흐름:
+ *  1. refreshToken 없음 → clearStoredAuth + 로그인 이동
+ *  2. 이미 갱신 중(isRefreshing) → pendingQueue 에 추가하고 갱신 완료 시 자동 재시도
+ *  3. 최초 갱신 시도 → POST /api/auth/refresh → 새 token 저장 → 큐 flush → 원본 재시도
+ *  4. 갱신 실패 → clearStoredAuth + 로그인 이동
+ */
+async function refreshAndRetry(
+  error: AxiosError<{ success?: false; message?: string; errorCode?: string; code?: string }>,
+  originalStatus: number,
+  originalErrorCode: string,
+  originalMessage: string,
+): Promise<AxiosResponse> {
+  // ── 재시도 루프 방지 ───────────────────────────────────────────────────────
+  // 갱신 후 재시도한 요청이 또 401/403을 받은 경우, 진짜 권한·서버 문제이므로
+  // 갱신을 다시 시도하지 않고 에러를 그대로 전파한다.
+  // (이 플래그가 없으면 refresh 성공 → retry → 403 → refresh 성공 → ... 무한루프)
+  if ((error.config as unknown as Record<string, unknown>)?._retried === true) {
+    console.log('[axios] Already retried after refresh — propagating as genuine error:', originalStatus, originalErrorCode)
+    return Promise.reject(new MoaiApiError(originalStatus, originalErrorCode, originalMessage))
+  }
+
+  const storedRefreshToken = localStorage.getItem(TOKEN_KEYS.refreshToken)
+
+  if (!storedRefreshToken) {
+    clearStoredAuth()
+    window.location.href = '/'
+    return Promise.reject(new MoaiApiError(originalStatus, originalErrorCode, originalMessage))
+  }
+
+  if (isRefreshing) {
+    // Deadlock guard: refresh running > 15 s → force-reset and redirect to login
+    if (Date.now() - refreshingSetAt > 15_000) {
+      isRefreshing = false
+      refreshingSetAt = 0
+      flushPendingQueue(null, new Error('Token refresh deadlock — forcing reset'))
+      clearStoredAuth()
+      window.location.href = '/'
+      return Promise.reject(new MoaiApiError(originalStatus, 'REFRESH_TIMEOUT', '세션이 만료되었습니다. 다시 로그인해 주세요.'))
+    }
+    return new Promise((resolve, reject) => {
+      pendingQueue.push({
+        resolve: (newToken: string) => {
+          if (error.config) {
+            console.log('[axios] Retrying (queued) with new token...')
+            error.config.headers.Authorization = `Bearer ${newToken}`
+            ;(error.config as unknown as Record<string, unknown>)._retried = true
+            resolve(api(error.config))
+          }
+        },
+        reject,
+      })
+    })
+  }
+
+  console.log('[axios] Refreshing token...')
+  isRefreshing = true
+  refreshingSetAt = Date.now()
+
+  try {
+    // 원시 axios 사용 — api 인스턴스에는 인터셉터가 걸려있어 401/403 무한루프 위험
+    const rawRefresh = await axios.post(
+      `${import.meta.env.VITE_API_BASE_URL}/api/auth/refresh`,
+      { refreshToken: storedRefreshToken },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 10_000 },
+    )
+    const refreshBody = deepCamelCase(rawRefresh.data) as {
+      success: boolean
+      data: { accessToken: string; expiresIn: number }
+    }
+    const newAccessToken = refreshBody.data.accessToken
+    localStorage.setItem(TOKEN_KEYS.accessToken, newAccessToken)
+    flushPendingQueue(newAccessToken)
+    if (error.config) {
+      console.log('[axios] Retrying with new token...')
+      error.config.headers.Authorization = `Bearer ${newAccessToken}`
+      ;(error.config as unknown as Record<string, unknown>)._retried = true
+      return api(error.config)
+    }
+  } catch (refreshError) {
+    flushPendingQueue(null, refreshError)
+    clearStoredAuth()
+    window.location.href = '/'
+    return Promise.reject(new MoaiApiError(401, 'REFRESH_FAILED', '세션이 만료되었습니다. 다시 로그인해 주세요.'))
+  } finally {
+    isRefreshing = false
+    refreshingSetAt = 0
+  }
+  return Promise.reject(new MoaiApiError(originalStatus, originalErrorCode, originalMessage))
 }
 
 // ── ① 요청 인터셉터 — Authorization 헤더 자동 첨부 ──────────────────────────
@@ -195,7 +310,7 @@ api.interceptors.request.use(
  * ├──────┼──────────────────┼──────────────────────────────────────────────────┤
  * │ 400  │ BAD_REQUEST      │ MoaiApiError 로 전파 → 폼 유효성 검사 UI 처리     │
  * │ 401  │ UNAUTHORIZED     │ refreshToken 으로 재발급 시도 (아래 상세 설명)    │
- * │ 403  │ FORBIDDEN        │ MoaiApiError 로 전파 → "권한 없음" 알림           │
+ * │ 403  │ TOKEN_EXPIRED*   │ TOKEN_EXPIRED_CODES 매핑 시 갱신; 그 외 즉시 전파 │
  * │ 404  │ NOT_FOUND        │ MoaiApiError 로 전파 → "리소스 없음" 처리         │
  * │ 409  │ CONFLICT         │ MoaiApiError 로 전파 → "이미 존재" 처리           │
  * │ 500  │ INTERNAL_ERROR   │ MoaiApiError 로 전파 → "서버 오류" 알림           │
@@ -212,101 +327,20 @@ api.interceptors.response.use(
     const errorCode = payload?.errorCode ?? payload?.code ?? 'UNKNOWN_ERROR'
     const message   = payload?.message ?? error.message
 
-    // ── 401 UNAUTHORIZED: 토큰 만료 → 자동 갱신 시도 ──────────────────────
-    /**
-     * 401 처리 흐름 (토큰 재발급 사이클):
-     *
-     *  [401 수신]
-     *     │
-     *     ▼
-     *  refreshToken 이 localStorage 에 있는가?
-     *     │ YES                         │ NO
-     *     ▼                             ▼
-     *  isRefreshing 중인가?         clearStoredAuth() → 로그인 이동
-     *     │ NO         │ YES
-     *     ▼            ▼
-     *  갱신 요청     pendingQueue 에 추가하여
-     *  POST /auth/   갱신 완료 후 자동 재시도
-     *  refresh
-     *     │ 성공                        │ 실패
-     *     ▼                             ▼
-     *  새 accessToken             clearStoredAuth() → 로그인 이동
-     *  localStorage 업데이트
-     *  pendingQueue 전체 재시도
-     *  원본 요청 재시도 (사용자는 아무것도 모름)
-     */
+    // ── 401 UNAUTHORIZED: 토큰 만료 → refreshAndRetry ───────────────────────
     if (status === 401) {
-      const storedRefreshToken = localStorage.getItem(TOKEN_KEYS.refreshToken)
-
-      // refreshToken 이 없으면 재발급이 불가능하므로 즉시 로그인 이동
-      if (!storedRefreshToken) {
-        clearStoredAuth()
-        window.location.href = '/'
-        return Promise.reject(new MoaiApiError(401, errorCode, message))
-      }
-
-      // 이미 다른 요청이 갱신 중이라면 이 요청은 큐에 넣고 대기
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          pendingQueue.push({
-            resolve: (newToken: string) => {
-              // 갱신 완료 후 원본 요청에 새 토큰을 넣어 재시도
-              if (error.config) {
-                error.config.headers.Authorization = `Bearer ${newToken}`
-                resolve(api(error.config))
-              }
-            },
-            reject,
-          })
-        })
-      }
-
-      // 이 요청이 최초 갱신 시도 — isRefreshing 플래그 설정
-      isRefreshing = true
-
-      try {
-        // POST /api/auth/refresh — 공개 엔드포인트이므로 인터셉터를 거치지 않도록
-        // 원시 axios 를 사용한다 (api 인스턴스 사용 시 401 무한루프 가능).
-        // 원시 axios 는 transformResponse 가 없으므로 deepCamelCase 를 수동 적용한다.
-        const rawRefresh = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL}/api/auth/refresh`,
-          { refreshToken: storedRefreshToken },
-          { headers: { 'Content-Type': 'application/json' } },
-        )
-        const refreshBody = deepCamelCase(rawRefresh.data) as {
-          success: boolean
-          data: { accessToken: string; expiresIn: number }
-        }
-
-        const newAccessToken = refreshBody.data.accessToken
-
-        // 새 accessToken 을 localStorage 에 저장 (AuthContext 도 다음 렌더에서 동기화)
-        localStorage.setItem(TOKEN_KEYS.accessToken, newAccessToken)
-
-        // 대기 중이던 모든 요청에 새 토큰 전달 → 자동 재시도
-        flushPendingQueue(newAccessToken)
-
-        // 원본 요청도 새 토큰으로 재시도
-        if (error.config) {
-          error.config.headers.Authorization = `Bearer ${newAccessToken}`
-          return api(error.config)
-        }
-      } catch (refreshError) {
-        // refreshToken 도 만료되었거나 유효하지 않음 → 완전히 로그아웃 처리
-        flushPendingQueue(null, refreshError)
-        clearStoredAuth()
-        window.location.href = '/'
-        return Promise.reject(new MoaiApiError(401, 'REFRESH_FAILED', '세션이 만료되었습니다. 다시 로그인해 주세요.'))
-      } finally {
-        // 성공/실패 여부에 관계없이 플래그 초기화
-        isRefreshing = false
-      }
+      return refreshAndRetry(error, 401, errorCode, message)
     }
 
-    // ── 403 FORBIDDEN: 권한 없음 ─────────────────────────────────────────────
-    // 예) 다른 사용자의 학습실에 접근 시도
-    // UI 레이어에서 catch 하여 "접근 권한이 없습니다" 알림을 표시한다
+    // ── 403 FORBIDDEN ────────────────────────────────────────────────────────
+    // TOKEN_EXPIRED_CODES 에 해당하는 errorCode 만 갱신을 시도한다.
+    // 비즈니스 로직 403 (예: PREVIOUS_WEEK_NOT_COMPLETED, FORBIDDEN) 은
+    // clearStoredAuth() / 리다이렉트 없이 에러를 즉시 전파한다.
     if (status === 403) {
+      if (TOKEN_EXPIRED_CODES.has(errorCode)) {
+        return refreshAndRetry(error, 403, errorCode, message || '해당 리소스에 대한 권한이 없습니다.')
+      }
+      console.log('[axios] Business logic 403 detected - skipping refresh:', errorCode)
       return Promise.reject(new MoaiApiError(403, errorCode, message || '해당 리소스에 대한 권한이 없습니다.'))
     }
 
