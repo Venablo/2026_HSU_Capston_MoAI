@@ -172,7 +172,6 @@ function normalizeResource(value: unknown): ResourceItem | null {
     title,
     url,
     size: stringValue(obj.size) || stringValue(obj.fileSize) || '-',
-    tag: stringValue(obj.tag) || undefined,
   }
 }
 
@@ -213,7 +212,6 @@ function normalizeWeekSummary(value: unknown): CurriculumWeekSummary | null {
     weekNumber: numberValue(obj.weekNumber),
     topic: stringValue(obj.topic, 'Untitled week'),
     completionRate: numberValue(obj.completionRate),
-    locked: Boolean(obj.locked ?? obj.isLocked),
   }
 }
 
@@ -232,7 +230,6 @@ function normalizeRecommendedVideo(value: unknown): RecommendedVideo | null {
     viewCount: numberValue(obj.viewCount),
     isMain: Boolean(obj.isMain),
     thumbnailUrl: stringValue(obj.thumbnailUrl) || undefined,
-    tag: stringValue(obj.tag) || undefined,
   }
 }
 
@@ -927,6 +924,21 @@ export async function getQuizReport(roomId: string, weekId: string): Promise<Qui
  * 매칭 성사 시 상대방에게 SSE(/api/notifications/stream) 로 실시간 알림 푸시.
  * 나에게는 getStudySuggestions 호출 시 pending 상태의 제안이 반환됨.
  */
+
+/**
+ * requestStudyMatch  —  POST /api/learning-rooms/{roomId}/match  (JWT 필요)
+ *
+ * 사용자가 "멘토에게 스터디 요청하기" 버튼을 클릭할 때 호출.
+ * 202 Accepted 반환 후 /api/notifications/stream SSE 로 매칭 결과가 푸시된다.
+ *   study_match        → 매칭 성공 (파트너 정보 포함)
+ *   study_no_candidate → 매칭 가능한 파트너 없음
+ *
+ * 에러:
+ *   403 STUDY_006 — studySuggestionEnabled = false (마이페이지에서 활성화 필요)
+ */
+export async function requestStudyMatch(roomId: string, curriculumId: string): Promise<void> {
+  await api.post(`/api/learning-rooms/${roomId}/match`, { curriculumId })
+}
 
 /**
  * getStudySuggestions  —  GET /api/study-groups/suggestions  (JWT 필요)

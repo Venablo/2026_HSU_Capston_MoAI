@@ -120,7 +120,6 @@ export interface CurriculumWeekSummary {
   weekNumber: number
   topic: string
   completionRate: number
-  locked?: boolean
 }
 
 export interface ResourceItem {
@@ -128,7 +127,6 @@ export interface ResourceItem {
   title: string
   url: string
   size: string
-  tag?: string
 }
 
 export interface CurriculumWeekDetail {
@@ -157,7 +155,6 @@ export interface RecommendedVideo {
   viewCount: number
   isMain?: boolean      // true = this is the primary video for the week (main player)
   thumbnailUrl?: string
-  tag?: string          // "weakness" for weakness-remediation videos, undefined for normal
 }
 
 /** Wrapper shape returned by GET …/recommended-videos */
@@ -480,7 +477,7 @@ export interface WsChatSend {
 
 // ── 10. Notifications ─────────────────────────────────────────────────────────
 
-export type NotificationType = 'study_match' | 'study_rejected' | 'study_accepted'
+export type NotificationType = 'study_match' | 'study_rejected' | 'study_accepted' | 'study_no_candidate'
 
 export interface NotificationItem {
   notificationId: string
@@ -515,6 +512,10 @@ export type NotificationSseEvent =
       type: 'study_accepted'
       message: string
       groupId: string
+    }
+  | {
+      type: 'study_no_candidate'
+      message: string
     }
 
 // ── 11. My Page ───────────────────────────────────────────────────────────────

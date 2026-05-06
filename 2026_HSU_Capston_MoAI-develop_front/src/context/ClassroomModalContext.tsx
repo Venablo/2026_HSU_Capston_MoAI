@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react'
-import type { ModalData } from '../types/aiEvents'
+import type { ModalData, StudyMatchResponse } from '../types/aiEvents'
 
 // ── Modal key type ────────────────────────────────────────────────────────────
 
@@ -19,6 +19,8 @@ export type ModalKey =
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
+export type MatchStatus = 'idle' | 'searching' | 'completed'
+
 interface ClassroomModalContextValue {
     /** Which modal is currently visible; null means none */
     modal: ModalKey
@@ -32,8 +34,20 @@ interface ClassroomModalContextValue {
     metacogComplete: boolean
     /** True once the user has connected with a study partner */
     partnerConnected: boolean
+    /** Matched partner's profile data — persisted in localStorage */
+    partnerInfo: StudyMatchResponse | null
+    /** True once the user has submitted the final quiz and viewed the report */
+    quizSubmitted: boolean
+    /** Async matching status — persisted in localStorage so it survives page reload */
+    matchStatus: MatchStatus
+    /** Study group ID received via study_accepted SSE — enables WebSocket chat */
+    groupId: string | null
     setMetacogComplete: (v: boolean) => void
     setPartnerConnected: (v: boolean) => void
+    setPartnerInfo: (info: StudyMatchResponse | null) => void
+    setQuizSubmitted: (v: boolean) => void
+    setMatchStatus: (v: MatchStatus) => void
+    setGroupId: (id: string | null) => void
     /**
      * 현재 학습 중인 주차 ID (weekId).
      * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
@@ -48,12 +62,60 @@ interface ClassroomModalContextValue {
 const ClassroomModalContext = createContext<ClassroomModalContextValue | null>(null)
 
 export function ClassroomModalProvider({ children }: { children: React.ReactNode }) {
-    const [modal,            setModal]            = useState<ModalKey>(null)
-    const [modalData,        setModalData]        = useState<ModalData | null>(null)
-    const [metacogComplete,  setMetacogComplete]  = useState(false)
-    const [partnerConnected, setPartnerConnected] = useState(false)
+    const [modal,           setModal]           = useState<ModalKey>(null)
+    const [modalData,       setModalData]       = useState<ModalData | null>(null)
+    const [metacogComplete, setMetacogComplete] = useState(false)
+    const [quizSubmitted,   setQuizSubmitted]   = useState(false)
     // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
-    const [currentWeekId,    setCurrentWeekId]    = useState<string | null>(null)
+    const [currentWeekId,   setCurrentWeekId]   = useState<string | null>(null)
+
+    // matchStatus persists across page reloads so the searching animation survives refresh
+    const [matchStatus, setMatchStatusRaw] = useState<MatchStatus>(() => {
+        const stored = localStorage.getItem('moai_match_status')
+        if (stored === 'searching' || stored === 'completed') return stored
+        return 'idle'
+    })
+
+    const setMatchStatus = (v: MatchStatus) => {
+        if (v === 'idle') localStorage.removeItem('moai_match_status')
+        else localStorage.setItem('moai_match_status', v)
+        setMatchStatusRaw(v)
+    }
+
+    // partnerConnected + partnerInfo are persisted across page reloads via localStorage
+    const [partnerConnected, setPartnerConnectedRaw] = useState<boolean>(
+        () => localStorage.getItem('moai_partner_connected') === 'true'
+    )
+    const [partnerInfo, setPartnerInfoRaw] = useState<StudyMatchResponse | null>(() => {
+        try {
+            const stored = localStorage.getItem('moai_partner_info')
+            return stored ? (JSON.parse(stored) as StudyMatchResponse) : null
+        } catch {
+            return null
+        }
+    })
+
+    const setPartnerConnected = (v: boolean) => {
+        if (v) localStorage.setItem('moai_partner_connected', 'true')
+        else   localStorage.removeItem('moai_partner_connected')
+        setPartnerConnectedRaw(v)
+    }
+
+    const setPartnerInfo = (info: StudyMatchResponse | null) => {
+        if (info) localStorage.setItem('moai_partner_info', JSON.stringify(info))
+        else      localStorage.removeItem('moai_partner_info')
+        setPartnerInfoRaw(info)
+    }
+
+    const [groupId, setGroupIdRaw] = useState<string | null>(
+        () => localStorage.getItem('moai_study_group_id'),
+    )
+
+    const setGroupId = (id: string | null) => {
+        if (id) localStorage.setItem('moai_study_group_id', id)
+        else    localStorage.removeItem('moai_study_group_id')
+        setGroupIdRaw(id)
+    }
 
     const open = (key: NonNullable<ModalKey>, data?: ModalData) => {
         setModalData(data ?? null)
@@ -70,6 +132,10 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             modal, modalData, open, close,
             metacogComplete,  setMetacogComplete,
             partnerConnected, setPartnerConnected,
+            partnerInfo,      setPartnerInfo,
+            quizSubmitted,    setQuizSubmitted,
+            matchStatus,      setMatchStatus,
+            groupId,          setGroupId,
             currentWeekId,    setCurrentWeekId,
         }}>
             {children}

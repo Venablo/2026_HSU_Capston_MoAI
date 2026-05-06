@@ -1,19 +1,15 @@
-import { CheckCircle2, Trophy, AlertTriangle, Users, Loader2 } from 'lucide-react'
+import { CheckCircle2, Trophy, AlertTriangle } from 'lucide-react'
 import Modal from '../common/Modal'
 import type { MetaEvaluationResponse } from '../../../types/aiEvents'
 
 export interface MetaEvaluationModalProps {
     evaluation: MetaEvaluationResponse
     onClose: () => void
-    onRequestMatching: () => void
-    loading?: boolean
 }
 
 export default function MetaEvaluationModal({
     evaluation,
     onClose,
-    onRequestMatching,
-    loading = false,
 }: MetaEvaluationModalProps) {
     return (
         <Modal onClose={onClose} wide>
@@ -67,26 +63,29 @@ export default function MetaEvaluationModal({
                     </div>
                 </div>
 
+                {/* 완료 텍스트 — 버튼 위 12px 간격 */}
+                <p style={{
+                    textAlign: 'center',
+                    marginBottom: '12px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#059669',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                }}>
+                    <CheckCircle2 size={13} strokeWidth={2} />
+                    메타인지 평가가 완료되었습니다. 파이널 퀴즈에 도전해보세요!
+                </p>
+
                 <div className="modal-meta-eval__btn-row">
                     <button
                         className="btn-ghost"
                         style={{ flex: 1, padding: '12px' }}
                         onClick={onClose}
-                        disabled={loading}
                     >
                         닫기
-                    </button>
-                    <button
-                        className="btn-primary modal-meta-eval__match-btn"
-                        style={{ flex: 2, padding: '12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                        onClick={onRequestMatching}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <><Loader2 size={14} strokeWidth={2} className="animate-spin" /> 매칭 중...</>
-                        ) : (
-                            <><Users size={14} strokeWidth={2} /> 스터디 매칭 신청</>
-                        )}
                     </button>
                 </div>
             </div>

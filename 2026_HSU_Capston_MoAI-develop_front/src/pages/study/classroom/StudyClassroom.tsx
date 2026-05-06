@@ -28,7 +28,7 @@ import {
     Calendar, BrainCircuit, CheckCircle2,
     Trophy, Lock, Users, MessageCircle,
     UserCircle, ArrowRight, Loader2,
-    Moon, Sun, X, Check, LogOut,
+    Moon, Sun, X, Check, LogOut, Send,
 } from 'lucide-react'
 import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
@@ -44,12 +44,18 @@ import {
     getCurriculumWeek,
     getRecommendedVideos,
     getQuizAttempts,
+    getQuizAttemptDetail,
     updateProgress,
     getNotifications,
     markNotificationRead,
     updateProfile,
     logout,
+    connectNotificationStream,
+    requestStudyMatch,
+    connectGroupChat,
+    getGroupMessages,
 } from '../../../services/apiService'
+import { MoaiApiError } from '../../../api/axios'
 import type {
     EventType,
     LearningEventPayload,
@@ -57,7 +63,10 @@ import type {
     CurriculumWeekSummary,
     RecommendedVideo,
     QuizAttemptListItem,
+    QuizAttemptDetail,
     NotificationItem,
+    ChatMessage,
+    WsChatSend,
 } from '../../../types/api'
 
 // ── 타입 정의 ─────────────────────────────────────────────────────────────────
@@ -82,6 +91,7 @@ function resourceIcon(type: string): ReactNode {
     if (type === 'pdf')  return <FileText size={20} strokeWidth={1.5} />
     if (type === 'docx') return <FileEdit size={20} strokeWidth={1.5} />
     if (type === 'zip')  return <Package  size={20} strokeWidth={1.5} />
+    if (type === 'md')   return <FileEdit size={20} strokeWidth={1.5} />
     return <FileText size={20} strokeWidth={1.5} />
 }
 
@@ -144,13 +154,46 @@ function StudyClassroomContent() {
     const [allWeeks,     setAllWeeks]     = useState<CurriculumWeekSummary[]>([])
     const [weekDropdown, setWeekDropdown] = useState(false)
 
+    // 잠금 상태: 초기 로드 시 설정된 현재 진행 가능한 최대 weekNumber
+    const [unlockedUpToWeekNumber, setUnlockedUpToWeekNumber] = useState<number | null>(null)
+    // 잠긴 주차 접근 시 표시되는 토스트 메시지
+    const [lockedToast, setLockedToast] = useState<string | null>(null)
+
     // 탭별 데이터 (lazy-load)
     const [videos,        setVideos]        = useState<RecommendedVideo[] | null>(null)
     const [videosLoading, setVideosLoading] = useState(false)
     const [quizAttempts,  setQuizAttempts]  = useState<QuizAttemptListItem[] | null>(null)
     const [quizLoading,   setQuizLoading]   = useState(false)
 
-    const { open, metacogComplete, partnerConnected, setCurrentWeekId, setMetacogComplete } = useClassroomModal()
+    // 아코디언 / 더 보기 UI 상태
+    const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
+    const [quizCorrectOpen,   setQuizCorrectOpen]   = useState(true)
+    const [quizWrongOpen,     setQuizWrongOpen]     = useState(true)
+
+    // 영상 진행률 로컬 추적 — 서버 응답에 상관없이 즉각 반영
+    const [videoProgress, setVideoProgress] = useState(0)
+
+    // 키워드 상세 확장 상태
+    const [expandedKeyword, setExpandedKeyword] = useState<string | null>(null)
+
+    // 퀴즈 내역 상세 확장 + 캐시
+    const [expandedQuizId,    setExpandedQuizId]    = useState<string | null>(null)
+    const [quizDetailCache,   setQuizDetailCache]   = useState<Record<string, QuizAttemptDetail>>({})
+    const [quizDetailLoading, setQuizDetailLoading] = useState<string | null>(null)
+
+    // 스터디 파트너 채팅 UI 상태
+    interface ChatMsg { id: number; role: 'me' | 'partner'; text: string; time: string }
+    const [chatOpen,     setChatOpen]     = useState(false)
+    const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
+    const [chatInput,    setChatInput]    = useState('')
+    const chatBottomRef = useRef<HTMLDivElement | null>(null)
+    const wsRef         = useRef<WebSocket | null>(null)
+
+    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId } = useClassroomModal()
+
+    interface MatchToastState { message: string; type: 'success' | 'warning' | 'error'; exiting: boolean }
+    const [matchToast,   setMatchToast]   = useState<MatchToastState | null>(null)
+    const toastTimerRef = useRef<number | null>(null)
     const { nickname, refreshToken, clearAuth } = useAuth()
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
@@ -299,6 +342,7 @@ function StudyClassroomContent() {
                 setAllWeeks(weeks)
                 // 진행 중인 첫 번째 주차 선택, 없으면 마지막 주차
                 const active = weeks.find(w => w.completionRate < 100) ?? weeks[weeks.length - 1]
+                setUnlockedUpToWeekNumber(active.weekNumber)
                 return getCurriculumWeek(roomId, active.weekId)
             })
             .then(detail => {
@@ -311,19 +355,60 @@ function StudyClassroomContent() {
     // ── 주차 전환 ─────────────────────────────────────────────────────────────
     const handleWeekSwitch = useCallback((weekId: string) => {
         if (!roomId || weekId === weekData?.weekId) { setWeekDropdown(false); return }
+
+        // 롤백용 스냅샷 — 403 발생 시 이전 상태로 복원
+        const prevWeekData      = weekData
+        const prevVideos        = videos
+        const prevQuizAttempts  = quizAttempts
+        const prevQuizSubmitted = quizSubmitted
+        const prevVideoProgress = videoProgress
+
         setWeekDropdown(false)
         setWeekLoading(true)
         setWeekError(null)
         setVideos(null)
         setQuizAttempts(null)
         setMetacogComplete(false)
+        setQuizSubmitted(false)
+        setVideoProgress(0)
+        setExpandedKeyword(null)
+        setExpandedQuizId(null)
+        setQuizDetailCache({})
         getCurriculumWeek(roomId, weekId)
             .then(detail => {
                 applyWeekDetail(detail)
             })
-            .catch(e => setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.'))
+            .catch(e => {
+                const isLocked =
+                    e instanceof MoaiApiError &&
+                    e.status === 403 &&
+                    (e.errorCode === 'CURRICULUM_002' || e.errorCode === 'PREVIOUS_WEEK_NOT_COMPLETED')
+
+                if (isLocked) {
+                    // 이전 주차 상태 복원 — UI 데드락 방지
+                    if (prevWeekData) {
+                        setWeekData(prevWeekData)
+                        setCurrentWeekId(prevWeekData.weekId)
+                        setMetacogComplete((Number(prevWeekData.completionRate) || 0) >= 70)
+                    }
+                    setVideos(prevVideos)
+                    setQuizAttempts(prevQuizAttempts)
+                    setQuizSubmitted(prevQuizSubmitted)
+                    setVideoProgress(prevVideoProgress)
+                    setLockedToast('아직 잠긴 주차입니다. 이전 주차를 먼저 완료해주세요.')
+                } else {
+                    setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.')
+                }
+            })
             .finally(() => setWeekLoading(false))
-    }, [roomId, weekData?.weekId, applyWeekDetail, setMetacogComplete])
+    }, [roomId, weekData, videos, quizAttempts, quizSubmitted, videoProgress, applyWeekDetail, setCurrentWeekId, setMetacogComplete, setQuizSubmitted])
+
+    // ── 잠긴 주차 토스트 자동 닫기 ───────────────────────────────────────────
+    useEffect(() => {
+        if (!lockedToast) return
+        const t = window.setTimeout(() => setLockedToast(null), 4000)
+        return () => window.clearTimeout(t)
+    }, [lockedToast])
 
     // ── 영상 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
     const loadVideosForWeek = useCallback((showLoading = true) => {
@@ -432,7 +517,11 @@ function StudyClassroomContent() {
                     open('monitoring', {
                         type:        'monitoring',
                         conceptName: material.title,
-                        reason:      `${eventType} 패턴 감지 — 보충 자료를 준비했어요.`,
+                        reason:      result.eventType === 'video_rewind'
+                            ? '해당 구간을 3회 이상 뒤로 감기 하신 것을 감지했어요. AI가 3분 만에 이해할 수 있는 핵심 요약본과 추천 영상을 준비해 두었습니다.'
+                            : result.eventType === 'video_pause'
+                                ? '영상을 일시정지하신 것을 감지했어요. 이해가 어려운 부분이 있다면 AI 요약본을 확인해 보세요.'
+                                : '학습 중 이탈을 감지했어요. 집중도 유지를 위한 AI 핵심 요약본을 준비했습니다.',
                         summaryItems: material.summaryItems.map(s => ({
                             letter:      s.label,
                             title:       s.title,
@@ -470,15 +559,184 @@ function StudyClassroomContent() {
     // ── 진행률 마일스톤 핸들러 ────────────────────────────────────────────────
     const handleProgressMilestone = useCallback((rate: number) => {
         if (!weekData || !roomId) return
-        // 현재 저장된 completionRate보다 높을 때만 업데이트
+        // 로컬 진행률 즉시 업데이트 (서버 응답에 의존하지 않음)
+        setVideoProgress(prev => Math.max(prev, rate))
+        // 서버에도 동기 (서버 응답값이 낮더라도 로컬 videoProgress는 유지됨)
         const currentRate = Number(weekData.completionRate) || 0
         if (rate <= currentRate) return
         updateProgress(roomId, weekData.weekId, { completionRate: rate })
             .then(res => {
-                setWeekData(prev => prev ? { ...prev, completionRate: res.completionRate } : prev)
+                setWeekData(prev => prev
+                    ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, res.completionRate) }
+                    : prev)
             })
-            .catch(() => { /* 진행률 업데이트 실패 시 조용히 무시 */ })
+            .catch(() => {})
     }, [roomId, weekData])
+
+    // ── 스터디 매칭 신청 (사이드바 버튼) ────────────────────────────────────
+    const handleRequestMatching = useCallback(async () => {
+        if (!weekData?.weekId) return
+        try {
+            await requestStudyMatch(roomId, weekData.weekId)
+            // 202 Accepted — 백그라운드 매칭 시작. SSE로 결과 수신.
+            setMatchStatus('searching')
+        } catch (e) {
+            if (e instanceof MoaiApiError && e.status === 403) {
+                showMatchToast('스터디 제안이 비활성화되어 있습니다. 마이페이지 → 설정에서 스터디 제안을 켜주세요.', 'error')
+            } else {
+                showMatchToast('스터디 매칭 요청에 실패했습니다. 잠시 후 다시 시도해주세요.', 'error')
+            }
+        }
+    }, [roomId, weekData?.weekId, setMatchStatus])
+
+    // ── 매칭 토스트 표시 / 닫기 ─────────────────────────────────────────────
+    const showMatchToast = useCallback((message: string, type: MatchToastState['type']) => {
+        if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+        setMatchToast({ message, type, exiting: false })
+        // 3.7 s 후 exit 애니메이션 시작 → 300 ms 뒤 DOM에서 제거 (합계 4 s)
+        toastTimerRef.current = window.setTimeout(() => {
+            setMatchToast(prev => prev ? { ...prev, exiting: true } : null)
+            toastTimerRef.current = window.setTimeout(() => setMatchToast(null), 300)
+        }, 3700)
+    }, [])
+
+    const dismissMatchToast = useCallback(() => {
+        if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+        setMatchToast(prev => prev ? { ...prev, exiting: true } : null)
+        toastTimerRef.current = window.setTimeout(() => setMatchToast(null), 260)
+    }, [])
+
+    // ── SSE 알림 스트림 — study_match / study_no_candidate 수신 ──────────────
+    // Refs keep latest callbacks without triggering reconnect on every render
+    const openRef             = useRef(open)
+    const setPartnerInfoRef   = useRef(setPartnerInfo)
+    const setMatchStatusRef   = useRef(setMatchStatus)
+    const showMatchToastRef   = useRef(showMatchToast)
+    openRef.current           = open
+    setPartnerInfoRef.current = setPartnerInfo
+    setMatchStatusRef.current = setMatchStatus
+    showMatchToastRef.current = showMatchToast
+
+    useEffect(() => {
+        const sse = connectNotificationStream()
+
+        const handleStudyMatch = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                const match = {
+                    partnerId:        String(data.suggestionId ?? ''),
+                    partnerName:      String(data.partner?.nickname ?? '파트너'),
+                    partnerAvatar:    String(data.partner?.nickname ?? '파').charAt(0).toUpperCase(),
+                    partnerRole:      (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                    matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
+                    partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
+                }
+                setPartnerInfoRef.current(match)
+                setMatchStatusRef.current('completed')
+                // 토스트를 먼저 보여준 뒤 1.5 s 후 모달 오픈
+                showMatchToastRef.current(
+                    '🎉 완벽한 상호 보완 파트너를 찾았습니다! 잠시 후 매칭 모달이 열립니다.',
+                    'success',
+                )
+                window.setTimeout(() => {
+                    openRef.current('study-matching', { type: 'study-matching', match })
+                }, 1500)
+            } catch {}
+        }
+
+        const handleNoCandidate = () => {
+            showMatchToastRef.current(
+                '⚠️ 현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해 주세요.',
+                'warning',
+            )
+            setMatchStatusRef.current('idle')
+        }
+
+        // 상대방이 수락하면 백엔드가 groupId를 포함한 study_accepted SSE를 푸시한다.
+        const handleStudyAccepted = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                if (data.groupId) setGroupId(String(data.groupId))
+            } catch {}
+        }
+
+        sse.addEventListener('study_match',     handleStudyMatch     as EventListener)
+        sse.addEventListener('study_no_candidate', handleNoCandidate)
+        sse.addEventListener('study_accepted',  handleStudyAccepted  as EventListener)
+
+        return () => { sse.close() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // ── WebSocket 채팅 — groupId 확정 시 연결 ──────────────────────────────────
+    useEffect(() => {
+        if (!groupId) return
+
+        // 이전 대화 이력 로드
+        getGroupMessages(groupId)
+            .then(msgs => {
+                setChatMessages(msgs.map((m: ChatMessage) => ({
+                    id:   Number(m.messageId) || Date.now() + Math.random(),
+                    role: m.senderNickname === nickname ? 'me' : 'partner',
+                    text: m.content,
+                    time: new Date(m.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+                })))
+            })
+            .catch(() => {})
+
+        // WebSocket 연결
+        const ws = connectGroupChat(groupId)
+        wsRef.current = ws
+
+        ws.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data as string) as ChatMessage
+                setChatMessages(prev => [...prev, {
+                    id:   Number(msg.messageId) || Date.now(),
+                    role: msg.senderNickname === nickname ? 'me' : 'partner',
+                    text: msg.content,
+                    time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+                }])
+            } catch {}
+        }
+
+        return () => { ws.close(); wsRef.current = null }
+    }, [groupId, nickname])
+
+    // ── 채팅 자동 스크롤 ────────────────────────────────────────────────────
+    useEffect(() => {
+        chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, [chatMessages])
+
+    // ── 채팅 메시지 전송 ────────────────────────────────────────────────────
+    // groupId가 확정된 경우 WebSocket으로 전송. 백엔드가 모든 참여자에게 에코하므로
+    // 낙관적 추가 없이 onmessage에서만 chatMessages를 업데이트한다.
+    const handleSendChat = useCallback(() => {
+        const text = chatInput.trim()
+        if (!text) return
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ content: text } satisfies WsChatSend))
+        }
+        setChatInput('')
+    }, [chatInput])
+
+    // ── 퀴즈 상세 확장 핸들러 ────────────────────────────────────────────────
+    const handleExpandQuiz = useCallback(async (attemptId: string) => {
+        if (expandedQuizId === attemptId) { setExpandedQuizId(null); return }
+        setExpandedQuizId(attemptId)
+        if (quizDetailCache[attemptId]) return
+        setQuizDetailLoading(attemptId)
+        try {
+            const detail = await getQuizAttemptDetail(attemptId)
+            setQuizDetailCache(prev => ({ ...prev, [attemptId]: detail }))
+        } catch {
+            // 상세 조회 실패 시 조용히 무시
+        } finally {
+            setQuizDetailLoading(null)
+        }
+    }, [expandedQuizId, quizDetailCache])
 
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
     const { playerHostRef } = useYouTubePlayer({
@@ -487,10 +745,14 @@ function StudyClassroomContent() {
         onProgressMilestone: handleProgressMilestone,
     })
 
-    const progress = Number(weekData?.completionRate) || 0
+    const isWeekLocked = (w: CurriculumWeekSummary) =>
+        unlockedUpToWeekNumber !== null && w.weekNumber > unlockedUpToWeekNumber
+
+    // progress: 서버 값과 로컬 추적 값 중 높은 것을 표시 (서버 캡 우회)
+    const progress = Math.max(Number(weekData?.completionRate) || 0, videoProgress)
     const safeResources = weekData?.resources ?? []
     const safeKeywords = weekData?.keywords ?? []
-    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 40)
+    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 100)
     const canStartFinalQuiz = Boolean(weekData && metacogComplete && progress >= 70)
 
     return (
@@ -509,10 +771,13 @@ function StudyClassroomContent() {
                                 onChange={e => setSearchValue(e.target.value)}
                                 onFocus={() => setSearchFocus(true)}
                                 onKeyDown={e => {
-                                    if (e.key === 'Enter' && filteredWeeks[0]) {
-                                        handleWeekSwitch(filteredWeeks[0].weekId)
-                                        setSearchValue('')
-                                        setSearchFocus(false)
+                                    if (e.key === 'Enter') {
+                                        const first = filteredWeeks.find(w => !isWeekLocked(w))
+                                        if (first) {
+                                            handleWeekSwitch(first.weekId)
+                                            setSearchValue('')
+                                            setSearchFocus(false)
+                                        }
                                     }
                                 }}
                                 style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '160px', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}
@@ -535,18 +800,33 @@ function StudyClassroomContent() {
                                     <div style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                                         검색 결과가 없습니다.
                                     </div>
-                                ) : filteredWeeks.map(w => (
-                                    <button key={w.weekId} onClick={() => { handleWeekSwitch(w.weekId); setSearchValue(''); setSearchFocus(false) }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: 'var(--color-text-primary)',
-                                        }}>
-                                        <span>Week {w.weekNumber}: {w.topic}</span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{Number(w.completionRate).toFixed(0)}%</span>
-                                    </button>
-                                ))}
+                                ) : filteredWeeks.map(w => {
+                                    const locked = isWeekLocked(w)
+                                    return (
+                                        <button key={w.weekId}
+                                            onClick={() => {
+                                                if (!locked) {
+                                                    handleWeekSwitch(w.weekId)
+                                                    setSearchValue('')
+                                                    setSearchFocus(false)
+                                                }
+                                            }}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                width: '100%', padding: '9px 14px', background: 'none', border: 'none',
+                                                textAlign: 'left', fontSize: '13px',
+                                                cursor: locked ? 'not-allowed' : 'pointer',
+                                                opacity: locked ? 0.45 : 1,
+                                                color: locked ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
+                                            }}>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                {locked && <Lock size={11} strokeWidth={1.5} />}
+                                                Week {w.weekNumber}: {w.topic}
+                                            </span>
+                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{Number(w.completionRate).toFixed(0)}%</span>
+                                        </button>
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
@@ -678,36 +958,34 @@ function StudyClassroomContent() {
                                 minWidth: '280px', maxHeight: '320px', overflowY: 'auto', marginTop: '4px',
                             }}>
                                 {allWeeks.map(w => {
-                                    const isLocked = w.locked === true
+                                    const locked = isWeekLocked(w)
                                     return (
-                                    <button
-                                        key={w.weekId}
-                                        disabled={isLocked}
-                                        onClick={() => !isLocked && handleWeekSwitch(w.weekId)}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '10px 16px', border: 'none',
-                                            textAlign: 'left',
-                                            cursor: isLocked ? 'not-allowed' : 'pointer',
-                                            fontSize: '13px',
-                                            color: isLocked
-                                                ? 'var(--color-text-secondary, #9ca3af)'
-                                                : w.weekId === weekData?.weekId
-                                                    ? 'var(--color-purple-600, #7c3aed)'
-                                                    : 'var(--color-text-primary, #111)',
-                                            background: !isLocked && w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
-                                            fontWeight: !isLocked && w.weekId === weekData?.weekId ? 600 : 400,
-                                            opacity: isLocked ? 0.55 : 1,
-                                        }}
-                                    >
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            {isLocked && <Lock size={11} strokeWidth={1.5} />}
-                                            Week {w.weekNumber}: {w.topic}
-                                        </span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
-                                            {isLocked ? '잠금' : `${Number(w.completionRate).toFixed(0)}%`}
-                                        </span>
-                                    </button>
+                                        <button
+                                            key={w.weekId}
+                                            onClick={() => !locked && handleWeekSwitch(w.weekId)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                width: '100%', padding: '10px 16px', border: 'none',
+                                                textAlign: 'left', fontSize: '13px',
+                                                cursor: locked ? 'not-allowed' : 'pointer',
+                                                opacity: locked ? 0.45 : 1,
+                                                color: locked
+                                                    ? 'var(--color-text-muted, #9ca3af)'
+                                                    : w.weekId === weekData?.weekId
+                                                        ? 'var(--color-purple-600, #7c3aed)'
+                                                        : 'var(--color-text-primary, #111)',
+                                                background: w.weekId === weekData?.weekId ? 'var(--color-purple-50, #f5f3ff)' : 'transparent',
+                                                fontWeight: w.weekId === weekData?.weekId ? 600 : 400,
+                                            }}
+                                        >
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {locked && <Lock size={12} strokeWidth={1.5} />}
+                                                Week {w.weekNumber}: {w.topic}
+                                            </span>
+                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
+                                                {Number(w.completionRate).toFixed(0)}%
+                                            </span>
+                                        </button>
                                     )
                                 })}
                             </div>
@@ -774,66 +1052,64 @@ function StudyClassroomContent() {
                             {weekLoading ? <TabLoading /> : !weekData ? null :
                             safeResources.length === 0
                                 ? <TabEmpty message="AI 교안 생성 중이거나 아직 연결된 교안이 없습니다. 잠시 뒤 자동으로 다시 확인합니다." />
-                                : (() => {
-                                    const normalDocs = safeResources.filter(r => r.tag !== 'weakness')
-                                    const weakDocs   = safeResources.filter(r => r.tag === 'weakness')
-                                    const renderDocItem = (res: typeof safeResources[number], i: number) => {
-                                        const viewUrl = resolveResourceUrl(res.url)
-                                        const downloadUrl = withDownloadParam(viewUrl)
+                                : safeResources.map((res, i) => {
+                                    const viewUrl = resolveResourceUrl(res.url)
+                                    const downloadUrl = withDownloadParam(viewUrl)
+
+                                    if (res.type === 'md') {
+                                        const mdViewerUrl = `/md-viewer?url=${encodeURIComponent(viewUrl)}`
                                         return (
-                                            <div
-                                                key={i}
-                                                className="classroom__doc-item"
-                                                role="button"
-                                                tabIndex={0}
-                                                onClick={() => openResource(viewUrl)}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter' || e.key === ' ') {
-                                                        e.preventDefault()
-                                                        openResource(viewUrl)
-                                                    }
-                                                }}
-                                            >
-                                                <div className="classroom__doc-icon" style={{ color: res.tag === 'weakness' ? '#f59e0b' : 'var(--color-purple-500)' }}>
-                                                    {resourceIcon(res.type)}
-                                                </div>
-                                                <div className="classroom__doc-info">
-                                                    <div className="classroom__doc-name">{res.title}</div>
-                                                    <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
-                                                </div>
-                                                <a
-                                                    href={downloadUrl}
-                                                    className="classroom__doc-download"
-                                                    onClick={e => e.stopPropagation()}
-                                                >
-                                                    다운로드
-                                                </a>
+                                        <a
+                                            key={i}
+                                            href={mdViewerUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="classroom__doc-item"
+                                            style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+                                        >
+                                            <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                                {resourceIcon(res.type)}
                                             </div>
+                                            <div className="classroom__doc-info">
+                                                <div className="classroom__doc-name">{res.title}</div>
+                                                <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
+                                            </div>
+                                            <span className="classroom__doc-download">보기</span>
+                                        </a>
                                         )
                                     }
+
                                     return (
-                                        <>
-                                            {normalDocs.map((res, i) => renderDocItem(res, i))}
-                                            {weakDocs.length > 0 && (
-                                                <>
-                                                    <div style={{
-                                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                                        margin: '16px 0 8px', padding: '6px 10px',
-                                                        background: 'rgba(245,158,11,0.08)',
-                                                        borderLeft: '3px solid #f59e0b',
-                                                        borderRadius: '0 6px 6px 0',
-                                                        fontSize: '12px', fontWeight: 600,
-                                                        color: '#b45309',
-                                                    }}>
-                                                        <BrainCircuit size={13} strokeWidth={1.5} />
-                                                        약점 보충 학습자료
-                                                    </div>
-                                                    {weakDocs.map((res, i) => renderDocItem(res, normalDocs.length + i))}
-                                                </>
-                                            )}
-                                        </>
+                                    <div
+                                        key={i}
+                                        className="classroom__doc-item"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => openResource(viewUrl)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault()
+                                                openResource(viewUrl)
+                                            }
+                                        }}
+                                    >
+                                        <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                            {resourceIcon(res.type)}
+                                        </div>
+                                        <div className="classroom__doc-info">
+                                            <div className="classroom__doc-name">{res.title}</div>
+                                            <div className="classroom__doc-meta">{res.size} · {res.type.toUpperCase()}</div>
+                                        </div>
+                                        <a
+                                            href={downloadUrl}
+                                            className="classroom__doc-download"
+                                            onClick={e => e.stopPropagation()}
+                                        >
+                                            다운로드
+                                        </a>
+                                    </div>
                                     )
-                                })()
+                                })
                             }
                         </div>
                     )}
@@ -845,77 +1121,50 @@ function StudyClassroomContent() {
                             videos === null ? null :
                             recommendedList.length === 0
                                 ? <TabEmpty message="AI 추천 영상 생성 중이거나 아직 연결된 영상이 없습니다. 잠시 뒤 자동으로 다시 확인합니다." />
-                                : (() => {
-                                    const normalVideos = recommendedList.filter(v => v.tag !== 'weakness')
-                                    const weakVideos   = recommendedList.filter(v => v.tag === 'weakness')
-                                    const renderVideoCard = (v: typeof recommendedList[number], i: number) => (
-                                        <a
-                                            key={i}
-                                            href={`https://www.youtube.com/watch?v=${v.videoId}`}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            style={{ textDecoration: 'none', color: 'inherit' }}
-                                        >
-                                            <div className="classroom__video-card" style={{ cursor: 'pointer' }}>
-                                                <div className="classroom__video-thumb">
-                                                    <img
-                                                        src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                                                        alt={v.title}
-                                                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
-                                                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                                    />
-                                                    <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.9)', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
-                                                        <PlayCircle size={28} strokeWidth={1.5} />
-                                                    </div>
-                                                    {v.durationSec > 0 && (
-                                                        <div className="classroom__video-thumb-duration">
-                                                            {formatDuration(v.durationSec)}
-                                                        </div>
-                                                    )}
-                                                    {v.videoId === activeVideoId && (
-                                                        <div style={{ position: 'absolute', top: 6, left: 6, background: 'var(--color-purple-500,#7c3aed)', color: '#fff', fontSize: '10px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600 }}>
-                                                            재생 중
-                                                        </div>
-                                                    )}
+                                : recommendedList.map((v, i) => (
+                                    <a
+                                        key={i}
+                                        href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        style={{ textDecoration: 'none', color: 'inherit' }}
+                                    >
+                                        <div className="classroom__video-card" style={{ cursor: 'pointer' }}>
+                                            <div className="classroom__video-thumb">
+                                                <img
+                                                    src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                                                    alt={v.title}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+                                                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                                />
+                                                <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.9)', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
+                                                    <PlayCircle size={28} strokeWidth={1.5} />
                                                 </div>
-                                                <div className="classroom__video-meta">
-                                                    <div className="classroom__video-title">{v.title}</div>
-                                                    <div className="classroom__video-channel">
-                                                        {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
+                                                {v.durationSec > 0 && (
+                                                    <div className="classroom__video-thumb-duration">
+                                                        {formatDuration(v.durationSec)}
                                                     </div>
+                                                )}
+                                                {v.videoId === activeVideoId && (
+                                                    <div style={{ position: 'absolute', top: 6, left: 6, background: 'var(--color-purple-500,#7c3aed)', color: '#fff', fontSize: '10px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600 }}>
+                                                        재생 중
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="classroom__video-meta">
+                                                <div className="classroom__video-title">{v.title}</div>
+                                                <div className="classroom__video-channel">
+                                                    {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
                                                 </div>
                                             </div>
-                                        </a>
-                                    )
-                                    return (
-                                        <>
-                                            {normalVideos.map((v, i) => renderVideoCard(v, i))}
-                                            {weakVideos.length > 0 && (
-                                                <>
-                                                    <div style={{
-                                                        gridColumn: '1 / -1',
-                                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                                        margin: '12px 0 4px', padding: '6px 10px',
-                                                        background: 'rgba(245,158,11,0.08)',
-                                                        borderLeft: '3px solid #f59e0b',
-                                                        borderRadius: '0 6px 6px 0',
-                                                        fontSize: '12px', fontWeight: 600,
-                                                        color: '#b45309',
-                                                    }}>
-                                                        <BrainCircuit size={13} strokeWidth={1.5} />
-                                                        약점 보충 영상
-                                                    </div>
-                                                    {weakVideos.map((v, i) => renderVideoCard(v, normalVideos.length + i))}
-                                                </>
-                                            )}
-                                        </>
-                                    )
-                                })()
+                                        </div>
+                                    </a>
+                                ))
                             }
                         </div>
                     )}
 
-                    {/* 탭: AI 핵심 요약 (주차 keywords) */}
+                    {/* 탭: AI 핵심 요약 (주차 keywords) — 클릭 시 상세 확장 */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
                             <div
@@ -924,21 +1173,69 @@ function StudyClassroomContent() {
                             >
                                 <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                 핵심 키워드
+                                {safeKeywords.length > 0 && (
+                                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 400 }}>
+                                        총 {safeKeywords.length}개 · 클릭하면 상세 보기
+                                    </span>
+                                )}
                             </div>
                             {weekLoading ? <TabLoading /> :
                             safeKeywords.length === 0
                                 ? <TabEmpty message="키워드 데이터가 없습니다." />
-                                : safeKeywords.map((kw, i) => (
-                                    <div key={i} className="classroom__summary-row">
-                                        <div className="classroom__summary-dot" />
-                                        <div className="classroom__summary-text">{kw}</div>
-                                    </div>
-                                ))
+                                : (() => {
+                                    const PREVIEW = 4
+                                    const shown = keywordsExpanded ? safeKeywords : safeKeywords.slice(0, PREVIEW)
+                                    const hasMore = safeKeywords.length > PREVIEW
+                                    return (
+                                        <>
+                                            {shown.map((kw, i) => {
+                                                const isOpen = expandedKeyword === kw
+                                                return (
+                                                    <div key={i} className={`classroom__kw-item${isOpen ? ' classroom__kw-item--open' : ''}`}>
+                                                        <button
+                                                            className="classroom__kw-row"
+                                                            onClick={() => setExpandedKeyword(isOpen ? null : kw)}
+                                                        >
+                                                            <div className="classroom__kw-dot" />
+                                                            <span className="classroom__kw-text">{kw}</span>
+                                                            <ChevronRight
+                                                                size={13}
+                                                                strokeWidth={2}
+                                                                className="classroom__kw-chevron"
+                                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}
+                                                            />
+                                                        </button>
+                                                        {isOpen && (
+                                                            <div className="classroom__kw-detail">
+                                                                <div className="classroom__kw-detail-label">
+                                                                    Week {weekData?.weekNumber} · {weekData?.topic}
+                                                                </div>
+                                                                <p className="classroom__kw-detail-desc">
+                                                                    {weekData?.description || '이번 주차의 핵심 학습 개념입니다.'}
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                            {hasMore && (
+                                                <button
+                                                    className="classroom__accordion-toggle"
+                                                    onClick={() => setKeywordsExpanded(v => !v)}
+                                                >
+                                                    {keywordsExpanded
+                                                        ? '접기 ↑'
+                                                        : `더 보기 +${safeKeywords.length - PREVIEW}개`}
+                                                </button>
+                                            )}
+                                        </>
+                                    )
+                                })()
                             }
                         </div>
                     )}
 
-                    {/* 탭: 퀴즈 내역 */}
+                    {/* 탭: 퀴즈 내역 — 정답/오답 그룹 + 클릭 시 상세 확장 */}
                     {tab === 'quiz' && (
                         <div className="classroom__quiz-history">
                             <div
@@ -949,7 +1246,6 @@ function StudyClassroomContent() {
                                 퀴즈 내역
                             </div>
                             {quizLoading ? <TabLoading /> : (() => {
-                                // Defensive: treat non-array (wrapped response) as empty
                                 const list = Array.isArray(quizAttempts) ? quizAttempts : []
                                 if (quizAttempts === null) return null
                                 if (list.length === 0) return (
@@ -961,7 +1257,7 @@ function StudyClassroomContent() {
                                             onClick={() => setTab('docs')}
                                             style={{
                                                 fontSize: '12px', padding: '6px 14px',
-                                                borderRadius: '6px', border: '1px solid var(--color-purple-300)',
+                                                borderRadius: '6px', border: '1px solid var(--color-purple-200)',
                                                 background: 'transparent', color: 'var(--color-purple-600)',
                                                 cursor: 'pointer',
                                             }}
@@ -970,16 +1266,123 @@ function StudyClassroomContent() {
                                         </button>
                                     </div>
                                 )
-                                return list.map((item, i) => (
-                                    <div key={item.attemptId} className="classroom__quiz-row">
-                                        <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
-                                        <div className="classroom__quiz-result-row">
-                                            <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
-                                                {item.isCorrect ? '정답' : '오답'}
-                                            </span>
+                                const correctItems = list.filter(q => q.isCorrect)
+                                const wrongItems   = list.filter(q => !q.isCorrect)
+
+                                const renderQuizItem = (item: QuizAttemptListItem, i: number) => {
+                                    const isOpen   = expandedQuizId === item.attemptId
+                                    const isLoading = quizDetailLoading === item.attemptId
+                                    const detail   = quizDetailCache[item.attemptId]
+                                    return (
+                                        <div key={item.attemptId} className={`classroom__quiz-item${isOpen ? ' classroom__quiz-item--open' : ''}`}>
+                                            <button
+                                                className="classroom__quiz-row classroom__quiz-row--clickable"
+                                                onClick={() => handleExpandQuiz(item.attemptId)}
+                                            >
+                                                <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
+                                                <div className="classroom__quiz-result-row">
+                                                    <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
+                                                        {item.isCorrect ? '정답' : '오답'}
+                                                    </span>
+                                                    <ChevronRight
+                                                        size={13}
+                                                        strokeWidth={2}
+                                                        style={{ color: 'var(--color-text-muted)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}
+                                                    />
+                                                </div>
+                                            </button>
+
+                                            {isOpen && (
+                                                <div className="classroom__quiz-detail">
+                                                    {isLoading ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 0', color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                                                            <Loader2 size={14} strokeWidth={2} className="animate-spin" />
+                                                            상세 정보 불러오는 중...
+                                                        </div>
+                                                    ) : detail ? (
+                                                        <>
+                                                            <p className="classroom__quiz-detail-question">{detail.question}</p>
+                                                            {detail.options.length > 0 && (
+                                                                <div className="classroom__quiz-detail-options">
+                                                                    {detail.options.map(opt => {
+                                                                        const isMyAnswer      = opt.label === detail.myAnswer || opt.text === detail.myAnswer
+                                                                        const isCorrectAnswer = opt.label === detail.correctAnswer || opt.text === detail.correctAnswer
+                                                                        return (
+                                                                            <div
+                                                                                key={opt.label}
+                                                                                className={`classroom__quiz-detail-opt ${
+                                                                                    isCorrectAnswer ? 'classroom__quiz-detail-opt--correct'
+                                                                                    : isMyAnswer    ? 'classroom__quiz-detail-opt--wrong'
+                                                                                    : ''
+                                                                                }`}
+                                                                            >
+                                                                                <span className="classroom__quiz-detail-opt-label">{opt.label}</span>
+                                                                                <span>{opt.text}</span>
+                                                                                {isCorrectAnswer && <span className="classroom__quiz-detail-badge classroom__quiz-detail-badge--correct">정답</span>}
+                                                                                {isMyAnswer && !isCorrectAnswer && <span className="classroom__quiz-detail-badge classroom__quiz-detail-badge--wrong">내 답</span>}
+                                                                            </div>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                            {detail.options.length === 0 && (
+                                                                <div className="classroom__quiz-detail-essay">
+                                                                    <div className="classroom__quiz-detail-essay-row">
+                                                                        <span className="classroom__quiz-detail-essay-label">내 답변</span>
+                                                                        <span className={detail.isCorrect ? 'classroom__quiz-detail-essay-ans--correct' : 'classroom__quiz-detail-essay-ans--wrong'}>{detail.myAnswer || '(미작성)'}</span>
+                                                                    </div>
+                                                                    {!detail.isCorrect && (
+                                                                        <div className="classroom__quiz-detail-essay-row">
+                                                                            <span className="classroom__quiz-detail-essay-label">정답</span>
+                                                                            <span className="classroom__quiz-detail-essay-ans--correct">{detail.correctAnswer}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            {detail.aiExplanation && (
+                                                                <div className="classroom__quiz-detail-explain">
+                                                                    <span className="classroom__quiz-detail-explain-label">AI 해설</span>
+                                                                    <p className="classroom__quiz-detail-explain-text">{detail.aiExplanation}</p>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', padding: '8px 0' }}>상세 정보를 불러오지 못했습니다.</p>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
+                                    )
+                                }
+
+                                const renderGroup = (
+                                    items: typeof list,
+                                    label: string,
+                                    isOpen: boolean,
+                                    toggle: () => void,
+                                    colorClass: string,
+                                ) => items.length === 0 ? null : (
+                                    <div className="classroom__quiz-group">
+                                        <button
+                                            className={`classroom__quiz-group-header ${colorClass}`}
+                                            onClick={toggle}
+                                        >
+                                            <span>{label} ({items.length})</span>
+                                            <ChevronRight
+                                                size={14}
+                                                strokeWidth={2}
+                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}
+                                            />
+                                        </button>
+                                        {isOpen && items.map((item, i) => renderQuizItem(item, i))}
                                     </div>
-                                ))
+                                )
+                                return (
+                                    <>
+                                        {renderGroup(correctItems, '✓ 정답', quizCorrectOpen, () => setQuizCorrectOpen(v => !v), 'classroom__quiz-group-header--correct')}
+                                        {renderGroup(wrongItems,   '✗ 오답', quizWrongOpen,   () => setQuizWrongOpen(v => !v),   'classroom__quiz-group-header--wrong')}
+                                    </>
+                                )
                             })()}
                         </div>
                     )}
@@ -1009,25 +1412,29 @@ function StudyClassroomContent() {
                                     <BrainCircuit size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
                                     메타인지 확인
                                 </div>
-                                <p className="metacog-card__desc">
-                                    {activeVideoId
-                                        ? progress >= 40
-                                            ? '방금 배운 내용을 AI에게 소리 내어 설명해보세요. 이해도를 실시간 분석해 드립니다.'
-                                            : `영상 시청률이 40% 이상이어야 시작할 수 있습니다. 현재 ${progress}%입니다.`
-                                        : '대표 영상이 준비되면 메타인지 학습을 시작할 수 있습니다.'}
-                                </p>
-                                <button
-                                    className="metacog-card__btn"
-                                    onClick={() => open('reverse-learning', {
-                                        type:        'reverse-learning',
-                                        conceptName: weekData?.topic ?? '',
-                                        roomId,
-                                        weekId:      weekData?.weekId,
-                                    })}
-                                    disabled={!canStartMetacog}
-                                >
-                                    AI에게 설명하기
-                                </button>
+                                {canStartMetacog ? (
+                                    <>
+                                        <p className="metacog-card__desc">
+                                            방금 배운 내용을 AI에게 소리 내어 설명해보세요. 이해도를 실시간 분석해 드립니다.
+                                        </p>
+                                        <button
+                                            className="metacog-card__btn"
+                                            onClick={() => open('reverse-learning', {
+                                                type:        'reverse-learning',
+                                                conceptName: weekData?.topic ?? '',
+                                                roomId,
+                                                weekId:      weekData?.weekId,
+                                            })}
+                                        >
+                                            AI에게 설명하기
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="metacog-card__status">
+                                        영상을 100% 시청한 후 시작할 수 있습니다.{' '}
+                                        {progress > 0 && progress < 100 && `(현재 ${progress}%)`}
+                                    </p>
+                                )}
                             </div>
                         ) : (
                             <div className="metacog-card metacog-card--complete">
@@ -1041,75 +1448,198 @@ function StudyClassroomContent() {
                                 <p className="metacog-card__desc" style={{ margin: '4px 0 0' }}>
                                     거꾸로 학습이 완료되었습니다.
                                 </p>
+                                {!partnerConnected && (
+                                    matchStatus === 'searching' ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                                            <Search size={14} strokeWidth={2} className="animate-pulse" style={{ color: 'var(--color-purple-500)' }} />
+                                            <span style={{ fontSize: '12px', color: 'var(--color-purple-500)', fontWeight: 600 }}>
+                                                파트너 매칭 중...
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            className="metacog-card__btn"
+                                            style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                            onClick={handleRequestMatching}
+                                        >
+                                            <Users size={14} strokeWidth={2} />
+                                            멘토에게 스터디 요청하기
+                                        </button>
+                                    )
+                                )}
                             </div>
                         )}
 
                         {/* 주간 파이널 퀴즈 카드 */}
-                        <div className={`weekly-quiz-card${canStartFinalQuiz ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
+                        <div className={`weekly-quiz-card${(canStartFinalQuiz || quizSubmitted) ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
                             <div
                                 className="weekly-quiz-card__title"
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                             >
-                                {canStartFinalQuiz
+                                {(canStartFinalQuiz || quizSubmitted)
                                     ? <Trophy size={16} strokeWidth={1.5} />
                                     : <Lock   size={16} strokeWidth={1.5} />}
                                 주간 최종 퀴즈
                             </div>
                             <p className="weekly-quiz-card__desc">
-                                {canStartFinalQuiz
-                                    ? `Week ${weekData?.weekNumber ?? ''} 전체 내용 최종 평가! 도전해보세요.`
-                                    : '메타인지 평가를 완료하면 잠금이 해제됩니다.'}
+                                {quizSubmitted
+                                    ? 'AI 종합 분석 리포트를 다시 확인해보세요.'
+                                    : canStartFinalQuiz
+                                        ? `Week ${weekData?.weekNumber ?? ''} 전체 내용 최종 평가! 도전해보세요.`
+                                        : '메타인지 확인 완료 후 진행 가능합니다.'}
                             </p>
-                            {canStartFinalQuiz && weekData && (
+                            {weekData && (
                                 <button
                                     className="weekly-quiz-card__btn"
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                                    onClick={() => open('final-quiz', {
-                                        type:   'final-quiz',
-                                        roomId,
-                                        weekId: weekData.weekId,
-                                    })}
+                                    disabled={!quizSubmitted && !canStartFinalQuiz}
+                                    onClick={() => {
+                                        if (quizSubmitted || canStartFinalQuiz) {
+                                            open('final-quiz', {
+                                                type:       'final-quiz',
+                                                roomId,
+                                                weekId:     weekData.weekId,
+                                                ...(quizSubmitted ? { reviewMode: true } : {}),
+                                            })
+                                        }
+                                    }}
                                 >
-                                    퀴즈 도전하기
+                                    {quizSubmitted ? '퀴즈 결과 복습하기' : '퀴즈 도전하기'}
                                     <ArrowRight size={13} strokeWidth={1.5} />
                                 </button>
                             )}
                         </div>
 
-                        {/* 연결된 스터디 파트너 */}
-                        {partnerConnected && (
-                            <div className="partner-widget">
-                                <div
-                                    className="partner-widget__title"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                    <Users size={15} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
-                                    연결된 스터디 파트너
-                                </div>
-                                <div className="partner-widget__profile">
-                                    <div className="partner-widget__avatar">
-                                        <UserCircle size={32} strokeWidth={1.5} style={{ color: 'var(--color-purple-400)' }} />
+                        {/* 연결된 스터디 파트너 채팅 위젯 */}
+                        {partnerConnected && (() => {
+                            const partner = partnerInfo
+                            const myRole  = partner?.partnerRole === 'mentor' ? '멘티' : '멘토'
+                            const pName   = partner?.partnerName  ?? '파트너'
+                            const pAvatar = partner?.partnerAvatar ?? '?'
+                            const pRole   = partner?.partnerRole === 'mentor' ? '멘토' : '멘티'
+                            return (
+                                <div className="partner-widget">
+                                    {/* 헤더: 온라인 상태 + 타이틀 */}
+                                    <div className="partner-widget__header">
+                                        <span className="partner-widget__online-dot" />
+                                        <span className="partner-widget__header-text">스터디 파트너 연결됨</span>
                                     </div>
-                                    <div className="partner-widget__info">
-                                        <div className="partner-widget__name">파트너 연결됨</div>
-                                        <div className="partner-widget__role">스터디 매칭</div>
+
+                                    {/* 프로필 */}
+                                    <div className="partner-widget__profile">
+                                        <div className="partner-widget__avatar partner-widget__avatar--text">
+                                            {pAvatar}
+                                        </div>
+                                        <div className="partner-widget__info">
+                                            <div className="partner-widget__name">{pName}</div>
+                                            <div className="partner-widget__roles">
+                                                <span className="partner-widget__role-badge partner-widget__role-badge--partner">{pRole}</span>
+                                                <span className="partner-widget__role-sep">↔</span>
+                                                <span className="partner-widget__role-badge partner-widget__role-badge--me">{myRole} (나)</span>
+                                            </div>
+                                        </div>
                                     </div>
+
+                                    {/* 강점 태그 */}
+                                    {partner?.partnerStrengths && partner.partnerStrengths.length > 0 && (
+                                        <div className="partner-widget__strengths">
+                                            {partner.partnerStrengths.map(s => (
+                                                <span key={s} className="partner-widget__strength-tag">{s}</span>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* 1:1 메시지 토글 버튼 */}
+                                    <button
+                                        className="partner-widget__msg-btn"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        onClick={() => setChatOpen(v => !v)}
+                                    >
+                                        <MessageCircle size={14} strokeWidth={1.5} />
+                                        {chatOpen ? '채팅 닫기' : '1:1 메시지 보내기'}
+                                    </button>
+
+                                    {/* 채팅 영역 */}
+                                    {chatOpen && (
+                                        <div className="partner-widget__chat">
+                                            {!groupId ? (
+                                                /* 상대방 수락 대기 */
+                                                <p className="partner-widget__chat-placeholder" style={{ textAlign: 'center', padding: '16px 4px' }}>
+                                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin" style={{ display: 'block', margin: '0 auto 6px' }} />
+                                                    파트너가 수락하면 채팅이 열립니다.
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div className="partner-widget__chat-log">
+                                                        {chatMessages.length === 0 ? (
+                                                            <p className="partner-widget__chat-placeholder">
+                                                                연결된 스터디 파트너와 대화를 시작해보세요!
+                                                                모르는 부분을 서로 질문하며 함께 학습할 수 있습니다.
+                                                            </p>
+                                                        ) : chatMessages.map(msg => (
+                                                            <div
+                                                                key={msg.id}
+                                                                className={`partner-widget__chat-bubble-wrap ${msg.role === 'me' ? 'partner-widget__chat-bubble-wrap--me' : 'partner-widget__chat-bubble-wrap--partner'}`}
+                                                            >
+                                                                <div className={`partner-widget__chat-bubble ${msg.role === 'me' ? 'partner-widget__chat-bubble--me' : 'partner-widget__chat-bubble--partner'}`}>
+                                                                    <span>{msg.text}</span>
+                                                                    <span className="partner-widget__chat-time">{msg.time}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        <div ref={chatBottomRef} />
+                                                    </div>
+
+                                                    {/* 입력창 */}
+                                                    <div className="partner-widget__chat-input-row">
+                                                        <input
+                                                            className="partner-widget__chat-input"
+                                                            value={chatInput}
+                                                            onChange={e => setChatInput(e.target.value)}
+                                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() } }}
+                                                            placeholder="메시지 입력... (Enter 전송)"
+                                                        />
+                                                        <button
+                                                            className={`partner-widget__chat-send ${chatInput.trim() ? 'partner-widget__chat-send--active' : ''}`}
+                                                            onClick={handleSendChat}
+                                                            disabled={!chatInput.trim()}
+                                                        >
+                                                            <Send size={13} strokeWidth={2} />
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                <button
-                                    className="partner-widget__msg-btn"
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                    <MessageCircle size={14} strokeWidth={1.5} />
-                                    메시지 보내기
-                                </button>
-                            </div>
-                        )}
+                            )
+                        })()}
                     </div>
                 </aside>
             </div>
 
             {/* ── 모달 ── */}
             <ClassroomModals />
+
+            {/* ── 잠긴 주차 토스트 알림 ── */}
+            {lockedToast && (
+                <div className="sc-locked-toast">
+                    <Lock size={14} strokeWidth={1.5} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                    {lockedToast}
+                </div>
+            )}
+
+            {/* ── 매칭 알림 top-toast ── */}
+            {matchToast && (
+                <div className={`sc-match-toast sc-match-toast--${matchToast.type}${matchToast.exiting ? ' sc-match-toast--exit' : ''}`}>
+                    <span className="sc-match-toast__body">
+                        <span className="sc-match-toast__title">{matchToast.message}</span>
+                    </span>
+                    <button className="sc-match-toast__close" onClick={dismissMatchToast} aria-label="닫기">
+                        <X size={14} strokeWidth={2.5} />
+                    </button>
+                </div>
+            )}
         </>
     )
 }
