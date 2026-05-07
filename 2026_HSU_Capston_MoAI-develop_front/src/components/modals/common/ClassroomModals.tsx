@@ -23,7 +23,7 @@
  * ============================================================================
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
 import { acceptStudySuggestion } from '../../../services/apiService'
@@ -45,8 +45,9 @@ import type { EndFlippedResponse } from '../../../types/api'
 export default function ClassroomModals() {
     const {
         modal, modalData, open, close,
-        setMetacogComplete, setPartnerConnected, setPartnerInfo,
+        setMetacogComplete, setPartnerConnected, setPartnerInfo, partnerInfo,
         setQuizSubmitted,
+        matchStatus, setMatchStatus,
         currentWeekId,
     } = useClassroomModal()
 
@@ -91,7 +92,7 @@ export default function ClassroomModals() {
     // Fallback: onSessionEnd was not provided (should not happen in normal flow).
     const handleEvaluationFallback = (_explanation: string) => { close() }
 
-    // ── study-matching → acceptStudySuggestion API 호출 → 사이드바 상태 갱신 ──
+    // ── 매칭 수락 — acceptStudySuggestion API 호출 → 사이드바 상태 갱신 ────────
     // partnerId 필드에는 SSE 수신 시 저장된 suggestionId가 들어 있다.
     // groupId는 양쪽 모두 수락 완료 시 백엔드가 study_accepted SSE로 푸시한다.
     const handleConnect = async () => {
@@ -104,11 +105,26 @@ export default function ClassroomModals() {
         } finally {
             setConnecting(false)
         }
-        setMetacogComplete(true)
+        setMatchStatus('completed')
         setPartnerConnected(true)
         setPartnerInfo(modalData.match)
         close()
     }
+
+    // ── 매칭 거절 — 상태 초기화 ─────────────────────────────────────────────
+    const handleDecline = () => {
+        setMatchStatus('idle')
+        setPartnerInfo(null)
+        close()
+    }
+
+    // ── 페이지 재로드 시 pending 상태 복원 ───────────────────────────────────
+    useEffect(() => {
+        if (matchStatus === 'pending' && partnerInfo && !modal) {
+            open('study-matching', { type: 'study-matching', match: partnerInfo })
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // 열린 모달이 없으면 아무것도 렌더링하지 않음
     if (!modal) return null
@@ -217,7 +233,7 @@ export default function ClassroomModals() {
             {modal === 'study-matching' && modalData?.type === 'study-matching' && (
                 <StudyMatchingModal
                     match={modalData.match}
-                    onClose={close}
+                    onClose={handleDecline}
                     onConnect={handleConnect}
                     isConnecting={connecting}
                 />

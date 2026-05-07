@@ -193,7 +193,8 @@ function StudyClassroomContent() {
 
     interface MatchToastState { message: string; type: 'success' | 'warning' | 'error'; exiting: boolean }
     const [matchToast,   setMatchToast]   = useState<MatchToastState | null>(null)
-    const toastTimerRef = useRef<number | null>(null)
+    const toastTimerRef    = useRef<number | null>(null)
+    const matchTimeoutRef  = useRef<number | null>(null)
     const { nickname, refreshToken, clearAuth } = useAuth()
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
@@ -580,6 +581,12 @@ function StudyClassroomContent() {
             await requestStudyMatch(roomId, weekData.weekId)
             // 202 Accepted — 백그라운드 매칭 시작. SSE로 결과 수신.
             setMatchStatus('searching')
+            // 3분 프런트엔드 타임아웃 — 백엔드 자동 취소가 없으므로 프런트에서 보장
+            if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
+            matchTimeoutRef.current = window.setTimeout(() => {
+                setMatchStatus('idle')
+                showMatchToast('⚠️ 매칭 대기 시간이 초과되었습니다. 다시 시도해 주세요.', 'warning')
+            }, 180_000)
         } catch (e) {
             if (e instanceof MoaiApiError && e.status === 403) {
                 showMatchToast('스터디 제안이 비활성화되어 있습니다. 마이페이지 → 설정에서 스터디 제안을 켜주세요.', 'error')
@@ -632,20 +639,16 @@ function StudyClassroomContent() {
                     matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
                     partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
                 }
+                if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
                 setPartnerInfoRef.current(match)
-                setMatchStatusRef.current('completed')
-                // 토스트를 먼저 보여준 뒤 1.5 s 후 모달 오픈
-                showMatchToastRef.current(
-                    '🎉 완벽한 상호 보완 파트너를 찾았습니다! 잠시 후 매칭 모달이 열립니다.',
-                    'success',
-                )
-                window.setTimeout(() => {
-                    openRef.current('study-matching', { type: 'study-matching', match })
-                }, 1500)
+                setMatchStatusRef.current('pending')
+                showMatchToastRef.current('🎉 멘토를 찾았습니다! 매칭 정보를 확인해주세요.', 'success')
+                openRef.current('study-matching', { type: 'study-matching', match })
             } catch {}
         }
 
         const handleNoCandidate = () => {
+            if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
             showMatchToastRef.current(
                 '⚠️ 현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해 주세요.',
                 'warning',
@@ -666,7 +669,10 @@ function StudyClassroomContent() {
         sse.addEventListener('study_no_candidate', handleNoCandidate)
         sse.addEventListener('study_accepted',  handleStudyAccepted  as EventListener)
 
-        return () => { sse.close() }
+        return () => {
+            sse.close()
+            if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
+        }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -1451,10 +1457,44 @@ function StudyClassroomContent() {
                                 {!partnerConnected && (
                                     matchStatus === 'searching' ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                                            <Search size={14} strokeWidth={2} className="animate-pulse" style={{ color: 'var(--color-purple-500)' }} />
-                                            <span style={{ fontSize: '12px', color: 'var(--color-purple-500)', fontWeight: 600 }}>
+                                            <Search size={14} strokeWidth={2} className="animate-spin" style={{ color: '#ffffff' }} />
+                                            <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600 }}>
                                                 파트너 매칭 중...
                                             </span>
+                                            <button
+                                                onClick={() => {
+                                                    if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
+                                                    setMatchStatus('idle')
+                                                }}
+                                                style={{
+                                                    marginLeft: '4px',
+                                                    padding: '2px 8px',
+                                                    fontSize: '11px',
+                                                    fontWeight: 600,
+                                                    color: '#ffffff',
+                                                    background: 'rgba(255,255,255,0.18)',
+                                                    border: '1px solid rgba(255,255,255,0.45)',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    lineHeight: 1.6,
+                                                }}
+                                            >
+                                                취소
+                                            </button>
+                                        </div>
+                                    ) : matchStatus === 'pending' && partnerInfo ? (
+                                        <div style={{ marginTop: '10px' }}>
+                                            <div style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600, marginBottom: '6px' }}>
+                                                🎉 파트너를 찾았습니다!
+                                            </div>
+                                            <button
+                                                className="metacog-card__btn"
+                                                style={{ marginTop: '0', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                                onClick={() => open('study-matching', { type: 'study-matching', match: partnerInfo })}
+                                            >
+                                                <CheckCircle2 size={14} strokeWidth={2} />
+                                                매칭 수락/거절하기
+                                            </button>
                                         </div>
                                     ) : (
                                         <button

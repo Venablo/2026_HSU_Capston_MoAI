@@ -102,8 +102,8 @@ export default function StudyMatchingModal({
                         disabled={isConnecting}
                     >
                         {isConnecting
-                            ? <><Loader2 size={14} strokeWidth={2} className="animate-spin" />연결 중...</>
-                            : <><CheckCircle size={14} strokeWidth={2} />연결하기</>
+                            ? <><Loader2 size={14} strokeWidth={2} className="animate-spin" />수락 중...</>
+                            : <><CheckCircle size={14} strokeWidth={2} />수락하기</>
                         }
                     </button>
                 </div>

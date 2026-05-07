@@ -325,34 +325,36 @@ export default function ReverseLearningModal({
                     <div ref={chatBottomRef} />
                 </div>
 
-                {/* 입력창 */}
+                {/* 입력창 — Slack/Notion 스타일 통합 컨테이너 */}
                 {!initLoading && !initError && (
-                    <div className="modal-reverse__input-row">
-                        <textarea
-                            className="modal-reverse__textarea"
-                            value={inputText}
-                            onChange={e => setInputText(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={`예: ${conceptName}은 트랜잭션이 지켜야 할 네 가지 속성입니다... (Shift+Enter: 줄바꿈)`}
-                            rows={3}
-                            disabled={isStreaming || isLoading}
-                        />
-                        <button
-                            className={`modal-reverse__send-btn ${
-                                inputText.trim() && !isStreaming
-                                    ? 'modal-reverse__send-btn--active'
-                                    : 'modal-reverse__send-btn--disabled'
-                            }`}
-                            onClick={handleSend}
-                            disabled={!inputText.trim() || isStreaming || isLoading}
-                            title="전송 (Enter)"
-                        >
-                            {isStreaming
-                                ? <Loader2 size={16} strokeWidth={2} className="animate-spin" />
-                                : <Send size={16} strokeWidth={2} />
-                            }
-                        </button>
-                    </div>
+                    <>
+                        <div className="modal-reverse__input-row">
+                            <textarea
+                                className="modal-reverse__textarea"
+                                value={inputText}
+                                onChange={e => setInputText(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder={`예: ${conceptName}은 트랜잭션이 지켜야 할 네 가지 속성입니다...`}
+                                rows={3}
+                                disabled={isStreaming || isLoading}
+                            />
+                            <button
+                                className={`modal-reverse__send-btn${inputText.trim() && !isStreaming ? ' modal-reverse__send-btn--active' : ''}`}
+                                onClick={handleSend}
+                                disabled={!inputText.trim() || isStreaming || isLoading}
+                                title="전송 (Enter)"
+                            >
+                                {isStreaming
+                                    ? <Loader2 size={14} strokeWidth={2} className="animate-spin" />
+                                    : <Send size={14} strokeWidth={2} />
+                                }
+                                전송
+                            </button>
+                        </div>
+                        <p className="modal-reverse__input-hint">
+                            * Enter 키를 누르면 전송되며, Shift+Enter로 줄바꿈할 수 있습니다.
+                        </p>
+                    </>
                 )}
 
                 {/* 평가 오류 메시지 */}

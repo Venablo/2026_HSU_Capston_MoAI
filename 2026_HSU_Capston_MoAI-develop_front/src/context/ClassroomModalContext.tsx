@@ -19,7 +19,7 @@ export type ModalKey =
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
-export type MatchStatus = 'idle' | 'searching' | 'completed'
+export type MatchStatus = 'idle' | 'searching' | 'pending' | 'completed'
 
 interface ClassroomModalContextValue {
     /** Which modal is currently visible; null means none */
@@ -72,7 +72,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     // matchStatus persists across page reloads so the searching animation survives refresh
     const [matchStatus, setMatchStatusRaw] = useState<MatchStatus>(() => {
         const stored = localStorage.getItem('moai_match_status')
-        if (stored === 'searching' || stored === 'completed') return stored
+        if (stored === 'searching' || stored === 'pending' || stored === 'completed') return stored
         return 'idle'
     })
 
