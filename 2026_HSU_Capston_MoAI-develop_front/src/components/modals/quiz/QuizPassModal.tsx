@@ -47,7 +47,7 @@ export default function QuizPassModal({ quiz, onClose, onResult }: Props) {
     }
 
     return (
-        <Modal onClose={onClose}>
+        <Modal onClose={onClose} disableClose>
             <div className="modal-quiz__badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                 <Zap size={14} strokeWidth={2} />
                 1분 패스 퀴즈

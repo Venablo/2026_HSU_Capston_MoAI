@@ -61,7 +61,16 @@ interface ClassroomModalContextValue {
 
 const ClassroomModalContext = createContext<ClassroomModalContextValue | null>(null)
 
-export function ClassroomModalProvider({ children }: { children: React.ReactNode }) {
+export function ClassroomModalProvider({
+    children,
+    roomId = '',
+}: {
+    children: React.ReactNode
+    roomId?: string
+}) {
+    // roomId별로 localStorage 키를 분리해 스터디마다 독립적인 매칭 상태를 유지한다.
+    const k = (name: string) => roomId ? `moai_${name}_${roomId}` : `moai_${name}`
+
     const [modal,           setModal]           = useState<ModalKey>(null)
     const [modalData,       setModalData]       = useState<ModalData | null>(null)
     const [metacogComplete, setMetacogComplete] = useState(false)
@@ -69,51 +78,18 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
     const [currentWeekId,   setCurrentWeekId]   = useState<string | null>(null)
 
-    // matchStatus persists across page reloads so the searching animation survives refresh
-    const [matchStatus, setMatchStatusRaw] = useState<MatchStatus>(() => {
-        const stored = localStorage.getItem('moai_match_status')
-        if (stored === 'searching' || stored === 'pending' || stored === 'completed') return stored
-        return 'idle'
-    })
-
-    const setMatchStatus = (v: MatchStatus) => {
-        if (v === 'idle') localStorage.removeItem('moai_match_status')
-        else localStorage.setItem('moai_match_status', v)
-        setMatchStatusRaw(v)
-    }
-
-    // partnerConnected + partnerInfo are persisted across page reloads via localStorage
-    const [partnerConnected, setPartnerConnectedRaw] = useState<boolean>(
-        () => localStorage.getItem('moai_partner_connected') === 'true'
-    )
-    const [partnerInfo, setPartnerInfoRaw] = useState<StudyMatchResponse | null>(() => {
-        try {
-            const stored = localStorage.getItem('moai_partner_info')
-            return stored ? (JSON.parse(stored) as StudyMatchResponse) : null
-        } catch {
-            return null
-        }
-    })
-
-    const setPartnerConnected = (v: boolean) => {
-        if (v) localStorage.setItem('moai_partner_connected', 'true')
-        else   localStorage.removeItem('moai_partner_connected')
-        setPartnerConnectedRaw(v)
-    }
-
-    const setPartnerInfo = (info: StudyMatchResponse | null) => {
-        if (info) localStorage.setItem('moai_partner_info', JSON.stringify(info))
-        else      localStorage.removeItem('moai_partner_info')
-        setPartnerInfoRaw(info)
-    }
+    // matchStatus / partnerConnected / partnerInfo — API 응답으로 복원하므로 메모리만 유지
+    const [matchStatus,      setMatchStatus]      = useState<MatchStatus>('idle')
+    const [partnerConnected, setPartnerConnected] = useState(false)
+    const [partnerInfo,      setPartnerInfo]      = useState<StudyMatchResponse | null>(null)
 
     const [groupId, setGroupIdRaw] = useState<string | null>(
-        () => localStorage.getItem('moai_study_group_id'),
+        () => localStorage.getItem(k('study_group_id')),
     )
 
     const setGroupId = (id: string | null) => {
-        if (id) localStorage.setItem('moai_study_group_id', id)
-        else    localStorage.removeItem('moai_study_group_id')
+        if (id) localStorage.setItem(k('study_group_id'), id)
+        else    localStorage.removeItem(k('study_group_id'))
         setGroupIdRaw(id)
     }
 

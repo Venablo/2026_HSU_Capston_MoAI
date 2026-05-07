@@ -48,6 +48,7 @@ export default function ClassroomModals() {
         setMetacogComplete, setPartnerConnected, setPartnerInfo, partnerInfo,
         setQuizSubmitted,
         matchStatus, setMatchStatus,
+        setGroupId,
         currentWeekId,
     } = useClassroomModal()
 
@@ -99,7 +100,8 @@ export default function ClassroomModals() {
         if (!modalData || modalData.type !== 'study-matching') return
         setConnecting(true)
         try {
-            await acceptStudySuggestion(modalData.match.partnerId)
+            const res = await acceptStudySuggestion(modalData.match.partnerId)
+            if (res.groupId) setGroupId(res.groupId)
         } catch {
             // 네트워크 오류여도 UI는 낙관적으로 연결 처리
         } finally {

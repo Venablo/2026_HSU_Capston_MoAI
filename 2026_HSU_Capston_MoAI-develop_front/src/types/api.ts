@@ -437,6 +437,7 @@ export interface StudySuggestion {
 
 export interface AcceptSuggestionResponse {
   suggestionId: string
+  groupId: string
   status: 'accepted'
   groupStatus: 'pending_acceptance' | 'active'
 }

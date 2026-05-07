@@ -193,25 +193,55 @@ function StudyClassroomContent() {
 
     const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId, setPartnerConnected } = useClassroomModal()
 
-    // ── 마운트 시 localStorage의 매칭 상태를 백엔드로 검증 ───────────────────
-    // DB 기록을 직접 삭제하거나 매칭이 해소된 경우 프론트 상태를 자동 초기화한다.
+    // ── 마운트 시 API로 매칭 상태 복원 ──────────────────────────────────────
+    // localStorage 플래그 대신 백엔드를 단일 진실 공급원으로 사용한다.
     useEffect(() => {
-        const resetMatchState = () => {
+        const reset = () => {
             setMatchStatus('idle')
             setPartnerConnected(false)
             setPartnerInfo(null)
             setGroupId(null)
         }
 
-        if (matchStatus === 'completed' && groupId) {
-            getStudyGroup(groupId).catch(() => resetMatchState())
-        } else if (matchStatus === 'pending') {
-            getStudySuggestions()
-                .then(list => { if (list.length === 0) resetMatchState() })
-                .catch(() => resetMatchState())
-        } else if (matchStatus === 'searching') {
-            resetMatchState()
+        if (groupId) {
+            // groupId가 있으면 active 그룹 상세를 가져와 파트너 정보 복원
+            getStudyGroup(groupId)
+                .then(detail => {
+                    if (detail.status !== 'active') { reset(); return }
+                    setMatchStatus('completed')
+                    setPartnerConnected(true)
+                    setPartnerInfo({
+                        partnerId:        detail.groupId,
+                        partnerName:      detail.partner.nickname,
+                        partnerAvatar:    detail.partner.nickname.charAt(0).toUpperCase(),
+                        partnerRole:      detail.partner.role,
+                        matchRate:        0,
+                        partnerStrengths: detail.partner.strengthKeyword
+                            ? [detail.partner.strengthKeyword] : [],
+                    })
+                })
+                .catch(() => reset())
+            return
         }
+
+        // groupId가 없으면 pending 제안 조회
+        getStudySuggestions()
+            .then(list => {
+                if (list.length === 0) return
+                const s = list[0]
+                const info = {
+                    partnerId:        s.suggestionId,
+                    partnerName:      s.partner.nickname,
+                    partnerAvatar:    s.partner.nickname.charAt(0).toUpperCase(),
+                    partnerRole:      (s.suggestedRole === 'mentee' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                    matchRate:        Math.round(s.matchScore * 100),
+                    partnerStrengths: s.partner.strengthKeyword ? [s.partner.strengthKeyword] : [],
+                }
+                setMatchStatus('pending')
+                setPartnerInfo(info)
+                open('study-matching', { type: 'study-matching', match: info })
+            })
+            .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -1727,8 +1757,9 @@ function StudyClassroomContent() {
 
 // ── 기본 export: ClassroomModalProvider로 내부 컴포넌트를 감싼다 ────────────────
 export default function StudyClassroom() {
+    const { studyId: roomId = '' } = useParams<{ studyId: string }>()
     return (
-        <ClassroomModalProvider>
+        <ClassroomModalProvider roomId={roomId}>
             <StudyClassroomContent />
         </ClassroomModalProvider>
     )
