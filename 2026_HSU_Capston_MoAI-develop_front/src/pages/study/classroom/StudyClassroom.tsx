@@ -54,6 +54,8 @@ import {
     requestStudyMatch,
     connectGroupChat,
     getGroupMessages,
+    getStudyGroup,
+    getStudySuggestions,
 } from '../../../services/apiService'
 import { MoaiApiError } from '../../../api/axios'
 import type {
@@ -189,7 +191,29 @@ function StudyClassroomContent() {
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
     const wsRef         = useRef<WebSocket | null>(null)
 
-    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId } = useClassroomModal()
+    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId, setPartnerConnected } = useClassroomModal()
+
+    // ── 마운트 시 localStorage의 매칭 상태를 백엔드로 검증 ───────────────────
+    // DB 기록을 직접 삭제하거나 매칭이 해소된 경우 프론트 상태를 자동 초기화한다.
+    useEffect(() => {
+        const resetMatchState = () => {
+            setMatchStatus('idle')
+            setPartnerConnected(false)
+            setPartnerInfo(null)
+            setGroupId(null)
+        }
+
+        if (matchStatus === 'completed' && groupId) {
+            getStudyGroup(groupId).catch(() => resetMatchState())
+        } else if (matchStatus === 'pending') {
+            getStudySuggestions()
+                .then(list => { if (list.length === 0) resetMatchState() })
+                .catch(() => resetMatchState())
+        } else if (matchStatus === 'searching') {
+            resetMatchState()
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     interface MatchToastState { message: string; type: 'success' | 'warning' | 'error'; exiting: boolean }
     const [matchToast,   setMatchToast]   = useState<MatchToastState | null>(null)
