@@ -66,9 +66,9 @@ public class NotificationService {
                 emitter.send(SseEmitter.event()
                         .name("notification")
                         .data(event));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 removeEmitter(userId, emitter);
-                log.warn("SSE 이벤트 전송 실패 - userId: {}", userId, e);
+                log.warn("SSE 이벤트 전송 실패 - userId: {}, reason: {}", userId, e.getMessage());
             }
         }
     }

@@ -44,6 +44,9 @@ public class StudyGroup {
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
 
+    @Column(name = "disbanded_at")
+    private LocalDateTime disbandedAt;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -77,6 +80,7 @@ public class StudyGroup {
 
     public void disband() {
         this.status = "disbanded";
+        this.disbandedAt = LocalDateTime.now();
     }
 
     public boolean isExpired() {

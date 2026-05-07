@@ -62,6 +62,7 @@ public class MatchingEngineService {
 
     private void doMatch(User currentUser, LearningRoom room, WeeklyCurriculum curriculum) {
         LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+        LocalDateTime oneDayAgo = LocalDateTime.now().minusDays(1);
 
         // Step 1: 현재 사용자의 약점 키워드 조회
         List<UserKeyword> weaknesses = userKeywordRepository
@@ -85,8 +86,10 @@ public class MatchingEngineService {
                 if (candidateMap.containsKey(candidate.getId())) continue;
                 if (!Boolean.TRUE.equals(candidate.getStudySuggestionEnabled())) continue;
                 if (!Boolean.TRUE.equals(redisTemplate.hasKey("RT:" + candidate.getEmail()))) continue;
-                if (studySuggestionRepository.existsActiveOrPendingBetween(
+                if (studySuggestionRepository.existsPendingBetween(
                         currentUser.getId(), candidate.getId())) continue;
+                if (studySuggestionRepository.existsRecentlyRejectedBetween(
+                        currentUser.getId(), candidate.getId(), oneDayAgo)) continue;
 
                 // Step 3: 후보자의 최근 7일 강점 키워드 전체 조회
                 List<String> strengths = userKeywordRepository
