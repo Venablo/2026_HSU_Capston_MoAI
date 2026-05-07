@@ -28,7 +28,8 @@ export default function MarkdownViewer({ s3Url, className }: Props) {
             ? { Authorization: `Bearer ${token}` }
             : {}
 
-        fetch(s3Url, { signal: controller.signal, cache: 'no-store', headers })
+        const fetchUrl = s3Url.includes('?') ? `${s3Url}&download=true` : `${s3Url}?download=true`
+        fetch(fetchUrl, { signal: controller.signal, cache: 'no-store', headers })
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`)
                 return res.text()
