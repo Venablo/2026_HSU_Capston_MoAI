@@ -670,9 +670,8 @@ function StudyClassroomContent() {
         sse.addEventListener('study_no_candidate', handleNoCandidate)
         sse.addEventListener('study_accepted',     handleStudyAccepted as EventListener)
 
-        // Unnamed-event fallback (fires when backend sends only `data:` with no `event:` line).
-        // Dispatches to the same handlers by reading the `type` field from the JSON body.
-        sse.onmessage = (e: MessageEvent) => {
+        // 백엔드가 `event: notification` 으로 전송하는 경우 — data.type 으로 분기
+        const dispatchByType = (e: MessageEvent) => {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
@@ -682,6 +681,10 @@ function StudyClassroomContent() {
                 else if (type === 'study_accepted')     handleStudyAccepted(e)
             } catch {}
         }
+        sse.addEventListener('notification', dispatchByType as EventListener)
+
+        // Unnamed-event fallback (fires when backend sends only `data:` with no `event:` line).
+        sse.onmessage = dispatchByType
 
         return () => {
             sse.close()
