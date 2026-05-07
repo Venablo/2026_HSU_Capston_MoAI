@@ -19,7 +19,16 @@ export default function MarkdownViewer({ s3Url, className }: Props) {
 
         const controller = new AbortController()
 
-        fetch(s3Url, { signal: controller.signal, cache: 'no-store' })
+        // Pass auth token for backend API URLs; skip for direct S3/CDN URLs
+        const token = localStorage.getItem('accessToken') ?? ''
+        const isApiUrl = !/^https?:\/\/.*\.amazonaws\.com/i.test(s3Url) &&
+                         !s3Url.includes('s3.') &&
+                         s3Url.includes('/api/')
+        const headers: HeadersInit = (isApiUrl && token)
+            ? { Authorization: `Bearer ${token}` }
+            : {}
+
+        fetch(s3Url, { signal: controller.signal, cache: 'no-store', headers })
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`)
                 return res.text()
@@ -52,7 +61,7 @@ export default function MarkdownViewer({ s3Url, className }: Props) {
     }
 
     return (
-        <div className={`prose prose-sm max-w-none ${className ?? ''}`}>
+        <div className={`prose prose-sm max-w-none dark:prose-invert ${className ?? ''}`}>
             <ReactMarkdown>{content}</ReactMarkdown>
         </div>
     )

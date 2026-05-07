@@ -665,9 +665,23 @@ function StudyClassroomContent() {
             } catch {}
         }
 
-        sse.addEventListener('study_match',     handleStudyMatch     as EventListener)
+        // Named-event listeners (fires when backend sends `event: study_match` header)
+        sse.addEventListener('study_match',        handleStudyMatch    as EventListener)
         sse.addEventListener('study_no_candidate', handleNoCandidate)
-        sse.addEventListener('study_accepted',  handleStudyAccepted  as EventListener)
+        sse.addEventListener('study_accepted',     handleStudyAccepted as EventListener)
+
+        // Unnamed-event fallback (fires when backend sends only `data:` with no `event:` line).
+        // Dispatches to the same handlers by reading the `type` field from the JSON body.
+        sse.onmessage = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                const type = String(data.type ?? '')
+                if      (type === 'study_match')        handleStudyMatch(e)
+                else if (type === 'study_no_candidate') handleNoCandidate()
+                else if (type === 'study_accepted')     handleStudyAccepted(e)
+            } catch {}
+        }
 
         return () => {
             sse.close()
