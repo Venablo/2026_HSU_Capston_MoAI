@@ -58,7 +58,14 @@ public class MatchingEngineService {
         }
     }
 
-    private record Candidate(User user, String matchKeyword, short weaknessCount, List<String> strengths) {}
+    private record Candidate(
+            User user,
+            String matchKeyword,
+            short weaknessCount,
+            List<String> strengths,
+            LearningRoom mentorRoom,
+            WeeklyCurriculum mentorCurriculum
+    ) {}
 
     private void doMatch(User currentUser, LearningRoom room, WeeklyCurriculum curriculum) {
         LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
@@ -100,7 +107,14 @@ public class MatchingEngineService {
                         .toList();
 
                 candidateMap.put(candidate.getId(),
-                        new Candidate(candidate, weakness.getKeyword(), weakness.getWeaknessCount(), strengths));
+                        new Candidate(
+                                candidate,
+                                weakness.getKeyword(),
+                                weakness.getWeaknessCount(),
+                                strengths,
+                                strengthHolder.getRoom(),
+                                strengthHolder.getCurriculum()
+                        ));
             }
         }
 
@@ -142,7 +156,9 @@ public class MatchingEngineService {
         }
 
         createMatchResult(currentUser, selected.user(), selected.matchKeyword(),
-                matchScore, matchReason, room);
+                matchScore, matchReason,
+                room, curriculum,
+                selected.mentorRoom(), selected.mentorCurriculum());
     }
 
     private LlmMatchingResult callLlmForMatching(User targetUser, List<UserKeyword> weaknesses, List<Candidate> candidates) {
@@ -306,10 +322,12 @@ public class MatchingEngineService {
     }
 
     private void createMatchResult(User mentee, User mentor, String matchKeyword,
-                                   BigDecimal matchScore, String matchReason, LearningRoom room) {
+                                   BigDecimal matchScore, String matchReason,
+                                   LearningRoom menteeRoom, WeeklyCurriculum menteeCurriculum,
+                                   LearningRoom mentorRoom, WeeklyCurriculum mentorCurriculum) {
         StudyGroup group = StudyGroup.builder()
                 .type("mentor_mentee")
-                .subject(room.getSubject())
+                .subject(menteeRoom.getSubject())
                 .matchKeyword(matchKeyword)
                 .matchReason(matchReason)
                 .matchScore(matchScore)
@@ -320,6 +338,8 @@ public class MatchingEngineService {
         StudySuggestion menteeSuggestion = StudySuggestion.builder()
                 .group(group)
                 .suggestedTo(mentee)
+                .room(menteeRoom)
+                .curriculum(menteeCurriculum)
                 .suggestedRole("mentee")
                 .build();
         studySuggestionRepository.save(menteeSuggestion);
@@ -327,6 +347,8 @@ public class MatchingEngineService {
         StudySuggestion mentorSuggestion = StudySuggestion.builder()
                 .group(group)
                 .suggestedTo(mentor)
+                .room(mentorRoom)
+                .curriculum(mentorCurriculum)
                 .suggestedRole("mentor")
                 .build();
         studySuggestionRepository.save(mentorSuggestion);

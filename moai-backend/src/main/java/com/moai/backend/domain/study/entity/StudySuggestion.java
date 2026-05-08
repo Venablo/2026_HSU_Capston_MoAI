@@ -1,5 +1,7 @@
 package com.moai.backend.domain.study.entity;
 
+import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
+import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.users.entity.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -32,6 +34,14 @@ public class StudySuggestion {
     @JoinColumn(name = "suggested_to", nullable = false)
     private User suggestedTo;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "room_id", nullable = false)
+    private LearningRoom room;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "curriculum_id", nullable = false)
+    private WeeklyCurriculum curriculum;
+
     @Column(name = "suggested_role", nullable = false, length = 10)
     private String suggestedRole;
 
@@ -53,9 +63,13 @@ public class StudySuggestion {
     }
 
     @Builder
-    public StudySuggestion(StudyGroup group, User suggestedTo, String suggestedRole) {
+    public StudySuggestion(StudyGroup group, User suggestedTo,
+                           LearningRoom room, WeeklyCurriculum curriculum,
+                           String suggestedRole) {
         this.group = group;
         this.suggestedTo = suggestedTo;
+        this.room = room;
+        this.curriculum = curriculum;
         this.suggestedRole = suggestedRole;
         this.status = "pending";
     }

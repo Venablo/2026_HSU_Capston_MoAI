@@ -1,6 +1,7 @@
 package com.moai.backend.domain.study.service;
 
 import com.moai.backend.domain.notification.dto.SseStudyAcceptedEvent;
+import com.moai.backend.domain.notification.dto.SseStudyGroupActivatedEvent;
 import com.moai.backend.domain.notification.dto.SseStudyRejectedEvent;
 import com.moai.backend.domain.notification.entity.Notification;
 import com.moai.backend.domain.notification.repository.NotificationRepository;
@@ -94,6 +95,26 @@ public class StudyGroupService {
                         .role(s.getSuggestedRole())
                         .build());
             }
+
+            String activatedMessage = "스터디가 시작되었습니다";
+            for (StudySuggestion s : allSuggestions) {
+                notificationRepository.save(Notification.builder()
+                        .user(s.getSuggestedTo())
+                        .type("study_group_activated")
+                        .message(activatedMessage)
+                        .referenceId(group.getId())
+                        .build());
+
+                notificationService.pushSse(
+                        s.getSuggestedTo().getId(),
+                        new SseStudyGroupActivatedEvent(
+                                "study_group_activated",
+                                activatedMessage,
+                                group.getId(),
+                                s.getRoom().getId(),
+                                s.getCurriculum().getId()
+                        ));
+            }
         }
 
         StudySuggestion partnerSuggestion = findPartnerSuggestion(group.getId(), suggestionId);
@@ -115,7 +136,9 @@ public class StudyGroupService {
                 suggestion.getId(),
                 group.getId(),
                 suggestion.getStatus(),
-                group.getStatus());
+                group.getStatus(),
+                suggestion.getRoom().getId(),
+                suggestion.getCurriculum().getId());
     }
 
     @Transactional

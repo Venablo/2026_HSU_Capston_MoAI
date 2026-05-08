@@ -11,4 +11,6 @@ public class SuggestionAcceptResponseDto {
     private String groupId;
     private String status;
     private String groupStatus;
+    private String roomId;
+    private String curriculumId;
 }
