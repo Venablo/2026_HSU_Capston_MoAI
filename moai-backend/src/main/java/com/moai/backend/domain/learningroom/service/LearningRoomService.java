@@ -114,7 +114,7 @@ public class LearningRoomService {
                     .weekNumber((short) week.getWeekNumber())
                     .topic(week.getTopic())
                     .description(week.getWeeklySummary())
-                    .keywords(nullSafe(week.getKeyConcepts()))
+                    .keywords(null)
                     .build();
             weeklyCurriculumRepository.save(curriculum);
             savedCurriculums.add(curriculum);
