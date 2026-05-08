@@ -661,6 +661,7 @@ function StudyClassroomContent() {
     // Refs keep latest callbacks without triggering reconnect on every render
     const openRef                   = useRef(open)
     const setPartnerInfoRef         = useRef(setPartnerInfo)
+    const partnerInfoRef            = useRef(partnerInfo)       // 읽기 전용 — SSE 핸들러에서 최신값 참조
     const setPartnerConnectedRef    = useRef(setPartnerConnected)
     const setMatchStatusRef         = useRef(setMatchStatus)
     const setGroupIdRef             = useRef(setGroupId)
@@ -672,6 +673,7 @@ function StudyClassroomContent() {
     const matchRequestKeyRef        = useRef<string | null>(null)
     openRef.current                 = open
     setPartnerInfoRef.current       = setPartnerInfo
+    partnerInfoRef.current          = partnerInfo
     setPartnerConnectedRef.current  = setPartnerConnected
     setMatchStatusRef.current       = setMatchStatus
     setGroupIdRef.current           = setGroupId
@@ -752,15 +754,31 @@ function StudyClassroomContent() {
 
                 if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
 
-                const targetKey = matchRequestKeyRef.current
-                if (targetKey) {
-                    setMatchStateForKeyRef.current(targetKey, (prev: WeekMatchState) => ({
+                // 원본 주차 키 상태 업데이트
+                const originKey = matchRequestKeyRef.current
+                if (originKey) {
+                    setMatchStateForKeyRef.current(originKey, (prev: WeekMatchState) => ({
                         ...prev,
                         matchStatus:      'completed',
                         partnerConnected: true,
                         groupId:          activatedGroupId ?? prev.groupId,
                     }))
                 }
+
+                // 이동할 새 룸+주차 키에도 상태를 미리 기록
+                // → navigate 후 currentMatchKey가 새 키로 바뀌어도 groupId / partnerInfo 유지
+                if (activatedRoomId && activatedCurriculumId) {
+                    setMatchStateForKeyRef.current(
+                        `${activatedRoomId}_${activatedCurriculumId}`,
+                        () => ({
+                            matchStatus:      'completed',
+                            partnerConnected: true,
+                            partnerInfo:      partnerInfoRef.current,
+                            groupId:          activatedGroupId ?? null,
+                        }),
+                    )
+                }
+
                 matchRequestKeyRef.current = null
 
                 if (activatedRoomId) {
