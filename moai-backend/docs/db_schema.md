@@ -276,6 +276,8 @@ AI 매칭 엔진이 생성하는 멘토-멘티 스터디 그룹. 양측 모두 �
 | id | CHAR(36) | PK | 제안 고유 ID (UUID) |
 | group_id | CHAR(36) | FK | study_groups.id 참조 |
 | suggested_to | CHAR(36) | FK | 제안받는 사용자 ID. UNIQUE(group_id, suggested_to) |
+| room_id | CHAR(36) | FK, NOT NULL | 수신자 본인 컨텍스트 학습실. 멘티는 매칭 트리거 학습실, 멘토는 매칭에 사용된 strength 키워드가 발생한 학습실 |
+| curriculum_id | CHAR(36) | FK, NOT NULL | 수신자 본인 컨텍스트 주차. room_id와 동일 출처 |
 | suggested_role | VARCHAR(10) | | CHECK: "mentor" \| "mentee" |
 | status | VARCHAR(10) | | CHECK: "pending" \| "accepted" \| "rejected" |
 | responded_at | DATETIME | | 응답 일시. NULL이면 미응답 |

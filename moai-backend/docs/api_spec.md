@@ -861,11 +861,17 @@ AI 종합 분석 리포트 — 폴링으로 status 확인 후 completed 시 표�
   "success": true,
   "data": {
     "suggestionId": "sug1000000-...-000001",
+    "groupId": "g1000000-...-000001",
     "status": "accepted",
-    "groupStatus": "pending_acceptance"
+    "groupStatus": "pending_acceptance",
+    "roomId": "room1000000-...-000001",
+    "curriculumId": "curri1000000-...-000001"
   }
 }
 ```
+
+> `roomId`/`curriculumId`는 수락한 본인 컨텍스트 (멘티는 자기 학습실, 멘토는 자기 학습실).
+> `groupStatus="active"`인 경우에만 라우팅에 사용. `"pending_acceptance"`이면 상대 수락 대기 중이며, 활성화 시 SSE `study_group_activated`로 통보됨.
 
 ### POST /api/study-groups/suggestions/{id}/reject (JWT 필요)
 
@@ -966,8 +972,17 @@ data: {"type":"study_no_candidate","message":"현재 매칭 가능한 파트너�
 
 **SSE 이벤트 — 상대방 수락**
 ```
-data: {"type":"study_accepted","message":"스터디가 시작되었습니다!","groupId":"g1..."}
+data: {"type":"study_accepted","message":"○○님이 스터디 제안을 수락했습니다.","groupId":"g1..."}
 ```
+
+> "상대방이 수락했음"을 알리는 알림. 한쪽만 수락한 시점에도 발사됨. **그룹 활성화 신호 아님** — 활성화 라우팅은 아래 `study_group_activated` 사용.
+
+**SSE 이벤트 — 스터디 그룹 활성화**
+```
+data: {"type":"study_group_activated","message":"스터디가 시작되었습니다","groupId":"g1...","roomId":"room1...","curriculumId":"curri1..."}
+```
+
+> 양쪽 모두 수락한 순간 양쪽에 동시 발사. `roomId`/`curriculumId`는 **수신자 본인 컨텍스트**. 선수락자도 이 이벤트를 받으면 즉시 학습실로 라우팅 가능.
 
 **SSE 이벤트 — 상대방 거절**
 ```
