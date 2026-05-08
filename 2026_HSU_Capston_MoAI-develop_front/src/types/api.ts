@@ -438,6 +438,10 @@ export interface StudySuggestion {
 export interface AcceptSuggestionResponse {
   suggestionId: string
   groupId: string
+  /** Present when groupStatus === 'active': the shared study room to navigate to */
+  roomId?: string
+  /** Present when groupStatus === 'active': the curriculum to open in the new room */
+  curriculumId?: string
   status: 'accepted'
   groupStatus: 'pending_acceptance' | 'active'
 }

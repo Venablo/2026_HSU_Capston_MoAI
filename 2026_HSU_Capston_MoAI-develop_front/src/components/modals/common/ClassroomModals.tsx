@@ -24,7 +24,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
 import { acceptStudySuggestion } from '../../../services/apiService'
 import type { SummaryItem } from '../monitoring/SummaryDetailModal'
@@ -50,6 +50,7 @@ export default function ClassroomModals() {
         matchStatus, setMatchStatus,
         setGroupId,
         currentWeekId,
+        currentMatchKey,
     } = useClassroomModal()
 
     const [connecting, setConnecting] = useState(false)
@@ -57,6 +58,7 @@ export default function ClassroomModals() {
     // URL 파라미터에서 roomId를 가져온다.
     // 이 컴포넌트는 /study/:studyId/classroom 라우트 내부에서 렌더링되므로 항상 존재한다.
     const { studyId: roomId = '' } = useParams<{ studyId: string }>()
+    const navigate = useNavigate()
 
     // ── monitoring → summary-detail 전환 ────────────────────────────────────
     // summaryItems은 StudyClassroom이 getMaterialDetail() 호출 시 이미 받아서
@@ -93,24 +95,36 @@ export default function ClassroomModals() {
     // Fallback: onSessionEnd was not provided (should not happen in normal flow).
     const handleEvaluationFallback = (_explanation: string) => { close() }
 
-    // ── 매칭 수락 — acceptStudySuggestion API 호출 → 사이드바 상태 갱신 ────────
+    // ── 매칭 수락 — acceptStudySuggestion API 호출 → groupStatus 분기 ──────────
     // partnerId 필드에는 SSE 수신 시 저장된 suggestionId가 들어 있다.
-    // groupId는 양쪽 모두 수락 완료 시 백엔드가 study_accepted SSE로 푸시한다.
+    //   groupStatus === 'active':             양쪽 모두 수락 → 스터디룸으로 즉시 이동
+    //   groupStatus === 'pending_acceptance': 내가 먼저 수락 → 상대 수락 대기 상태로 전환
     const handleConnect = async () => {
         if (!modalData || modalData.type !== 'study-matching') return
         setConnecting(true)
         try {
             const res = await acceptStudySuggestion(modalData.match.partnerId)
             if (res.groupId) setGroupId(res.groupId)
+
+            if (res.groupStatus === 'active' && res.roomId) {
+                // Both accepted — persist state then navigate to the shared room
+                setMatchStatus('completed')
+                setPartnerConnected(true)
+                setPartnerInfo(modalData.match)
+                close()
+                const curriculumParam = res.curriculumId ? `?curriculumId=${res.curriculumId}` : ''
+                navigate(`/study/${res.roomId}/classroom${curriculumParam}`)
+            } else {
+                // I accepted first — wait for partner; SSE study_group_activated will navigate
+                setMatchStatus('waiting_partner')
+                setPartnerInfo(modalData.match)
+                close()
+            }
         } catch {
-            // 네트워크 오류여도 UI는 낙관적으로 연결 처리
+            // On error keep the pending modal open so the user can retry
         } finally {
             setConnecting(false)
         }
-        setMatchStatus('completed')
-        setPartnerConnected(true)
-        setPartnerInfo(modalData.match)
-        close()
     }
 
     // ── 매칭 거절 — 상태 초기화 ─────────────────────────────────────────────
@@ -120,13 +134,15 @@ export default function ClassroomModals() {
         close()
     }
 
-    // ── 페이지 재로드 시 pending 상태 복원 ───────────────────────────────────
+    // ── 주차 전환 시 pending 상태 복원 ──────────────────────────────────────
+    // currentMatchKey가 바뀔 때마다 실행 — 해당 주차에 pending 매칭이 있으면 모달 복원
     useEffect(() => {
-        if (matchStatus === 'pending' && partnerInfo && !modal) {
+        if (!currentMatchKey || modal) return
+        if (matchStatus === 'pending' && partnerInfo) {
             open('study-matching', { type: 'study-matching', match: partnerInfo })
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [currentMatchKey])
 
     // 열린 모달이 없으면 아무것도 렌더링하지 않음
     if (!modal) return null

@@ -19,7 +19,7 @@
 
 import type { ReactNode } from 'react'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
     Search, Bell, ChevronLeft, ChevronRight,
     FileText, FileEdit, Package,
@@ -33,6 +33,7 @@ import {
 import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
+import type { WeekMatchState } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
 import { useAuth } from '../../../context/AuthContext'
@@ -143,6 +144,9 @@ function TabEmpty({ message }: { message: string }) {
 // ── 핵심 컴포넌트 (ClassroomModalProvider 내부에서 렌더링) ─────────────────────
 function StudyClassroomContent() {
     const { studyId: roomId = '' } = useParams<{ studyId: string }>()
+    const [searchParams] = useSearchParams()
+    // curriculumId가 URL에 있으면 해당 주차를 우선 선택 (매칭 수락 후 이동 시 주입됨)
+    const targetCurriculumId = searchParams.get('curriculumId') ?? null
 
     const [rightCollapsed, setRightCollapsed] = useState(false)
     const [tab, setTab] = useState<TabKey>('docs')
@@ -191,11 +195,19 @@ function StudyClassroomContent() {
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
     const wsRef         = useRef<WebSocket | null>(null)
 
-    const { open, metacogComplete, partnerConnected, partnerInfo, setCurrentWeekId, setMetacogComplete, quizSubmitted, setQuizSubmitted, matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId, setPartnerConnected } = useClassroomModal()
+    const {
+        open, metacogComplete, partnerConnected, partnerInfo,
+        setCurrentWeekId, setMetacogComplete,
+        quizSubmitted, setQuizSubmitted,
+        matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId, setPartnerConnected,
+        currentMatchKey, setCurrentMatchKey, setMatchStateForKey,
+    } = useClassroomModal()
 
-    // ── 마운트 시 API로 매칭 상태 복원 ──────────────────────────────────────
-    // localStorage 플래그 대신 백엔드를 단일 진실 공급원으로 사용한다.
+    // ── 주차 전환 시 해당 주차의 매칭 상태를 백엔드로 검증 ──────────────────
+    // currentMatchKey가 바뀔 때마다 실행 — DB에 없는 상태면 자동 초기화한다.
     useEffect(() => {
+        if (!currentMatchKey) return
+
         const reset = () => {
             setMatchStatus('idle')
             setPartnerConnected(false)
@@ -203,47 +215,18 @@ function StudyClassroomContent() {
             setGroupId(null)
         }
 
-        if (groupId) {
-            // groupId가 있으면 active 그룹 상세를 가져와 파트너 정보 복원
-            getStudyGroup(groupId)
-                .then(detail => {
-                    if (detail.status !== 'active') { reset(); return }
-                    setMatchStatus('completed')
-                    setPartnerConnected(true)
-                    setPartnerInfo({
-                        partnerId:        detail.groupId,
-                        partnerName:      detail.partner.nickname,
-                        partnerAvatar:    detail.partner.nickname.charAt(0).toUpperCase(),
-                        partnerRole:      detail.partner.role,
-                        matchRate:        0,
-                        partnerStrengths: detail.partner.strengthKeyword
-                            ? [detail.partner.strengthKeyword] : [],
-                    })
-                })
+        // 이 시점의 matchStatus / groupId는 currentMatchKey에 해당하는 주차의 값이다.
+        if (matchStatus === 'completed' && groupId) {
+            getStudyGroup(groupId).catch(() => reset())
+        } else if (matchStatus === 'pending') {
+            getStudySuggestions()
+                .then(list => { if (list.length === 0) reset() })
                 .catch(() => reset())
-            return
+        } else if (matchStatus === 'searching' || matchStatus === 'waiting_partner') {
+            reset()
         }
-
-        // groupId가 없으면 pending 제안 조회
-        getStudySuggestions()
-            .then(list => {
-                if (list.length === 0) return
-                const s = list[0]
-                const info = {
-                    partnerId:        s.suggestionId,
-                    partnerName:      s.partner.nickname,
-                    partnerAvatar:    s.partner.nickname.charAt(0).toUpperCase(),
-                    partnerRole:      (s.suggestedRole === 'mentee' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
-                    matchRate:        Math.round(s.matchScore * 100),
-                    partnerStrengths: s.partner.strengthKeyword ? [s.partner.strengthKeyword] : [],
-                }
-                setMatchStatus('pending')
-                setPartnerInfo(info)
-                open('study-matching', { type: 'study-matching', match: info })
-            })
-            .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [currentMatchKey])
 
     interface MatchToastState { message: string; type: 'success' | 'warning' | 'error'; exiting: boolean }
     const [matchToast,   setMatchToast]   = useState<MatchToastState | null>(null)
@@ -377,10 +360,12 @@ function StudyClassroomContent() {
     ) => {
         setWeekData(detail)
         setCurrentWeekId(detail.weekId)
+        // 주차별 매칭 상태 키 전환 — 이 이후부터 matchStatus 등은 이 주차의 값을 반영한다
+        setCurrentMatchKey(`${roomId}_${detail.weekId}`)
         if (options.syncMetacog ?? true) {
             setMetacogComplete((Number(detail.completionRate) || 0) >= 70)
         }
-    }, [setCurrentWeekId, setMetacogComplete])
+    }, [roomId, setCurrentWeekId, setCurrentMatchKey, setMetacogComplete])
 
     // ── 주차 데이터 로드 ─────────────────────────────────────────────────────
     useEffect(() => {
@@ -395,8 +380,11 @@ function StudyClassroomContent() {
             .then(weeks => {
                 if (!weeks.length) throw new Error('이 학습실에 커리큘럼이 없습니다.')
                 setAllWeeks(weeks)
-                // 진행 중인 첫 번째 주차 선택, 없으면 마지막 주차
-                const active = weeks.find(w => w.completionRate < 100) ?? weeks[weeks.length - 1]
+                // URL에 curriculumId(weekId)가 있으면 해당 주차 우선 — 없으면 진행 중인 첫 주차
+                const active =
+                    (targetCurriculumId && weeks.find(w => w.weekId === targetCurriculumId)) ||
+                    weeks.find(w => w.completionRate < 100) ||
+                    weeks[weeks.length - 1]
                 setUnlockedUpToWeekNumber(active.weekNumber)
                 return getCurriculumWeek(roomId, active.weekId)
             })
@@ -405,7 +393,7 @@ function StudyClassroomContent() {
             })
             .catch(e => setWeekError(e instanceof Error ? e.message : '주차 데이터를 불러오지 못했습니다.'))
             .finally(() => setWeekLoading(false))
-    }, [roomId, applyWeekDetail])
+    }, [roomId, targetCurriculumId, applyWeekDetail])
 
     // ── 주차 전환 ─────────────────────────────────────────────────────────────
     const handleWeekSwitch = useCallback((weekId: string) => {
@@ -634,6 +622,8 @@ function StudyClassroomContent() {
         try {
             await requestStudyMatch(roomId, weekData.weekId)
             // 202 Accepted — 백그라운드 매칭 시작. SSE로 결과 수신.
+            // 어느 주차에서 요청했는지 기록 → SSE 핸들러가 정확한 키를 업데이트하는 데 사용
+            matchRequestKeyRef.current = `${roomId}_${weekData.weekId}`
             setMatchStatus('searching')
             // 3분 프런트엔드 타임아웃 — 백엔드 자동 취소가 없으므로 프런트에서 보장
             if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
@@ -669,14 +659,26 @@ function StudyClassroomContent() {
 
     // ── SSE 알림 스트림 — study_match / study_no_candidate 수신 ──────────────
     // Refs keep latest callbacks without triggering reconnect on every render
-    const openRef             = useRef(open)
-    const setPartnerInfoRef   = useRef(setPartnerInfo)
-    const setMatchStatusRef   = useRef(setMatchStatus)
-    const showMatchToastRef   = useRef(showMatchToast)
-    openRef.current           = open
-    setPartnerInfoRef.current = setPartnerInfo
-    setMatchStatusRef.current = setMatchStatus
-    showMatchToastRef.current = showMatchToast
+    const openRef                   = useRef(open)
+    const setPartnerInfoRef         = useRef(setPartnerInfo)
+    const setPartnerConnectedRef    = useRef(setPartnerConnected)
+    const setMatchStatusRef         = useRef(setMatchStatus)
+    const setGroupIdRef             = useRef(setGroupId)
+    const showMatchToastRef         = useRef(showMatchToast)
+    const navigateRef               = useRef(navigate)
+    const setCurrentMatchKeyRef     = useRef(setCurrentMatchKey)
+    const setMatchStateForKeyRef    = useRef(setMatchStateForKey)
+    /** 매칭 요청을 보낸 주차의 복합 키 — handleRequestMatching에서 세팅 */
+    const matchRequestKeyRef        = useRef<string | null>(null)
+    openRef.current                 = open
+    setPartnerInfoRef.current       = setPartnerInfo
+    setPartnerConnectedRef.current  = setPartnerConnected
+    setMatchStatusRef.current       = setMatchStatus
+    setGroupIdRef.current           = setGroupId
+    showMatchToastRef.current       = showMatchToast
+    navigateRef.current             = navigate
+    setCurrentMatchKeyRef.current   = setCurrentMatchKey
+    setMatchStateForKeyRef.current  = setMatchStateForKey
 
     useEffect(() => {
         const sse = connectNotificationStream()
@@ -694,8 +696,18 @@ function StudyClassroomContent() {
                     partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
                 }
                 if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
-                setPartnerInfoRef.current(match)
-                setMatchStatusRef.current('pending')
+
+                // 요청 시점의 키로 상태를 업데이트한다.
+                // 사용자가 다른 주차로 이동했더라도 요청 원본 주차가 정확히 갱신된다.
+                const targetKey = matchRequestKeyRef.current
+                if (targetKey) {
+                    setMatchStateForKeyRef.current(targetKey, (prev: WeekMatchState) => ({
+                        ...prev, matchStatus: 'pending', partnerInfo: match,
+                    }))
+                    // 해당 주차로 컨텍스트 키를 전환해 사이드바도 즉시 반영
+                    setCurrentMatchKeyRef.current(targetKey)
+                }
+
                 showMatchToastRef.current('🎉 멘토를 찾았습니다! 매칭 정보를 확인해주세요.', 'success')
                 openRef.current('study-matching', { type: 'study-matching', match })
             } catch {}
@@ -707,7 +719,11 @@ function StudyClassroomContent() {
                 '⚠️ 현재 매칭 가능한 파트너가 없습니다. 잠시 후 다시 시도해 주세요.',
                 'warning',
             )
-            setMatchStatusRef.current('idle')
+            const targetKey = matchRequestKeyRef.current
+            if (targetKey) {
+                setMatchStateForKeyRef.current(targetKey, (prev: WeekMatchState) => ({ ...prev, matchStatus: 'idle' }))
+            }
+            matchRequestKeyRef.current = null
         }
 
         // 상대방이 수락하면 백엔드가 groupId를 포함한 study_accepted SSE를 푸시한다.
@@ -715,14 +731,50 @@ function StudyClassroomContent() {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
-                if (data.groupId) setGroupId(String(data.groupId))
+                const gId = data.groupId ? String(data.groupId) : null
+                if (!gId) return
+                const targetKey = matchRequestKeyRef.current
+                if (targetKey) {
+                    setMatchStateForKeyRef.current(targetKey, (prev: WeekMatchState) => ({ ...prev, groupId: gId }))
+                }
+            } catch {}
+        }
+
+        // 내가 먼저 수락한 경우 — 상대방이 수락하면 백엔드가 이 이벤트를 푸시한다.
+        // roomId + curriculumId 를 받아 스터디룸으로 즉시 이동하고 대기 상태를 해소한다.
+        const handleStudyGroupActivated = (e: MessageEvent) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = JSON.parse(e.data as string) as any
+                const activatedRoomId       = String(data.roomId ?? '')
+                const activatedCurriculumId = String(data.curriculumId ?? '')
+                const activatedGroupId      = data.groupId ? String(data.groupId) : null
+
+                if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
+
+                const targetKey = matchRequestKeyRef.current
+                if (targetKey) {
+                    setMatchStateForKeyRef.current(targetKey, (prev: WeekMatchState) => ({
+                        ...prev,
+                        matchStatus:      'completed',
+                        partnerConnected: true,
+                        groupId:          activatedGroupId ?? prev.groupId,
+                    }))
+                }
+                matchRequestKeyRef.current = null
+
+                if (activatedRoomId) {
+                    const curriculumParam = activatedCurriculumId ? `?curriculumId=${activatedCurriculumId}` : ''
+                    navigateRef.current(`/study/${activatedRoomId}/classroom${curriculumParam}`)
+                }
             } catch {}
         }
 
         // Named-event listeners (fires when backend sends `event: study_match` header)
-        sse.addEventListener('study_match',        handleStudyMatch    as EventListener)
-        sse.addEventListener('study_no_candidate', handleNoCandidate)
-        sse.addEventListener('study_accepted',     handleStudyAccepted as EventListener)
+        sse.addEventListener('study_match',           handleStudyMatch            as EventListener)
+        sse.addEventListener('study_no_candidate',    handleNoCandidate)
+        sse.addEventListener('study_accepted',        handleStudyAccepted         as EventListener)
+        sse.addEventListener('study_group_activated', handleStudyGroupActivated   as EventListener)
 
         // 백엔드가 `event: notification` 으로 전송하는 경우 — data.type 으로 분기
         const dispatchByType = (e: MessageEvent) => {
@@ -730,9 +782,10 @@ function StudyClassroomContent() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
                 const type = String(data.type ?? '')
-                if      (type === 'study_match')        handleStudyMatch(e)
-                else if (type === 'study_no_candidate') handleNoCandidate()
-                else if (type === 'study_accepted')     handleStudyAccepted(e)
+                if      (type === 'study_match')           handleStudyMatch(e)
+                else if (type === 'study_no_candidate')    handleNoCandidate()
+                else if (type === 'study_accepted')        handleStudyAccepted(e)
+                else if (type === 'study_group_activated') handleStudyGroupActivated(e)
             } catch {}
         }
         sse.addEventListener('notification', dispatchByType as EventListener)
@@ -1553,6 +1606,13 @@ function StudyClassroomContent() {
                                                 취소
                                             </button>
                                         </div>
+                                    ) : matchStatus === 'waiting_partner' ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                                            <Loader2 size={14} strokeWidth={2} className="animate-spin" style={{ color: '#ffffff' }} />
+                                            <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600 }}>
+                                                상대 수락 대기 중...
+                                            </span>
+                                        </div>
                                     ) : matchStatus === 'pending' && partnerInfo ? (
                                         <div style={{ marginTop: '10px' }}>
                                             <div style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600, marginBottom: '6px' }}>
@@ -1757,9 +1817,8 @@ function StudyClassroomContent() {
 
 // ── 기본 export: ClassroomModalProvider로 내부 컴포넌트를 감싼다 ────────────────
 export default function StudyClassroom() {
-    const { studyId: roomId = '' } = useParams<{ studyId: string }>()
     return (
-        <ClassroomModalProvider roomId={roomId}>
+        <ClassroomModalProvider>
             <StudyClassroomContent />
         </ClassroomModalProvider>
     )

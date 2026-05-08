@@ -23,7 +23,8 @@ export default function AppLayout() {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
-                if (String(data.type ?? '') === 'study_match') {
+                const type = String(data.type ?? '')
+                if (type === 'study_match') {
                     setPendingMatch({
                         partnerId:        String(data.suggestionId ?? ''),
                         partnerName:      String(data.partner?.nickname ?? '파트너'),
@@ -32,12 +33,16 @@ export default function AppLayout() {
                         matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
                         partnerStrengths: data.matchKeyword ? [String(data.matchKeyword)] : [],
                     })
+                } else if (type === 'study_accepted' && data.groupId) {
+                    // 상대방이 수락 완료 → groupId를 저장해 두면 이후 클래스룸 진입 시 복원된다
+                    localStorage.setItem('moai_study_group_id', String(data.groupId))
                 }
             } catch {}
         }
 
-        sse.addEventListener('notification', dispatch as EventListener)
-        sse.addEventListener('study_match',  dispatch as EventListener)
+        sse.addEventListener('notification',    dispatch as EventListener)
+        sse.addEventListener('study_match',     dispatch as EventListener)
+        sse.addEventListener('study_accepted',  dispatch as EventListener)
         sse.onmessage = dispatch
 
         return () => sse.close()
@@ -47,7 +52,9 @@ export default function AppLayout() {
         if (!pendingMatch) return
         setConnecting(true)
         try {
-            await acceptStudySuggestion(pendingMatch.partnerId)
+            const res = await acceptStudySuggestion(pendingMatch.partnerId)
+            // groupId를 user-level key로 저장 — 이후 클래스룸 진입 시 파트너 카드·채팅 복원에 사용
+            if (res.groupId) localStorage.setItem('moai_study_group_id', res.groupId)
         } catch {}
         setConnecting(false)
         setPendingMatch(null)

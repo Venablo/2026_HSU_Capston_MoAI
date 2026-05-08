@@ -17,102 +17,138 @@ export type ModalKey =
     | 'final-quiz'  // 주간 파이널 퀴즈 + AI 분석 리포트 플로우
     | null
 
+// ── Per-week match state ──────────────────────────────────────────────────────
+// 키: `${roomId}_${weekId}` — 스터디룸 × 주차 조합마다 독립적인 매칭 상태를 가진다.
+
+export type MatchStatus = 'idle' | 'searching' | 'pending' | 'waiting_partner' | 'completed'
+
+export interface WeekMatchState {
+    matchStatus:      MatchStatus
+    partnerConnected: boolean
+    partnerInfo:      StudyMatchResponse | null
+    groupId:          string | null
+}
+
+const DEFAULT_WEEK_MATCH: WeekMatchState = {
+    matchStatus:      'idle',
+    partnerConnected: false,
+    partnerInfo:      null,
+    groupId:          null,
+}
+
+const LS_MATCH_STATES = 'moai_match_states'
+
+function loadMatchStates(): Record<string, WeekMatchState> {
+    try {
+        const raw = localStorage.getItem(LS_MATCH_STATES)
+        if (!raw) return {}
+        return JSON.parse(raw) as Record<string, WeekMatchState>
+    } catch { return {} }
+}
+
+function persistMatchStates(map: Record<string, WeekMatchState>) {
+    // 기본값과 동일한 항목은 저장하지 않아 localStorage를 깔끔하게 유지한다.
+    const cleaned = Object.fromEntries(
+        Object.entries(map).filter(([, v]) =>
+            v.matchStatus !== 'idle' || v.partnerConnected || v.partnerInfo || v.groupId
+        )
+    )
+    if (Object.keys(cleaned).length === 0) localStorage.removeItem(LS_MATCH_STATES)
+    else localStorage.setItem(LS_MATCH_STATES, JSON.stringify(cleaned))
+}
+
 // ── Context shape ─────────────────────────────────────────────────────────────
 
-export type MatchStatus = 'idle' | 'searching' | 'pending' | 'completed'
-
 interface ClassroomModalContextValue {
-    /** Which modal is currently visible; null means none */
-    modal: ModalKey
-    /** Typed payload for the active modal; null for modals with no external data */
+    modal:    ModalKey
     modalData: ModalData | null
-    /** Open a modal, optionally attaching backend-response data to it */
-    open: (key: NonNullable<ModalKey>, data?: ModalData) => void
-    /** Close the active modal and clear its payload */
+    open:  (key: NonNullable<ModalKey>, data?: ModalData) => void
     close: () => void
-    /** True once the user has completed the full meta-cognition evaluation flow */
-    metacogComplete: boolean
-    /** True once the user has connected with a study partner */
-    partnerConnected: boolean
-    /** Matched partner's profile data — persisted in localStorage */
-    partnerInfo: StudyMatchResponse | null
-    /** True once the user has submitted the final quiz and viewed the report */
-    quizSubmitted: boolean
-    /** Async matching status — persisted in localStorage so it survives page reload */
-    matchStatus: MatchStatus
-    /** Study group ID received via study_accepted SSE — enables WebSocket chat */
-    groupId: string | null
+
+    metacogComplete:    boolean
     setMetacogComplete: (v: boolean) => void
-    setPartnerConnected: (v: boolean) => void
-    setPartnerInfo: (info: StudyMatchResponse | null) => void
-    setQuizSubmitted: (v: boolean) => void
-    setMatchStatus: (v: MatchStatus) => void
-    setGroupId: (id: string | null) => void
-    /**
-     * 현재 학습 중인 주차 ID (weekId).
-     * StudyClassroomContent에서 setCurrentWeekId()로 설정되고,
-     * ClassroomModals에서 reverse-learning / final-quiz 모달에 전달된다.
-     */
-    currentWeekId: string | null
+    quizSubmitted:      boolean
+    setQuizSubmitted:   (v: boolean) => void
+
+    /** 현재 학습 중인 주차 ID (weekId) */
+    currentWeekId:    string | null
     setCurrentWeekId: (weekId: string) => void
+
+    // ── 주차별 매칭 상태 (`${roomId}_${weekId}` 키) ────────────────────────
+    /** 현재 활성 주차의 복합 키. 첫 번째 주차 로드 전까지는 null. */
+    currentMatchKey:    string | null
+    setCurrentMatchKey: (key: string) => void
+
+    /** currentMatchKey에 해당하는 주차의 파생 상태 */
+    matchStatus:      MatchStatus
+    partnerConnected: boolean
+    partnerInfo:      StudyMatchResponse | null
+    groupId:          string | null
+
+    setMatchStatus:      (v: MatchStatus) => void
+    setPartnerConnected: (v: boolean) => void
+    setPartnerInfo:      (info: StudyMatchResponse | null) => void
+    setGroupId:          (id: string | null) => void
+
+    /** SSE 핸들러 등 특정 키를 직접 갱신해야 할 때 사용 */
+    setMatchStateForKey: (key: string, updater: (prev: WeekMatchState) => WeekMatchState) => void
 }
 
 // ── Context + provider ────────────────────────────────────────────────────────
 
 const ClassroomModalContext = createContext<ClassroomModalContextValue | null>(null)
 
-export function ClassroomModalProvider({
-    children,
-    roomId = '',
-}: {
-    children: React.ReactNode
-    roomId?: string
-}) {
-    // roomId별로 localStorage 키를 분리해 스터디마다 독립적인 매칭 상태를 유지한다.
-    const k = (name: string) => roomId ? `moai_${name}_${roomId}` : `moai_${name}`
+export function ClassroomModalProvider({ children }: { children: React.ReactNode }) {
+    const [modal,     setModal]     = useState<ModalKey>(null)
+    const [modalData, setModalData] = useState<ModalData | null>(null)
 
-    const [modal,           setModal]           = useState<ModalKey>(null)
-    const [modalData,       setModalData]       = useState<ModalData | null>(null)
     const [metacogComplete, setMetacogComplete] = useState(false)
     const [quizSubmitted,   setQuizSubmitted]   = useState(false)
-    // 현재 학습 중인 주차 ID — StudyClassroomContent에서 커리큘럼 로드 후 설정
     const [currentWeekId,   setCurrentWeekId]   = useState<string | null>(null)
 
-    // matchStatus / partnerConnected / partnerInfo — API 응답으로 복원하므로 메모리만 유지
-    const [matchStatus,      setMatchStatus]      = useState<MatchStatus>('idle')
-    const [partnerConnected, setPartnerConnected] = useState(false)
-    const [partnerInfo,      setPartnerInfo]      = useState<StudyMatchResponse | null>(null)
+    // 주차별 매칭 상태 맵 — 새로고침 시 localStorage에서 복원
+    const [matchStates,     setMatchStates]     = useState<Record<string, WeekMatchState>>(loadMatchStates)
+    const [currentMatchKey, setCurrentMatchKey] = useState<string | null>(null)
 
-    const [groupId, setGroupIdRaw] = useState<string | null>(
-        () => localStorage.getItem(k('study_group_id')),
-    )
+    // 현재 주차의 파생 상태
+    const currentMatch   = currentMatchKey ? (matchStates[currentMatchKey] ?? DEFAULT_WEEK_MATCH) : DEFAULT_WEEK_MATCH
+    const { matchStatus, partnerConnected, partnerInfo, groupId } = currentMatch
 
-    const setGroupId = (id: string | null) => {
-        if (id) localStorage.setItem(k('study_group_id'), id)
-        else    localStorage.removeItem(k('study_group_id'))
-        setGroupIdRaw(id)
+    const updateCurrentMatch = (updater: (prev: WeekMatchState) => WeekMatchState) => {
+        if (!currentMatchKey) return
+        setMatchStates(prev => {
+            const next = { ...prev, [currentMatchKey]: updater(prev[currentMatchKey] ?? DEFAULT_WEEK_MATCH) }
+            persistMatchStates(next)
+            return next
+        })
     }
 
-    const open = (key: NonNullable<ModalKey>, data?: ModalData) => {
-        setModalData(data ?? null)
-        setModal(key)
+    const setMatchStateForKey = (key: string, updater: (prev: WeekMatchState) => WeekMatchState) => {
+        setMatchStates(prev => {
+            const next = { ...prev, [key]: updater(prev[key] ?? DEFAULT_WEEK_MATCH) }
+            persistMatchStates(next)
+            return next
+        })
     }
 
-    const close = () => {
-        setModal(null)
-        setModalData(null)
-    }
+    const setMatchStatus      = (v: MatchStatus)                  => updateCurrentMatch(p => ({ ...p, matchStatus:      v    }))
+    const setPartnerConnected = (v: boolean)                      => updateCurrentMatch(p => ({ ...p, partnerConnected:  v    }))
+    const setPartnerInfo      = (info: StudyMatchResponse | null) => updateCurrentMatch(p => ({ ...p, partnerInfo:       info }))
+    const setGroupId          = (id: string | null)               => updateCurrentMatch(p => ({ ...p, groupId:           id   }))
+
+    const open  = (key: NonNullable<ModalKey>, data?: ModalData) => { setModalData(data ?? null); setModal(key) }
+    const close = () => { setModal(null); setModalData(null) }
 
     return (
         <ClassroomModalContext.Provider value={{
             modal, modalData, open, close,
             metacogComplete,  setMetacogComplete,
-            partnerConnected, setPartnerConnected,
-            partnerInfo,      setPartnerInfo,
             quizSubmitted,    setQuizSubmitted,
-            matchStatus,      setMatchStatus,
-            groupId,          setGroupId,
             currentWeekId,    setCurrentWeekId,
+            currentMatchKey,  setCurrentMatchKey,
+            matchStatus,      partnerConnected, partnerInfo, groupId,
+            setMatchStatus,   setPartnerConnected, setPartnerInfo, setGroupId,
+            setMatchStateForKey,
         }}>
             {children}
         </ClassroomModalContext.Provider>
@@ -121,10 +157,6 @@ export function ClassroomModalProvider({
 
 // ── Consumer hook ─────────────────────────────────────────────────────────────
 
-/**
- * Read and control the global classroom modal state from any component
- * rendered inside <ClassroomModalProvider>.
- */
 export function useClassroomModal(): ClassroomModalContextValue {
     const ctx = useContext(ClassroomModalContext)
     if (!ctx) throw new Error('useClassroomModal must be used inside <ClassroomModalProvider>')
