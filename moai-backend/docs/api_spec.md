@@ -76,19 +76,20 @@
 | 30 | GET | /api/study-groups/suggestions | 매칭 제안 목록 조회 | JWT |
 | 31 | POST | /api/study-groups/suggestions/{id}/accept | 스터디 제안 수락 | JWT |
 | 32 | POST | /api/study-groups/suggestions/{id}/reject | 스터디 제안 거절 | JWT |
-| 33 | GET | /api/study-groups/{groupId} | 스터디 그룹 상세 | JWT |
-| 34 | GET | /api/study-groups/{groupId}/messages | 채팅 이력 조회 | JWT |
-| 35 | WS | /ws/study-groups/{groupId} | 실시간 채팅 WebSocket | JWT |
+| 33 | GET | /api/study-groups/my-active | 활성 스터디 그룹 목록 조회 | JWT |
+| 34 | GET | /api/study-groups/{groupId} | 스터디 그룹 상세 | JWT |
+| 35 | GET | /api/study-groups/{groupId}/messages | 채팅 이력 조회 | JWT |
+| 36 | WS | /ws/study-groups/{groupId} | 실시간 채팅 WebSocket | JWT |
 | **10. 알림 (Notifications)** |
-| 36 | SSE | /api/notifications/stream | 실시간 알림 SSE 연결 | JWT |
-| 37 | GET | /api/notifications | 읽지 않은 알림 목록 조회 | JWT |
-| 38 | PATCH | /api/notifications/{id}/read | 알림 읽음 처리 | JWT |
+| 37 | SSE | /api/notifications/stream | 실시간 알림 SSE 연결 | JWT |
+| 38 | GET | /api/notifications | 읽지 않은 알림 목록 조회 | JWT |
+| 39 | PATCH | /api/notifications/{id}/read | 알림 읽음 처리 | JWT |
 | **11. 마이페이지 (My Page)** |
-| 39 | GET | /api/users/me | 프로필 전체 조회 | JWT |
-| 40 | PATCH | /api/users/me | 프로필 수정 | JWT |
-| 41 | PATCH | /api/users/me/keywords | 관심 키워드 수정 | JWT |
-| 42 | DELETE | /api/users/me | 회원 탈퇴 | JWT |
-| 43 | GET | /api/users/me/learning-history | 학습실 이력 목록 | JWT |
+| 40 | GET | /api/users/me | 프로필 전체 조회 | JWT |
+| 41 | PATCH | /api/users/me | 프로필 수정 | JWT |
+| 42 | PATCH | /api/users/me/keywords | 관심 키워드 수정 | JWT |
+| 43 | DELETE | /api/users/me | 회원 탈퇴 | JWT |
+| 44 | GET | /api/users/me/learning-history | 학습실 이력 목록 | JWT |
 
 ---
 
@@ -881,6 +882,36 @@ AI 종합 분석 리포트 — 폴링으로 status 확인 후 completed 시 표�
 ```json
 { "success": true, "data": { "status": "rejected" } }
 ```
+
+### GET /api/study-groups/my-active (JWT 필요)
+
+로그인한 사용자가 속한 활성(active) 스터디 그룹 목록을 일괄 조회.
+다중 기기 환경에서 매칭 상태를 서버에서 복원하기 위해 사용 (페이지 로드 시 1회 호출).
+
+**RESPONSE 200**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "groupId": "g1000000-...-000001",
+      "roomId": "room1000000-...-000001",
+      "curriculumId": "curri1000000-...-000001",
+      "groupStatus": "active",
+      "partner": {
+        "userId": "c0000000-...-000003",
+        "nickname": "B학생(멘토)",
+        "role": "mentor",
+        "strengthKeyword": "고립성(Isolation)_개념"
+      }
+    }
+  ]
+}
+```
+
+> `roomId`/`curriculumId`는 호출자(본인) 컨텍스트.
+> `partner.strengthKeyword`는 파트너가 mentor일 때만 채워짐 (mentee면 null).
+> 만료(`expires_at` 경과) 그룹은 자동으로 `completed`로 전환되며 응답에서 제외됨.
 
 ### GET /api/study-groups/{groupId} (JWT 필요)
 

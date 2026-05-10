@@ -17,6 +17,8 @@ public interface StudySuggestionRepository extends JpaRepository<StudySuggestion
 
     Optional<StudySuggestion> findByIdAndSuggestedToId(String id, String userId);
 
+    Optional<StudySuggestion> findByGroupIdAndSuggestedToId(String groupId, String userId);
+
     @Query("SELECT COUNT(s) > 0 FROM StudySuggestion s WHERE s.suggestedTo.id = :userId " +
             "AND s.group.id IN (SELECT s2.group.id FROM StudySuggestion s2 WHERE s2.suggestedTo.id = :partnerId) " +
             "AND s.group.status IN ('pending_acceptance')")

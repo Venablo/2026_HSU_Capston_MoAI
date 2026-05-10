@@ -6,6 +6,7 @@ import com.moai.backend.domain.notification.dto.SseStudyRejectedEvent;
 import com.moai.backend.domain.notification.entity.Notification;
 import com.moai.backend.domain.notification.repository.NotificationRepository;
 import com.moai.backend.domain.notification.service.NotificationService;
+import com.moai.backend.domain.study.dto.MyActiveStudyGroupResponseDto;
 import com.moai.backend.domain.study.dto.StudyGroupDetailResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionAcceptResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionListResponseDto;
@@ -230,6 +231,54 @@ public class StudyGroupService {
                         partnerRole,
                         isOnline,
                         group.getMatchKeyword()));
+    }
+
+    @Transactional
+    public List<MyActiveStudyGroupResponseDto> getMyActiveGroups(String email) {
+        User user = findUserByEmail(email);
+
+        List<StudyMember> activeMemberships =
+                studyMemberRepository.findByUserIdAndGroupStatus(user.getId(), "active");
+
+        return activeMemberships.stream()
+                .filter(membership -> {
+                    StudyGroup group = membership.getGroup();
+                    if (group.isExpired()) {
+                        group.complete();
+                        return false;
+                    }
+                    return true;
+                })
+                .map(membership -> {
+                    StudyGroup group = membership.getGroup();
+
+                    StudySuggestion mySuggestion = studySuggestionRepository
+                            .findByGroupIdAndSuggestedToId(group.getId(), user.getId())
+                            .orElseThrow(() -> new CustomException(ErrorCode.SUGGESTION_NOT_FOUND));
+
+                    StudyMember partnerMember = studyMemberRepository.findByGroupId(group.getId()).stream()
+                            .filter(m -> !m.getUser().getId().equals(user.getId()))
+                            .findFirst()
+                            .orElseThrow(() -> new CustomException(ErrorCode.STUDY_GROUP_NOT_FOUND));
+
+                    User partner = partnerMember.getUser();
+                    String partnerRole = partnerMember.getRole();
+                    String strengthKeyword = "mentor".equals(partnerRole)
+                            ? group.getMatchKeyword()
+                            : null;
+
+                    return new MyActiveStudyGroupResponseDto(
+                            group.getId(),
+                            mySuggestion.getRoom().getId(),
+                            mySuggestion.getCurriculum().getId(),
+                            group.getStatus(),
+                            new MyActiveStudyGroupResponseDto.PartnerInfo(
+                                    partner.getId(),
+                                    partner.getNickname(),
+                                    partnerRole,
+                                    strengthKeyword));
+                })
+                .toList();
     }
 
     private User findUserByEmail(String email) {

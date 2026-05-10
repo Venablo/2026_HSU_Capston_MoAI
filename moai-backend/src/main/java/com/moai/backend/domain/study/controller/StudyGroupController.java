@@ -1,5 +1,6 @@
 package com.moai.backend.domain.study.controller;
 
+import com.moai.backend.domain.study.dto.MyActiveStudyGroupResponseDto;
 import com.moai.backend.domain.study.dto.StudyGroupDetailResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionAcceptResponseDto;
 import com.moai.backend.domain.study.dto.SuggestionListResponseDto;
@@ -51,6 +52,16 @@ public class StudyGroupController {
                 studyGroupService.rejectSuggestion(userDetails.getUsername(), id);
 
         return ResponseEntity.ok(ApiResponse.success("스터디 제안을 거절했습니다.", responseDto));
+    }
+
+    @GetMapping("/my-active")
+    public ResponseEntity<ApiResponse<List<MyActiveStudyGroupResponseDto>>> getMyActiveGroups(
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        List<MyActiveStudyGroupResponseDto> responseDto =
+                studyGroupService.getMyActiveGroups(userDetails.getUsername());
+
+        return ResponseEntity.ok(ApiResponse.success("활성 스터디 그룹 목록 조회 완료", responseDto));
     }
 
     @GetMapping("/{groupId}")
