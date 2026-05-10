@@ -45,6 +45,7 @@ cloud:
   aws:
     s3:
       bucket: ${AWS_S3_BUCKET}
+      enabled: ${AWS_S3_ENABLED:false}
     region:
       static: ${AWS_REGION}
 
