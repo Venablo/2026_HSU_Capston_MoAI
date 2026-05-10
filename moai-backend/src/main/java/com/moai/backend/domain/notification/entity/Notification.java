@@ -29,7 +29,7 @@ public class Notification {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "type", nullable = false, length = 20)
+    @Column(name = "type", nullable = false, length = 40)
     private String type;
 
     @Column(name = "message", columnDefinition = "TEXT")
