@@ -1,0 +1,110 @@
+.smd-root {
+    position: relative;
+}
+
+.smd-trigger {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--color-purple-50);
+    border: 1px solid var(--color-purple-200, #ddd6fe);
+    border-radius: 10px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-purple-600, #7c3aed);
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.smd-trigger--open {
+    background: var(--color-purple-100, #ede9fe);
+}
+
+.smd-chevron {
+    transition: transform 0.2s;
+}
+
+.smd-chevron--open {
+    transform: rotate(180deg);
+}
+
+.smd-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    min-width: 280px;
+    overflow: hidden;
+}
+
+.smd-panel__header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+}
+
+.smd-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 14px;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    cursor: pointer;
+}
+
+.smd-item:last-child {
+    border-bottom: none;
+}
+
+.smd-item__avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: var(--color-purple-50);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-purple-500);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.smd-item__body {
+    flex: 1;
+    min-width: 0;
+}
+
+.smd-item__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.smd-item__sub {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-top: 2px;
+}
+
+.smd-item__arrow {
+    color: var(--color-purple-400);
+    flex-shrink: 0;
+}

@@ -2728,3 +2728,626 @@
     background: rgba(0, 0, 0, 0.06);
     color: var(--color-text-secondary, #4b5563);
 }
+
+/* ── sc- prefixed utility classes (StudyClassroom inline → CSS) ── */
+
+/* TabLoading */
+.sc-tab-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 0;
+    color: var(--color-text-secondary);
+}
+
+.sc-tab-loading__text {
+    font-size: 13px;
+}
+
+/* TabEmpty */
+.sc-tab-empty {
+    padding: 24px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* Topbar search wrapper */
+.sc-search-wrap {
+    position: relative;
+}
+
+.sc-search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-purple-50);
+    border-radius: 10px;
+    padding: 8px 14px;
+}
+
+.sc-search-icon {
+    color: var(--color-text-secondary);
+}
+
+.sc-search-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
+    width: 160px;
+    color: var(--color-text-primary);
+    font-family: inherit;
+}
+
+.sc-search-clear {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    color: var(--color-text-secondary);
+    display: flex;
+}
+
+/* Search dropdown */
+.sc-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.sc-search-no-result {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.sc-search-result-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sc-search-result-pct {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-left: 8px;
+}
+
+/* Notification bell button wrapper */
+.sc-notif-wrap {
+    position: relative;
+}
+
+/* Unread badge on bell */
+.sc-notif-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 99px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+}
+
+/* Notification dropdown panel */
+.sc-notif-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+
+.sc-notif-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.sc-notif-close-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    display: flex;
+}
+
+.sc-notif-loading {
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.sc-notif-empty {
+    padding: 24px 16px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+
+.sc-notif-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.sc-notif-item__body {
+    flex: 1;
+}
+
+.sc-notif-item__msg {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    line-height: 1.5;
+}
+
+.sc-notif-item__date {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+}
+
+.sc-notif-item__read-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-purple-500);
+    display: flex;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* Profile dropdown wrapper */
+.sc-profile-wrap {
+    position: relative;
+}
+
+.sc-profile-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    min-width: 160px;
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.sc-profile-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.sc-profile-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.sc-profile-menu-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.sc-profile-logout-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ef4444;
+}
+
+/* Week selector wrapper */
+.sc-week-wrap {
+    position: relative;
+    display: inline-block;
+}
+
+/* Week button inner layout */
+.sc-week-btn-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Week dropdown panel */
+.sc-week-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    min-width: 280px;
+    max-height: 320px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.sc-week-dropdown__label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sc-week-dropdown__pct {
+    font-size: 11px;
+    color: var(--color-text-secondary, #6b7280);
+    margin-left: 8px;
+}
+
+/* Video overlay (loading/error) */
+.sc-video-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f0f1a;
+    z-index: 1;
+    border-radius: 12px;
+}
+
+.sc-video-error-text {
+    color: #ef4444;
+    font-size: 13px;
+}
+
+.sc-video-pending-text {
+    color: #fff;
+    font-size: 13px;
+}
+
+/* YouTube player host */
+.sc-player-host {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+}
+
+/* Tab button inner layout */
+.sc-tab-btn-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Docs tab */
+.sc-doc-link {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.sc-doc-icon-purple {
+    color: var(--color-purple-500);
+}
+
+/* Videos tab */
+.sc-video-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.sc-video-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.sc-video-overlay-icon {
+    color: rgba(255, 255, 255, 0.9);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.sc-video-now-playing {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: var(--color-purple-500, #7c3aed);
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+/* Summary tab heading row */
+.sc-summary-heading-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sc-summary-icon {
+    color: var(--color-purple-500);
+}
+
+.sc-summary-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-weight: 400;
+}
+
+/* Quiz tab heading row */
+.sc-quiz-heading-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sc-quiz-icon {
+    color: var(--color-purple-500);
+}
+
+/* Quiz empty state */
+.sc-quiz-empty {
+    padding: 24px 0;
+}
+
+.sc-quiz-empty__text {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+}
+
+.sc-quiz-empty__btn {
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--color-purple-200);
+    background: transparent;
+    color: var(--color-purple-600);
+    cursor: pointer;
+}
+
+/* Quiz detail loading */
+.sc-quiz-detail-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
+/* Quiz detail error */
+.sc-quiz-detail-error {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    padding: 8px 0;
+}
+
+/* Metacog card title row */
+.sc-metacog-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sc-metacog-icon {
+    color: var(--color-purple-500);
+}
+
+/* Metacog complete desc override */
+.sc-metacog-desc--complete {
+    margin: 4px 0 0;
+}
+
+/* Searching / waiting states */
+.sc-match-searching {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.sc-match-searching__icon {
+    color: #ffffff;
+}
+
+.sc-match-searching__label {
+    font-size: 12px;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.sc-match-cancel-btn {
+    margin-left: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1.6;
+}
+
+.sc-match-waiting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.sc-match-waiting__icon {
+    color: #ffffff;
+}
+
+.sc-match-waiting__label {
+    font-size: 12px;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.sc-match-pending {
+    margin-top: 10px;
+}
+
+.sc-match-pending__label {
+    font-size: 12px;
+    color: #ffffff;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.sc-match-accept-btn {
+    margin-top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sc-match-request-btn {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Weekly quiz card title row */
+.sc-wq-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Weekly quiz card button inner layout */
+.sc-wq-btn-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Partner widget msg button inner layout */
+.sc-partner-msg-btn-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Chat waiting placeholder */
+.sc-chat-waiting {
+    text-align: center;
+    padding: 16px 4px;
+}
+
+.sc-chat-waiting__icon {
+    display: block;
+    margin: 0 auto 6px;
+}
+
+/* Locked toast icon */
+.sc-locked-toast__icon {
+    color: #f59e0b;
+    flex-shrink: 0;
+}
+
+/* Notif bell button: position relative needed for badge */
+.sc-notif-btn {
+    position: relative;
+}
+
+/* Topbar avatar: pointer cursor */
+.topbar__avatar--clickable {
+    cursor: pointer;
+}
+
+/* Loading spinner in video overlay */
+.sc-video-spinner {
+    color: var(--color-purple-500);
+}
+
+/* Quiz chevron icon (static part — transform stays inline) */
+.sc-quiz-chevron {
+    color: var(--color-text-muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+}
+
+/* Search result button base (static part — cursor/opacity/color stay inline) */
+.sc-search-result-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 9px 14px;
+    background: none;
+    border: none;
+    text-align: left;
+    font-size: 13px;
+}
+
+/* Week dropdown button base (static part — cursor/opacity/color/bg/fontWeight stay inline) */
+.sc-week-dropdown-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    text-align: left;
+    font-size: 13px;
+}
+
+/* Week selector chevron (static part — transform stays inline) */
+.sc-week-chevron {
+    transition: transform 0.2s;
+}

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import '../../styles/MyStudiesPage.css'
 import OnboardingWizard from '../../components/OnboardingWizard'
+import StudyMatchDropdown from '../../components/StudyMatchDropdown'
 import { deleteLearningRoom, getLearningRooms, getNotifications, markNotificationRead, updateProfile, logout } from '../../services/apiService'
 import type { LearningRoomListItem, NotificationItem } from '../../types/api'
 import { useAuth } from '../../context/AuthContext'
@@ -163,9 +164,9 @@ export default function MyStudiesPage() {
                 <h2 className="topbar__title">내 스터디</h2>
                 <div className="topbar__actions">
                     {/* 검색 */}
-                    <div ref={searchRef} style={{ position: 'relative' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--color-purple-50)', borderRadius: '10px', padding: '8px 14px' }}>
-                            <Search size={16} strokeWidth={1.5} style={{ color: 'var(--color-text-secondary)' }} />
+                    <div ref={searchRef} className="msp-search-wrapper">
+                        <div className="msp-search-box">
+                            <Search size={16} strokeWidth={1.5} className="msp-search-icon" />
                             <input
                                 placeholder="학습실 검색..."
                                 value={searchValue}
@@ -178,40 +179,33 @@ export default function MyStudiesPage() {
                                         setSearchFocus(false)
                                     }
                                 }}
-                                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '160px', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}
+                                className="msp-search-input"
                             />
                             {searchValue && (
                                 <button onClick={() => { setSearchValue(''); setSearchFocus(false) }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-secondary)', display: 'flex' }}>
+                                    className="msp-search-clear-btn">
                                     <X size={14} strokeWidth={1.5} />
                                 </button>
                             )}
                         </div>
                         {searchFocus && normalizedSearch && (
-                            <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                maxHeight: '240px', overflowY: 'auto', marginTop: '4px',
-                            }}>
+                            <div className="msp-search-dropdown">
                                 {filteredRooms.length === 0 ? (
-                                    <div style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>검색 결과가 없습니다.</div>
+                                    <div className="msp-search-empty">검색 결과가 없습니다.</div>
                                 ) : filteredRooms.map(r => (
                                     <button key={r.roomId}
                                         onClick={() => { navigate(`/study/${r.roomId}/classroom`); setSearchValue(''); setSearchFocus(false) }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: 'var(--color-text-primary)',
-                                        }}>
+                                        className="msp-search-result-btn">
                                         <span>{r.subject}</span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{r.completionRate}%</span>
+                                        <span className="msp-search-result-pct">{r.completionRate}%</span>
                                     </button>
                                 ))}
                             </div>
                         )}
                     </div>
+
+                    {/* 스터디 매칭 드롭다운 */}
+                    <StudyMatchDropdown />
 
                     {/* 다크 모드 토글 */}
                     <button className="topbar__icon-btn" onClick={handleToggleDark} title={darkMode ? '라이트 모드' : '다크 모드'}>
@@ -219,49 +213,37 @@ export default function MyStudiesPage() {
                     </button>
 
                     {/* 알림 */}
-                    <div ref={notifRef} style={{ position: 'relative' }}>
-                        <button className="topbar__icon-btn" onClick={handleOpenNotif} style={{ position: 'relative' }}>
+                    <div ref={notifRef} className="msp-notif-wrapper">
+                        <button className="topbar__icon-btn msp-notif-btn" onClick={handleOpenNotif}>
                             <Bell size={18} strokeWidth={1.5} />
                             {unreadCount > 0 && (
-                                <span style={{
-                                    position: 'absolute', top: '2px', right: '2px',
-                                    background: '#ef4444', color: '#fff',
-                                    fontSize: '9px', fontWeight: 700,
-                                    minWidth: '14px', height: '14px', borderRadius: '99px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px',
-                                }}>
+                                <span className="msp-notif-badge">
                                     {unreadCount > 9 ? '9+' : unreadCount}
                                 </span>
                             )}
                         </button>
                         {notifOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                width: '320px', maxHeight: '400px', overflowY: 'auto', marginTop: '6px',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div className="msp-notif-dropdown">
+                                <div className="msp-notif-header">
                                     <span>알림</span>
-                                    <button onClick={() => setNotifOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', display: 'flex' }}><X size={14} /></button>
+                                    <button onClick={() => setNotifOpen(false)} className="msp-notif-close-btn"><X size={14} /></button>
                                 </div>
                                 {notifLoading ? (
-                                    <div style={{ padding: '24px', display: 'flex', justifyContent: 'center' }}><Loader2 size={18} className="animate-spin" /></div>
+                                    <div className="msp-notif-loading"><Loader2 size={18} className="animate-spin" /></div>
                                 ) : notifications.length === 0 ? (
-                                    <div style={{ padding: '24px 16px', fontSize: '13px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>알림이 없습니다.</div>
+                                    <div className="msp-notif-empty">알림이 없습니다.</div>
                                 ) : notifications.map(n => (
-                                    <div key={n.notificationId} style={{
-                                        padding: '12px 16px', borderBottom: '1px solid var(--color-border)',
-                                        background: n.isRead ? 'transparent' : 'var(--color-purple-50)',
-                                        display: 'flex', alignItems: 'flex-start', gap: '10px',
-                                    }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.5 }}>{n.message}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
+                                    <div key={n.notificationId}
+                                        className="msp-notif-item"
+                                        style={{ background: n.isRead ? 'transparent' : 'var(--color-purple-50)' }}
+                                    >
+                                        <div className="msp-notif-item__body">
+                                            <div className="msp-notif-item__message">{n.message}</div>
+                                            <div className="msp-notif-item__date">{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
                                         </div>
                                         {!n.isRead && (
                                             <button onClick={() => handleMarkRead(n.notificationId)} title="읽음 처리"
-                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-purple-500)', display: 'flex', flexShrink: 0, marginTop: '2px' }}>
+                                                className="msp-notif-read-btn">
                                                 <Check size={14} strokeWidth={2} />
                                             </button>
                                         )}
@@ -272,37 +254,22 @@ export default function MyStudiesPage() {
                     </div>
 
                     {/* 아바타 / 프로필 드롭다운 */}
-                    <div ref={profileRef} style={{ position: 'relative' }}>
-                        <div className="topbar__avatar" onClick={() => setProfileOpen(v => !v)} style={{ cursor: 'pointer' }}>
+                    <div ref={profileRef} className="msp-profile-wrapper">
+                        <div className="topbar__avatar msp-avatar-btn" onClick={() => setProfileOpen(v => !v)}>
                             {avatarChar}
                         </div>
                         {profileOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                minWidth: '160px', marginTop: '6px', overflow: 'hidden',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
-                                    <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>{nickname ?? '사용자'}</div>
+                            <div className="msp-profile-dropdown">
+                                <div className="msp-profile-header">
+                                    <div className="msp-profile-name">{nickname ?? '사용자'}</div>
                                 </div>
                                 <button onClick={() => { setProfileOpen(false); navigate('/my-page') }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: 'var(--color-text-primary)',
-                                    }}>
+                                    className="msp-profile-menu-btn">
                                     <UserCircle size={14} strokeWidth={1.5} />
                                     마이페이지
                                 </button>
                                 <button onClick={handleLogout}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: '#ef4444',
-                                    }}>
+                                    className="msp-profile-logout-btn">
                                     <LogOut size={14} strokeWidth={1.5} />
                                     로그아웃
                                 </button>
@@ -334,7 +301,7 @@ export default function MyStudiesPage() {
 
                 {/* Loading */}
                 {loading && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '48px 0', color: 'var(--color-text-secondary)' }}>
+                    <div className="msp-loading-state">
                         <Loader2 size={20} strokeWidth={1.5} className="animate-spin" />
                         <span>학습실 목록을 불러오는 중...</span>
                     </div>
@@ -342,7 +309,7 @@ export default function MyStudiesPage() {
 
                 {/* Error */}
                 {!loading && error && (
-                    <div style={{ padding: '48px 0', color: '#ef4444' }}>⚠ {error}</div>
+                    <div className="msp-error-state">⚠ {error}</div>
                 )}
 
                 {/* Grid */}
@@ -363,7 +330,7 @@ export default function MyStudiesPage() {
                                 >
                                     <div className="study-card__header">
                                         <div className="study-card__info-row">
-                                            <div className="study-card__emoji-wrap" style={{ color: 'var(--color-purple-500)' }}>
+                                            <div className="study-card__emoji-wrap msp-emoji-wrap--purple">
                                                 <BookOpen size={22} strokeWidth={1.5} />
                                             </div>
                                             <div>
@@ -401,14 +368,14 @@ export default function MyStudiesPage() {
                                     <div>
                                         <div className="study-card__progress-header">
                                             <span className="study-card__progress-label">진행률</span>
-                                            <span className="study-card__progress-pct" style={{ color: 'var(--color-purple-500)' }}>
+                                            <span className="study-card__progress-pct msp-progress-pct--purple">
                                                 {room.completionRate}%
                                             </span>
                                         </div>
                                         <div className="study-card__bar-track">
                                             <div
-                                                className="study-card__bar-fill"
-                                                style={{ width: `${room.completionRate}%`, background: 'var(--color-purple-500)' }}
+                                                className="study-card__bar-fill msp-bar-fill--purple"
+                                                style={{ width: `${room.completionRate}%` }}
                                             />
                                         </div>
                                     </div>
@@ -423,7 +390,7 @@ export default function MyStudiesPage() {
 
                         {/* Empty state */}
                         {filtered.length === 0 && (
-                            <div style={{ gridColumn: '1 / -1', padding: '40px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+                            <div className="msp-empty-state">
                                 {filter === '전체' && !normalizedSearch ? '아직 학습실이 없습니다.' : `검색 결과가 없습니다.`}
                             </div>
                         )}

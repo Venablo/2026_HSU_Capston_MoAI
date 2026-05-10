@@ -36,6 +36,7 @@ import '../../../styles/FinalQuizModal.css'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
 import type { WeekMatchState } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
+import StudyMatchDropdown from '../../../components/StudyMatchDropdown'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
 import { useAuth } from '../../../context/AuthContext'
 import {
@@ -127,16 +128,16 @@ function openResource(url: string) {
 
 function TabLoading() {
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '24px 0', color: 'var(--color-text-secondary)' }}>
+        <div className="sc-tab-loading">
             <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
-            <span style={{ fontSize: '13px' }}>불러오는 중...</span>
+            <span className="sc-tab-loading__text">불러오는 중...</span>
         </div>
     )
 }
 
 function TabEmpty({ message }: { message: string }) {
     return (
-        <p style={{ padding: '24px 0', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+        <p className="sc-tab-empty">
             {message}
         </p>
     )
@@ -908,9 +909,9 @@ function StudyClassroomContent() {
                 <h2 className="topbar__title">AI 상세 학습실</h2>
                 <div className="topbar__actions">
                     {/* 검색 */}
-                    <div ref={searchRef} style={{ position: 'relative' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--color-purple-50)', borderRadius: '10px', padding: '8px 14px' }}>
-                            <Search size={16} strokeWidth={1.5} style={{ color: 'var(--color-text-secondary)' }} />
+                    <div ref={searchRef} className="sc-search-wrap">
+                        <div className="sc-search-box">
+                            <Search size={16} strokeWidth={1.5} className="sc-search-icon" />
                             <input
                                 placeholder="주차 검색..."
                                 value={searchValue}
@@ -926,24 +927,19 @@ function StudyClassroomContent() {
                                         }
                                     }
                                 }}
-                                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '160px', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}
+                                className="sc-search-input"
                             />
                             {searchValue && (
                                 <button onClick={() => { setSearchValue(''); setSearchFocus(false) }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-secondary)', display: 'flex' }}>
+                                    className="sc-search-clear">
                                     <X size={14} strokeWidth={1.5} />
                                 </button>
                             )}
                         </div>
                         {searchFocus && normalizedSearch && (
-                            <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                maxHeight: '240px', overflowY: 'auto', marginTop: '4px',
-                            }}>
+                            <div className="sc-search-dropdown">
                                 {filteredWeeks.length === 0 ? (
-                                    <div style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                                    <div className="sc-search-no-result">
                                         검색 결과가 없습니다.
                                     </div>
                                 ) : filteredWeeks.map(w => {
@@ -957,19 +953,17 @@ function StudyClassroomContent() {
                                                     setSearchFocus(false)
                                                 }
                                             }}
+                                            className="sc-search-result-btn"
                                             style={{
-                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                                                textAlign: 'left', fontSize: '13px',
                                                 cursor: locked ? 'not-allowed' : 'pointer',
                                                 opacity: locked ? 0.45 : 1,
                                                 color: locked ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
                                             }}>
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            <span className="sc-search-result-label">
                                                 {locked && <Lock size={11} strokeWidth={1.5} />}
                                                 Week {w.weekNumber}: {w.topic}
                                             </span>
-                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{Number(w.completionRate).toFixed(0)}%</span>
+                                            <span className="sc-search-result-pct">{Number(w.completionRate).toFixed(0)}%</span>
                                         </button>
                                     )
                                 })}
@@ -977,55 +971,44 @@ function StudyClassroomContent() {
                         )}
                     </div>
 
+                    {/* 스터디 매칭 드롭다운 */}
+                    <StudyMatchDropdown />
+
                     {/* 다크 모드 토글 */}
                     <button className="topbar__icon-btn" onClick={handleToggleDark} title={darkMode ? '라이트 모드' : '다크 모드'}>
                         {darkMode ? <Sun size={18} strokeWidth={1.5} /> : <Moon size={18} strokeWidth={1.5} />}
                     </button>
 
                     {/* 알림 */}
-                    <div ref={notifRef} style={{ position: 'relative' }}>
-                        <button className="topbar__icon-btn" onClick={handleOpenNotif} style={{ position: 'relative' }}>
+                    <div ref={notifRef} className="sc-notif-wrap">
+                        <button className="topbar__icon-btn sc-notif-btn" onClick={handleOpenNotif}>
                             <Bell size={18} strokeWidth={1.5} />
                             {unreadCount > 0 && (
-                                <span style={{
-                                    position: 'absolute', top: '2px', right: '2px',
-                                    background: '#ef4444', color: '#fff',
-                                    fontSize: '9px', fontWeight: 700,
-                                    minWidth: '14px', height: '14px', borderRadius: '99px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px',
-                                }}>
+                                <span className="sc-notif-badge">
                                     {unreadCount > 9 ? '9+' : unreadCount}
                                 </span>
                             )}
                         </button>
                         {notifOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                width: '320px', maxHeight: '400px', overflowY: 'auto', marginTop: '6px',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div className="sc-notif-dropdown">
+                                <div className="sc-notif-header">
                                     <span>알림</span>
-                                    <button onClick={() => setNotifOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', display: 'flex' }}><X size={14} /></button>
+                                    <button onClick={() => setNotifOpen(false)} className="sc-notif-close-btn"><X size={14} /></button>
                                 </div>
                                 {notifLoading ? (
-                                    <div style={{ padding: '24px', display: 'flex', justifyContent: 'center' }}><Loader2 size={18} className="animate-spin" /></div>
+                                    <div className="sc-notif-loading"><Loader2 size={18} className="animate-spin" /></div>
                                 ) : notifications.length === 0 ? (
-                                    <div style={{ padding: '24px 16px', fontSize: '13px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>알림이 없습니다.</div>
+                                    <div className="sc-notif-empty">알림이 없습니다.</div>
                                 ) : notifications.map(n => (
-                                    <div key={n.notificationId} style={{
-                                        padding: '12px 16px', borderBottom: '1px solid var(--color-border)',
-                                        background: n.isRead ? 'transparent' : 'var(--color-purple-50)',
-                                        display: 'flex', alignItems: 'flex-start', gap: '10px',
-                                    }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.5 }}>{n.message}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
+                                    <div key={n.notificationId} className="sc-notif-item"
+                                        style={{ background: n.isRead ? 'transparent' : 'var(--color-purple-50)' }}>
+                                        <div className="sc-notif-item__body">
+                                            <div className="sc-notif-item__msg">{n.message}</div>
+                                            <div className="sc-notif-item__date">{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
                                         </div>
                                         {!n.isRead && (
                                             <button onClick={() => handleMarkRead(n.notificationId)} title="읽음 처리"
-                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-purple-500)', display: 'flex', flexShrink: 0, marginTop: '2px' }}>
+                                                className="sc-notif-item__read-btn">
                                                 <Check size={14} strokeWidth={2} />
                                             </button>
                                         )}
@@ -1036,37 +1019,22 @@ function StudyClassroomContent() {
                     </div>
 
                     {/* 아바타 / 프로필 드롭다운 */}
-                    <div ref={profileRef} style={{ position: 'relative' }}>
-                        <div className="topbar__avatar" onClick={() => setProfileOpen(v => !v)} style={{ cursor: 'pointer' }}>
+                    <div ref={profileRef} className="sc-profile-wrap">
+                        <div className="topbar__avatar topbar__avatar--clickable" onClick={() => setProfileOpen(v => !v)}>
                             {avatarChar}
                         </div>
                         {profileOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                minWidth: '160px', marginTop: '6px', overflow: 'hidden',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
-                                    <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>{nickname ?? '사용자'}</div>
+                            <div className="sc-profile-dropdown">
+                                <div className="sc-profile-header">
+                                    <div className="sc-profile-name">{nickname ?? '사용자'}</div>
                                 </div>
                                 <button onClick={() => { setProfileOpen(false); navigate('/my-page') }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: 'var(--color-text-primary)',
-                                    }}>
+                                    className="sc-profile-menu-btn">
                                     <UserCircle size={14} strokeWidth={1.5} />
                                     마이페이지
                                 </button>
                                 <button onClick={handleLogout}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: '#ef4444',
-                                    }}>
+                                    className="sc-profile-logout-btn">
                                     <LogOut size={14} strokeWidth={1.5} />
                                     로그아웃
                                 </button>
@@ -1081,10 +1049,9 @@ function StudyClassroomContent() {
                 {/* ── 메인 패널 ── */}
                 <div className="classroom__main">
                     {/* 주차 선택 버튼 + 드롭다운 */}
-                    <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
+                    <div ref={dropdownRef} className="sc-week-wrap">
                         <button
                             className="classroom__week-btn"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                             onClick={() => !weekLoading && allWeeks.length > 0 && setWeekDropdown(v => !v)}
                         >
                             <Calendar size={14} strokeWidth={1.5} />
@@ -1094,25 +1061,18 @@ function StudyClassroomContent() {
                                     ? `Week ${weekData.weekNumber}: ${weekData.topic}`
                                     : weekError ?? ''
                             }
-                            <ChevronRight size={14} strokeWidth={1.5} style={{ transform: weekDropdown ? 'rotate(270deg)' : 'rotate(90deg)', transition: 'transform .2s' }} />
+                            <ChevronRight size={14} strokeWidth={1.5} className="sc-week-chevron" style={{ transform: weekDropdown ? 'rotate(270deg)' : 'rotate(90deg)' }} />
                         </button>
                         {weekDropdown && (
-                            <div style={{
-                                position: 'absolute', top: '100%', left: 0, zIndex: 100,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e5e7eb)',
-                                borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                minWidth: '280px', maxHeight: '320px', overflowY: 'auto', marginTop: '4px',
-                            }}>
+                            <div className="sc-week-dropdown">
                                 {allWeeks.map(w => {
                                     const locked = isWeekLocked(w)
                                     return (
                                         <button
                                             key={w.weekId}
                                             onClick={() => !locked && handleWeekSwitch(w.weekId)}
+                                            className="sc-week-dropdown-btn"
                                             style={{
-                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                width: '100%', padding: '10px 16px', border: 'none',
-                                                textAlign: 'left', fontSize: '13px',
                                                 cursor: locked ? 'not-allowed' : 'pointer',
                                                 opacity: locked ? 0.45 : 1,
                                                 color: locked
@@ -1124,11 +1084,11 @@ function StudyClassroomContent() {
                                                 fontWeight: w.weekId === weekData?.weekId ? 600 : 400,
                                             }}
                                         >
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span className="sc-week-dropdown__label">
                                                 {locked && <Lock size={12} strokeWidth={1.5} />}
                                                 Week {w.weekNumber}: {w.topic}
                                             </span>
-                                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #6b7280)', marginLeft: '8px' }}>
+                                            <span className="sc-week-dropdown__pct">
                                                 {Number(w.completionRate).toFixed(0)}%
                                             </span>
                                         </button>
@@ -1158,22 +1118,18 @@ function StudyClassroomContent() {
                     <div className="classroom__video">
                         {/* 로딩/에러 오버레이 — 플레이어 div는 항상 DOM에 유지 */}
                         {(weekLoading || weekError || !activeVideoId) && (
-                            <div style={{
-                                position: 'absolute', inset: 0, display: 'flex',
-                                alignItems: 'center', justifyContent: 'center',
-                                background: '#0f0f1a', zIndex: 1, borderRadius: '12px',
-                            }}>
+                            <div className="sc-video-overlay">
                                 {weekLoading
-                                    ? <Loader2 size={32} strokeWidth={1.5} className="animate-spin" style={{ color: 'var(--color-purple-500)' }} />
+                                    ? <Loader2 size={32} strokeWidth={1.5} className="animate-spin sc-video-spinner" />
                                     : weekError
-                                        ? <span style={{ color: '#ef4444', fontSize: '13px' }}>⚠ {weekError}</span>
-                                        : <span style={{ color: '#fff', fontSize: '13px' }}>AI 영상 생성 중입니다. 잠시 뒤 자동으로 다시 확인합니다.</span>
+                                        ? <span className="sc-video-error-text">⚠ {weekError}</span>
+                                        : <span className="sc-video-pending-text">AI 영상 생성 중입니다. 잠시 뒤 자동으로 다시 확인합니다.</span>
                                 }
                             </div>
                         )}
                         <div
                             ref={playerHostRef}
-                            style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+                            className="sc-player-host"
                         />
                     </div>
 
@@ -1182,8 +1138,7 @@ function StudyClassroomContent() {
                         {TABS.map(t => (
                             <button
                                 key={t.key}
-                                className={`classroom__tab-btn ${tab === t.key ? 'classroom__tab-btn--active' : ''}`}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                className={`classroom__tab-btn sc-tab-btn-inner ${tab === t.key ? 'classroom__tab-btn--active' : ''}`}
                                 onClick={() => setTab(t.key)}
                             >
                                 {t.icon}
@@ -1210,10 +1165,9 @@ function StudyClassroomContent() {
                                             href={mdViewerUrl}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="classroom__doc-item"
-                                            style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+                                            className="classroom__doc-item sc-doc-link"
                                         >
-                                            <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                            <div className="classroom__doc-icon sc-doc-icon-purple">
                                                 {resourceIcon(res.type)}
                                             </div>
                                             <div className="classroom__doc-info">
@@ -1239,7 +1193,7 @@ function StudyClassroomContent() {
                                             }
                                         }}
                                     >
-                                        <div className="classroom__doc-icon" style={{ color: 'var(--color-purple-500)' }}>
+                                        <div className="classroom__doc-icon sc-doc-icon-purple">
                                             {resourceIcon(res.type)}
                                         </div>
                                         <div className="classroom__doc-info">
@@ -1273,17 +1227,17 @@ function StudyClassroomContent() {
                                         href={`https://www.youtube.com/watch?v=${v.videoId}`}
                                         target="_blank"
                                         rel="noreferrer"
-                                        style={{ textDecoration: 'none', color: 'inherit' }}
+                                        className="sc-video-link"
                                     >
-                                        <div className="classroom__video-card" style={{ cursor: 'pointer' }}>
+                                        <div className="classroom__video-card">
                                             <div className="classroom__video-thumb">
                                                 <img
                                                     src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
                                                     alt={v.title}
-                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+                                                    className="sc-video-img"
                                                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                                                 />
-                                                <div className="classroom__video-thumb-icon" style={{ color: 'rgba(255,255,255,0.9)', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
+                                                <div className="classroom__video-thumb-icon sc-video-overlay-icon">
                                                     <PlayCircle size={28} strokeWidth={1.5} />
                                                 </div>
                                                 {v.durationSec > 0 && (
@@ -1292,7 +1246,7 @@ function StudyClassroomContent() {
                                                     </div>
                                                 )}
                                                 {v.videoId === activeVideoId && (
-                                                    <div style={{ position: 'absolute', top: 6, left: 6, background: 'var(--color-purple-500,#7c3aed)', color: '#fff', fontSize: '10px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600 }}>
+                                                    <div className="sc-video-now-playing">
                                                         재생 중
                                                     </div>
                                                 )}
@@ -1313,14 +1267,11 @@ function StudyClassroomContent() {
                     {/* 탭: AI 핵심 요약 (주차 keywords) — 클릭 시 상세 확장 */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
-                            <div
-                                className="classroom__summary-heading"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                            >
-                                <Zap size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
+                            <div className="classroom__summary-heading sc-summary-heading-row">
+                                <Zap size={16} strokeWidth={1.5} className="sc-summary-icon" />
                                 핵심 키워드
                                 {safeKeywords.length > 0 && (
-                                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 400 }}>
+                                    <span className="sc-summary-count">
                                         총 {safeKeywords.length}개 · 클릭하면 상세 보기
                                     </span>
                                 )}
@@ -1384,29 +1335,21 @@ function StudyClassroomContent() {
                     {/* 탭: 퀴즈 내역 — 정답/오답 그룹 + 클릭 시 상세 확장 */}
                     {tab === 'quiz' && (
                         <div className="classroom__quiz-history">
-                            <div
-                                className="classroom__quiz-history-title"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                            >
-                                <MessageSquare size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
+                            <div className="classroom__quiz-history-title sc-quiz-heading-row">
+                                <MessageSquare size={16} strokeWidth={1.5} className="sc-quiz-icon" />
                                 퀴즈 내역
                             </div>
                             {quizLoading ? <TabLoading /> : (() => {
                                 const list = Array.isArray(quizAttempts) ? quizAttempts : []
                                 if (quizAttempts === null) return null
                                 if (list.length === 0) return (
-                                    <div style={{ padding: '24px 0' }}>
-                                        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+                                    <div className="sc-quiz-empty">
+                                        <p className="sc-quiz-empty__text">
                                             아직 퀴즈 내역이 없습니다.
                                         </p>
                                         <button
                                             onClick={() => setTab('docs')}
-                                            style={{
-                                                fontSize: '12px', padding: '6px 14px',
-                                                borderRadius: '6px', border: '1px solid var(--color-purple-200)',
-                                                background: 'transparent', color: 'var(--color-purple-600)',
-                                                cursor: 'pointer',
-                                            }}
+                                            className="sc-quiz-empty__btn"
                                         >
                                             ← 학습으로 돌아가기
                                         </button>
@@ -1433,7 +1376,8 @@ function StudyClassroomContent() {
                                                     <ChevronRight
                                                         size={13}
                                                         strokeWidth={2}
-                                                        style={{ color: 'var(--color-text-muted)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}
+                                                        className="sc-quiz-chevron"
+                                                        style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}
                                                     />
                                                 </div>
                                             </button>
@@ -1441,7 +1385,7 @@ function StudyClassroomContent() {
                                             {isOpen && (
                                                 <div className="classroom__quiz-detail">
                                                     {isLoading ? (
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 0', color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                                                        <div className="sc-quiz-detail-loading">
                                                             <Loader2 size={14} strokeWidth={2} className="animate-spin" />
                                                             상세 정보 불러오는 중...
                                                         </div>
@@ -1493,7 +1437,7 @@ function StudyClassroomContent() {
                                                             )}
                                                         </>
                                                     ) : (
-                                                        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', padding: '8px 0' }}>상세 정보를 불러오지 못했습니다.</p>
+                                                        <p className="sc-quiz-detail-error">상세 정보를 불러오지 못했습니다.</p>
                                                     )}
                                                 </div>
                                             )}
@@ -1517,7 +1461,8 @@ function StudyClassroomContent() {
                                             <ChevronRight
                                                 size={14}
                                                 strokeWidth={2}
-                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}
+                                                className="sc-quiz-chevron"
+                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}
                                             />
                                         </button>
                                         {isOpen && items.map((item, i) => renderQuizItem(item, i))}
@@ -1551,11 +1496,8 @@ function StudyClassroomContent() {
                         {/* 메타인지 확인 카드 */}
                         {!metacogComplete ? (
                             <div className="metacog-card">
-                                <div
-                                    className="metacog-card__title"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                    <BrainCircuit size={16} strokeWidth={1.5} style={{ color: 'var(--color-purple-500)' }} />
+                                <div className="metacog-card__title sc-metacog-title-row">
+                                    <BrainCircuit size={16} strokeWidth={1.5} className="sc-metacog-icon" />
                                     메타인지 확인
                                 </div>
                                 {canStartMetacog ? (
@@ -1584,21 +1526,18 @@ function StudyClassroomContent() {
                             </div>
                         ) : (
                             <div className="metacog-card metacog-card--complete">
-                                <div
-                                    className="metacog-card__title"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                                >
+                                <div className="metacog-card__title sc-metacog-title-row">
                                     <CheckCircle2 size={16} strokeWidth={1.5} />
                                     메타인지 평가 완료
                                 </div>
-                                <p className="metacog-card__desc" style={{ margin: '4px 0 0' }}>
+                                <p className="metacog-card__desc sc-metacog-desc--complete">
                                     거꾸로 학습이 완료되었습니다.
                                 </p>
                                 {!partnerConnected && (
                                     matchStatus === 'searching' ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                                            <Search size={14} strokeWidth={2} className="animate-spin" style={{ color: '#ffffff' }} />
-                                            <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600 }}>
+                                        <div className="sc-match-searching">
+                                            <Search size={14} strokeWidth={2} className="animate-spin sc-match-searching__icon" />
+                                            <span className="sc-match-searching__label">
                                                 파트너 매칭 중...
                                             </span>
                                             <button
@@ -1606,37 +1545,25 @@ function StudyClassroomContent() {
                                                     if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
                                                     setMatchStatus('idle')
                                                 }}
-                                                style={{
-                                                    marginLeft: '4px',
-                                                    padding: '2px 8px',
-                                                    fontSize: '11px',
-                                                    fontWeight: 600,
-                                                    color: '#ffffff',
-                                                    background: 'rgba(255,255,255,0.18)',
-                                                    border: '1px solid rgba(255,255,255,0.45)',
-                                                    borderRadius: '4px',
-                                                    cursor: 'pointer',
-                                                    lineHeight: 1.6,
-                                                }}
+                                                className="sc-match-cancel-btn"
                                             >
                                                 취소
                                             </button>
                                         </div>
                                     ) : matchStatus === 'waiting_partner' ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                                            <Loader2 size={14} strokeWidth={2} className="animate-spin" style={{ color: '#ffffff' }} />
-                                            <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600 }}>
+                                        <div className="sc-match-waiting">
+                                            <Loader2 size={14} strokeWidth={2} className="animate-spin sc-match-waiting__icon" />
+                                            <span className="sc-match-waiting__label">
                                                 상대 수락 대기 중...
                                             </span>
                                         </div>
                                     ) : matchStatus === 'pending' && partnerInfo ? (
-                                        <div style={{ marginTop: '10px' }}>
-                                            <div style={{ fontSize: '12px', color: '#ffffff', fontWeight: 600, marginBottom: '6px' }}>
+                                        <div className="sc-match-pending">
+                                            <div className="sc-match-pending__label">
                                                 🎉 파트너를 찾았습니다!
                                             </div>
                                             <button
-                                                className="metacog-card__btn"
-                                                style={{ marginTop: '0', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                                className="metacog-card__btn sc-match-accept-btn"
                                                 onClick={() => open('study-matching', { type: 'study-matching', match: partnerInfo })}
                                             >
                                                 <CheckCircle2 size={14} strokeWidth={2} />
@@ -1645,8 +1572,7 @@ function StudyClassroomContent() {
                                         </div>
                                     ) : (
                                         <button
-                                            className="metacog-card__btn"
-                                            style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                            className="metacog-card__btn sc-match-request-btn"
                                             onClick={handleRequestMatching}
                                         >
                                             <Users size={14} strokeWidth={2} />
@@ -1659,10 +1585,7 @@ function StudyClassroomContent() {
 
                         {/* 주간 파이널 퀴즈 카드 */}
                         <div className={`weekly-quiz-card${(canStartFinalQuiz || quizSubmitted) ? ' weekly-quiz-card--active' : ' weekly-quiz-card--locked'}`}>
-                            <div
-                                className="weekly-quiz-card__title"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                            >
+                            <div className="weekly-quiz-card__title sc-wq-title-row">
                                 {(canStartFinalQuiz || quizSubmitted)
                                     ? <Trophy size={16} strokeWidth={1.5} />
                                     : <Lock   size={16} strokeWidth={1.5} />}
@@ -1677,8 +1600,7 @@ function StudyClassroomContent() {
                             </p>
                             {weekData && (
                                 <button
-                                    className="weekly-quiz-card__btn"
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                    className="weekly-quiz-card__btn sc-wq-btn-inner"
                                     disabled={!quizSubmitted && !canStartFinalQuiz}
                                     onClick={() => {
                                         if (quizSubmitted || canStartFinalQuiz) {
@@ -1738,8 +1660,7 @@ function StudyClassroomContent() {
 
                                     {/* 1:1 메시지 토글 버튼 */}
                                     <button
-                                        className="partner-widget__msg-btn"
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        className="partner-widget__msg-btn sc-partner-msg-btn-inner"
                                         onClick={() => setChatOpen(v => !v)}
                                     >
                                         <MessageCircle size={14} strokeWidth={1.5} />
@@ -1751,8 +1672,8 @@ function StudyClassroomContent() {
                                         <div className="partner-widget__chat">
                                             {!groupId ? (
                                                 /* 상대방 수락 대기 */
-                                                <p className="partner-widget__chat-placeholder" style={{ textAlign: 'center', padding: '16px 4px' }}>
-                                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin" style={{ display: 'block', margin: '0 auto 6px' }} />
+                                                <p className="partner-widget__chat-placeholder sc-chat-waiting">
+                                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin sc-chat-waiting__icon" />
                                                     파트너가 수락하면 채팅이 열립니다.
                                                 </p>
                                             ) : (
@@ -1811,7 +1732,7 @@ function StudyClassroomContent() {
             {/* ── 잠긴 주차 토스트 알림 ── */}
             {lockedToast && (
                 <div className="sc-locked-toast">
-                    <Lock size={14} strokeWidth={1.5} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                    <Lock size={14} strokeWidth={1.5} className="sc-locked-toast__icon" />
                     {lockedToast}
                 </div>
             )}

@@ -6,6 +6,7 @@ import {
     Loader2, Moon, Sun, X, Check, LogOut, UserCircle, Search,
 } from 'lucide-react'
 import OnboardingWizard from '../../components/OnboardingWizard'
+import StudyMatchDropdown from '../../components/StudyMatchDropdown'
 import '../../styles/MainPage.css'
 import { getLearningRooms, getNotifications, markNotificationRead, updateProfile, logout } from '../../services/apiService'
 import type { LearningRoomListItem, NotificationItem } from '../../types/api'
@@ -120,6 +121,7 @@ export default function MainPage() {
         return () => document.removeEventListener('mousedown', handler)
     }, [notifOpen])
 
+
     // ── 프로필 드롭다운 ───────────────────────────────────────────────────────
     const [profileOpen, setProfileOpen] = useState(false)
     const profileRef = useRef<HTMLDivElement>(null)
@@ -146,9 +148,9 @@ export default function MainPage() {
                 </h2>
                 <div className="topbar__actions">
                     {/* 검색 */}
-                    <div ref={searchRef} style={{ position: 'relative' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--color-purple-50)', borderRadius: '10px', padding: '8px 14px' }}>
-                            <Search size={16} strokeWidth={1.5} style={{ color: 'var(--color-text-secondary)' }} />
+                    <div ref={searchRef} className="mp-relative">
+                        <div className="mp-search-wrap">
+                            <Search size={16} strokeWidth={1.5} className="mp-search-icon" />
                             <input
                                 placeholder="학습실 검색..."
                                 value={searchValue}
@@ -161,40 +163,33 @@ export default function MainPage() {
                                         setSearchFocus(false)
                                     }
                                 }}
-                                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '160px', color: 'var(--color-text-primary)', fontFamily: 'inherit' }}
+                                className="mp-search-input"
                             />
                             {searchValue && (
                                 <button onClick={() => { setSearchValue(''); setSearchFocus(false) }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-secondary)', display: 'flex' }}>
+                                    className="mp-search-clear-btn">
                                     <X size={14} strokeWidth={1.5} />
                                 </button>
                             )}
                         </div>
                         {searchFocus && normalizedSearch && (
-                            <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                maxHeight: '240px', overflowY: 'auto', marginTop: '4px',
-                            }}>
+                            <div className="mp-search-dropdown">
                                 {filteredRooms.length === 0 ? (
-                                    <div style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>검색 결과가 없습니다.</div>
+                                    <div className="mp-search-empty">검색 결과가 없습니다.</div>
                                 ) : filteredRooms.map(r => (
                                     <button key={r.roomId}
                                         onClick={() => { navigate(`/study/${r.roomId}/classroom`); setSearchValue(''); setSearchFocus(false) }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                                            textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                            color: 'var(--color-text-primary)',
-                                        }}>
+                                        className="mp-search-result-btn">
                                         <span>{r.subject}</span>
-                                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{r.completionRate}%</span>
+                                        <span className="mp-search-result-rate">{r.completionRate}%</span>
                                     </button>
                                 ))}
                             </div>
                         )}
                     </div>
+
+                    {/* 스터디 매칭 드롭다운 */}
+                    <StudyMatchDropdown />
 
                     {/* 다크 모드 토글 */}
                     <button className="topbar__icon-btn" onClick={handleToggleDark} title={darkMode ? '라이트 모드' : '다크 모드'}>
@@ -202,49 +197,36 @@ export default function MainPage() {
                     </button>
 
                     {/* 알림 */}
-                    <div ref={notifRef} style={{ position: 'relative' }}>
-                        <button className="topbar__icon-btn" onClick={handleOpenNotif} style={{ position: 'relative' }}>
+                    <div ref={notifRef} className="mp-relative">
+                        <button className="topbar__icon-btn mp-notif-btn" onClick={handleOpenNotif}>
                             <Bell size={18} strokeWidth={1.5} />
                             {unreadCount > 0 && (
-                                <span style={{
-                                    position: 'absolute', top: '2px', right: '2px',
-                                    background: '#ef4444', color: '#fff',
-                                    fontSize: '9px', fontWeight: 700,
-                                    minWidth: '14px', height: '14px', borderRadius: '99px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px',
-                                }}>
+                                <span className="mp-notif-badge">
                                     {unreadCount > 9 ? '9+' : unreadCount}
                                 </span>
                             )}
                         </button>
                         {notifOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                width: '320px', maxHeight: '400px', overflowY: 'auto', marginTop: '6px',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div className="mp-notif-dropdown">
+                                <div className="mp-notif-header">
                                     <span>알림</span>
-                                    <button onClick={() => setNotifOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', display: 'flex' }}><X size={14} /></button>
+                                    <button onClick={() => setNotifOpen(false)} className="mp-notif-close-btn"><X size={14} /></button>
                                 </div>
                                 {notifLoading ? (
-                                    <div style={{ padding: '24px', display: 'flex', justifyContent: 'center' }}><Loader2 size={18} className="animate-spin" /></div>
+                                    <div className="mp-notif-loading"><Loader2 size={18} className="animate-spin" /></div>
                                 ) : notifications.length === 0 ? (
-                                    <div style={{ padding: '24px 16px', fontSize: '13px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>알림이 없습니다.</div>
+                                    <div className="mp-notif-empty">알림이 없습니다.</div>
                                 ) : notifications.map(n => (
-                                    <div key={n.notificationId} style={{
-                                        padding: '12px 16px', borderBottom: '1px solid var(--color-border)',
-                                        background: n.isRead ? 'transparent' : 'var(--color-purple-50)',
-                                        display: 'flex', alignItems: 'flex-start', gap: '10px',
-                                    }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.5 }}>{n.message}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
+                                    <div key={n.notificationId}
+                                        className="mp-notif-item"
+                                        style={{ background: n.isRead ? 'transparent' : 'var(--color-purple-50)' }}>
+                                        <div className="mp-notif-item__body">
+                                            <div className="mp-notif-item__message">{n.message}</div>
+                                            <div className="mp-notif-item__time">{new Date(n.createdAt).toLocaleString('ko-KR')}</div>
                                         </div>
                                         {!n.isRead && (
                                             <button onClick={() => handleMarkRead(n.notificationId)} title="읽음 처리"
-                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-purple-500)', display: 'flex', flexShrink: 0, marginTop: '2px' }}>
+                                                className="mp-notif-read-btn">
                                                 <Check size={14} strokeWidth={2} />
                                             </button>
                                         )}
@@ -255,37 +237,22 @@ export default function MainPage() {
                     </div>
 
                     {/* 아바타 / 프로필 드롭다운 */}
-                    <div ref={profileRef} style={{ position: 'relative' }}>
-                        <div className="topbar__avatar" onClick={() => setProfileOpen(v => !v)} style={{ cursor: 'pointer' }}>
+                    <div ref={profileRef} className="mp-relative">
+                        <div className="topbar__avatar mp-avatar-btn" onClick={() => setProfileOpen(v => !v)}>
                             {avatarChar}
                         </div>
                         {profileOpen && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, zIndex: 200,
-                                background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border)',
-                                borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-                                minWidth: '160px', marginTop: '6px', overflow: 'hidden',
-                            }}>
-                                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
-                                    <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>{nickname ?? '사용자'}</div>
+                            <div className="mp-profile-dropdown">
+                                <div className="mp-profile-header">
+                                    <div className="mp-profile-name">{nickname ?? '사용자'}</div>
                                 </div>
                                 <button onClick={() => { setProfileOpen(false); navigate('/my-page') }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: 'var(--color-text-primary)',
-                                    }}>
+                                    className="mp-profile-menu-btn">
                                     <UserCircle size={14} strokeWidth={1.5} />
                                     마이페이지
                                 </button>
                                 <button onClick={handleLogout}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        width: '100%', padding: '11px 16px', background: 'none', border: 'none',
-                                        textAlign: 'left', cursor: 'pointer', fontSize: '13px',
-                                        color: '#ef4444',
-                                    }}>
+                                    className="mp-profile-logout-btn">
                                     <LogOut size={14} strokeWidth={1.5} />
                                     로그아웃
                                 </button>
@@ -312,8 +279,7 @@ export default function MainPage() {
                             AI가 학습자님의 목표와 실력을 분석하여 맞춤형 커리큘럼을 설계합니다.
                         </p>
                         <button
-                            className="hero__cta"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                            className="hero__cta hero__cta--inline"
                             onClick={() => setShowWizard(true)}
                         >
                             <Sparkles size={16} strokeWidth={1.5} />
@@ -321,7 +287,7 @@ export default function MainPage() {
                         </button>
                     </div>
 
-                    <div className="hero__illustration" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-purple-500)' }}>
+                    <div className="hero__illustration hero__illustration--colored">
                         <BrainCircuit size={80} strokeWidth={1.5} />
                     </div>
                 </div>
@@ -341,7 +307,7 @@ export default function MainPage() {
                             key={i}
                             className={`feature-card animate-fade-in delay-${(i + 3) * 100}`}
                         >
-                            <div className="feature-card__icon-wrap" style={{ color: 'var(--color-purple-500)' }}>
+                            <div className="feature-card__icon-wrap mp-feature-icon">
                                 {f.icon}
                             </div>
                             <h3 className="feature-card__title">{f.title}</h3>
@@ -355,16 +321,16 @@ export default function MainPage() {
                     <h3 className="active-study__label">진행 중인 학습</h3>
 
                     {roomsLoading ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '20px 0', color: 'var(--color-text-secondary)' }}>
+                        <div className="mp-rooms-loading">
                             <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
-                            <span style={{ fontSize: '13px' }}>학습실 불러오는 중...</span>
+                            <span className="mp-rooms-loading__text">학습실 불러오는 중...</span>
                         </div>
                     ) : roomsError ? (
-                        <div style={{ padding: '20px 0', fontSize: '13px', color: '#ef4444' }}>
+                        <div className="mp-rooms-error">
                             ⚠ {roomsError}
                         </div>
                     ) : !activeRoom ? (
-                        <div style={{ padding: '20px 0', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                        <div className="mp-rooms-empty">
                             진행 중인 학습실이 없습니다. AI 맞춤 커리큘럼을 시작해보세요!
                         </div>
                     ) : (
@@ -372,7 +338,7 @@ export default function MainPage() {
                             className="active-study__card"
                             onClick={() => navigate(`/study/${activeRoom.roomId}/classroom`)}
                         >
-                            <div className="active-study__emoji" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-purple-500)' }}>
+                            <div className="active-study__emoji mp-active-emoji">
                                 <BookOpen size={28} strokeWidth={1.5} />
                             </div>
                             <div className="active-study__info">
@@ -384,7 +350,7 @@ export default function MainPage() {
                                     <div className="active-study__bar-fill" style={{ width: `${activeRoom.completionRate}%` }} />
                                 </div>
                             </div>
-                            <button className="active-study__btn" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <button className="active-study__btn mp-active-btn--inline">
                                 학습 계속
                                 <ArrowRight size={14} strokeWidth={1.5} />
                             </button>

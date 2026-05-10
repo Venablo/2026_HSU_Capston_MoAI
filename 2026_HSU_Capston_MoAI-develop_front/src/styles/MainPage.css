@@ -256,3 +256,300 @@
     font-family: inherit;
     white-space: nowrap;
 }
+
+/* ── MainPage inline-style 추출 클래스 (mp- prefix) ── */
+
+/* 공통 유틸 */
+.mp-relative { position: relative; }
+
+/* 검색 */
+.mp-search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-purple-50);
+    border-radius: 10px;
+    padding: 8px 14px;
+}
+
+.mp-search-icon {
+    color: var(--color-text-secondary);
+}
+
+.mp-search-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
+    width: 160px;
+    color: var(--color-text-primary);
+    font-family: inherit;
+}
+
+.mp-search-clear-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    color: var(--color-text-secondary);
+    display: flex;
+}
+
+.mp-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.mp-search-empty {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.mp-search-result-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 9px 14px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.mp-search-result-rate {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin-left: 8px;
+}
+
+/* 알림 */
+.mp-notif-btn {
+    position: relative;
+}
+
+.mp-notif-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 99px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+}
+
+.mp-notif-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+    width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+
+.mp-notif-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mp-notif-close-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    display: flex;
+}
+
+.mp-notif-loading {
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.mp-notif-empty {
+    padding: 24px 16px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+
+.mp-notif-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.mp-notif-item__body {
+    flex: 1;
+}
+
+.mp-notif-item__message {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    line-height: 1.5;
+}
+
+.mp-notif-item__time {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+}
+
+.mp-notif-read-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-purple-500);
+    display: flex;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* 프로필 드롭다운 */
+.mp-avatar-btn {
+    cursor: pointer;
+}
+
+.mp-profile-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 200;
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+    min-width: 160px;
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.mp-profile-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.mp-profile-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.mp-profile-menu-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.mp-profile-logout-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ef4444;
+}
+
+/* Hero */
+.hero__cta--inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hero__illustration--colored {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-purple-500);
+}
+
+/* Feature card icon */
+.mp-feature-icon {
+    color: var(--color-purple-500);
+}
+
+/* Active study 상태 메시지 */
+.mp-rooms-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 0;
+    color: var(--color-text-secondary);
+}
+
+.mp-rooms-loading__text {
+    font-size: 13px;
+}
+
+.mp-rooms-error {
+    padding: 20px 0;
+    font-size: 13px;
+    color: #ef4444;
+}
+
+.mp-rooms-empty {
+    padding: 20px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* Active study emoji / button */
+.mp-active-emoji {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-purple-500);
+}
+
+.mp-active-btn--inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
