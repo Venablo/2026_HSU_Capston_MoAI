@@ -33,10 +33,11 @@ import {
 } from 'lucide-react'
 import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
-import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
+import { useClassroomModal } from '../../../context/ClassroomModalContext'
 import type { WeekMatchState } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
 import StudyMatchDropdown from '../../../components/StudyMatchDropdown'
+import { useTheme } from '../../../context/ThemeContext'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
 import { useAuth } from '../../../context/AuthContext'
 import {
@@ -326,22 +327,10 @@ function StudyClassroomContent() {
     }, [profileOpen])
 
     // ── 다크 모드 ─────────────────────────────────────────────────────────────
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
-
-    useEffect(() => {
-        if (darkMode) {
-            document.documentElement.classList.add('dark')
-            localStorage.setItem('theme', 'dark')
-        } else {
-            document.documentElement.classList.remove('dark')
-            localStorage.setItem('theme', 'light')
-        }
-    }, [darkMode])
-
+    const { darkMode, toggleDark } = useTheme()
     const handleToggleDark = () => {
-        const next = !darkMode
-        setDarkMode(next)
-        updateProfile({ themePreference: next ? 'dark' : 'light' }).catch(() => {})
+        toggleDark()
+        updateProfile({ themePreference: !darkMode ? 'dark' : 'light' }).catch(() => {})
     }
 
     // 드롭다운 외부 클릭 시 닫기
@@ -1752,11 +1741,6 @@ function StudyClassroomContent() {
     )
 }
 
-// ── 기본 export: ClassroomModalProvider로 내부 컴포넌트를 감싼다 ────────────────
 export default function StudyClassroom() {
-    return (
-        <ClassroomModalProvider>
-            <StudyClassroomContent />
-        </ClassroomModalProvider>
-    )
+    return <StudyClassroomContent />
 }

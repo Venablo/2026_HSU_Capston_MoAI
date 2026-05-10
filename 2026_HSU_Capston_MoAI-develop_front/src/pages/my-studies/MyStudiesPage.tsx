@@ -7,6 +7,7 @@ import {
 import '../../styles/MyStudiesPage.css'
 import OnboardingWizard from '../../components/OnboardingWizard'
 import StudyMatchDropdown from '../../components/StudyMatchDropdown'
+import { useTheme } from '../../context/ThemeContext'
 import { deleteLearningRoom, getLearningRooms, getNotifications, markNotificationRead, updateProfile, logout } from '../../services/apiService'
 import type { LearningRoomListItem, NotificationItem } from '../../types/api'
 import { useAuth } from '../../context/AuthContext'
@@ -67,20 +68,10 @@ export default function MyStudiesPage() {
     }, [searchFocus, searchValue])
 
     // ── 다크 모드 ─────────────────────────────────────────────────────────────
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
-    useEffect(() => {
-        if (darkMode) {
-            document.documentElement.classList.add('dark')
-            localStorage.setItem('theme', 'dark')
-        } else {
-            document.documentElement.classList.remove('dark')
-            localStorage.setItem('theme', 'light')
-        }
-    }, [darkMode])
+    const { darkMode, toggleDark } = useTheme()
     const handleToggleDark = () => {
-        const next = !darkMode
-        setDarkMode(next)
-        updateProfile({ themePreference: next ? 'dark' : 'light' }).catch(() => {})
+        toggleDark()
+        updateProfile({ themePreference: !darkMode ? 'dark' : 'light' }).catch(() => {})
     }
 
     // ── 알림 ─────────────────────────────────────────────────────────────────

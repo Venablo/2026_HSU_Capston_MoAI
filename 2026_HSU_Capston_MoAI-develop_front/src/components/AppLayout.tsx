@@ -4,6 +4,8 @@ import Sidebar from './Sidebar'
 import StudyMatchingModal from './modals/flipped/StudyMatchingModal'
 import { connectNotificationStream, acceptStudySuggestion } from '../services/apiService'
 import type { StudyMatchResponse } from '../types/aiEvents'
+import { ThemeProvider } from '../context/ThemeContext'
+import { ClassroomModalProvider } from '../context/ClassroomModalContext'
 import '../styles/Sidebar.css'
 
 export default function AppLayout() {
@@ -33,9 +35,6 @@ export default function AppLayout() {
                         matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
                         partnerStrengths: data.matchKeyword ? [String(data.matchKeyword)] : [],
                     })
-                } else if (type === 'study_accepted' && data.groupId) {
-                    // 상대방이 수락 완료 → groupId를 저장해 두면 이후 클래스룸 진입 시 복원된다
-                    localStorage.setItem('moai_study_group_id', String(data.groupId))
                 }
             } catch {}
         }
@@ -52,9 +51,7 @@ export default function AppLayout() {
         if (!pendingMatch) return
         setConnecting(true)
         try {
-            const res = await acceptStudySuggestion(pendingMatch.partnerId)
-            // groupId를 user-level key로 저장 — 이후 클래스룸 진입 시 파트너 카드·채팅 복원에 사용
-            if (res.groupId) localStorage.setItem('moai_study_group_id', res.groupId)
+            await acceptStudySuggestion(pendingMatch.partnerId)
         } catch {}
         setConnecting(false)
         setPendingMatch(null)
@@ -63,23 +60,27 @@ export default function AppLayout() {
     const handleDecline = () => setPendingMatch(null)
 
     return (
-        <div className="layout">
-            <Sidebar
-                collapsed={collapsed}
-                onToggle={() => setCollapsed(c => !c)}
-            />
-            <div className={`layout__main${collapsed ? ' layout__main--left-collapsed' : ''}`}>
-                <Outlet />
-            </div>
+        <ThemeProvider>
+            <ClassroomModalProvider>
+                <div className="layout">
+                    <Sidebar
+                        collapsed={collapsed}
+                        onToggle={() => setCollapsed(c => !c)}
+                    />
+                    <div className={`layout__main${collapsed ? ' layout__main--left-collapsed' : ''}`}>
+                        <Outlet />
+                    </div>
 
-            {pendingMatch && (
-                <StudyMatchingModal
-                    match={pendingMatch}
-                    onClose={handleDecline}
-                    onConnect={handleConnect}
-                    isConnecting={connecting}
-                />
-            )}
-        </div>
+                    {pendingMatch && (
+                        <StudyMatchingModal
+                            match={pendingMatch}
+                            onClose={handleDecline}
+                            onConnect={handleConnect}
+                            isConnecting={connecting}
+                        />
+                    )}
+                </div>
+            </ClassroomModalProvider>
+        </ThemeProvider>
     )
 }

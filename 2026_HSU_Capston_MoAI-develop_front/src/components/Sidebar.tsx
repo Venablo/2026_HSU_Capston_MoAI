@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
 import { Home, BookOpen, User, Moon, Sun, LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useTheme } from '../context/ThemeContext'
 import '../styles/Sidebar.css'
 
 interface SidebarProps {
@@ -23,12 +23,7 @@ export default function Sidebar({
     onToggle,
 }: SidebarProps) {
     const navigate = useNavigate()
-    const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
-
-    useEffect(() => {
-        document.documentElement.classList.toggle('dark', dark)
-        localStorage.setItem('theme', dark ? 'dark' : 'light')
-    }, [dark])
+    const { darkMode, toggleDark } = useTheme()
 
     return (
         <aside className={`sidebar animate-slide-up${collapsed ? ' sidebar--collapsed' : ''}`}>
@@ -64,11 +59,11 @@ export default function Sidebar({
                 </button>
                 <button
                     className="sidebar__bottom-btn"
-                    onClick={() => setDark(d => !d)}
+                    onClick={toggleDark}
                     title={collapsed ? 'Dark Mode' : undefined}
                 >
-                    {dark ? <Sun size={16} strokeWidth={2} /> : <Moon size={16} strokeWidth={2} />}
-                    {!collapsed && <span className="sidebar__nav-label">{dark ? 'Light Mode' : 'Dark Mode'}</span>}
+                    {darkMode ? <Sun size={16} strokeWidth={2} /> : <Moon size={16} strokeWidth={2} />}
+                    {!collapsed && <span className="sidebar__nav-label">{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
                 </button>
                 <button
                     className="sidebar__bottom-btn"

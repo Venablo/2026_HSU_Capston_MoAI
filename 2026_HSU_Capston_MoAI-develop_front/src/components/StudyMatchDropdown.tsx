@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, ChevronDown, ArrowRight } from 'lucide-react'
 import { getLearningRooms, getCurriculum } from '../services/apiService'
-import type { WeekMatchState } from '../context/ClassroomModalContext'
+import { useClassroomModal } from '../context/ClassroomModalContext'
 import './StudyMatchDropdown.css'
 
 interface ActiveMatchItem {
@@ -14,42 +14,40 @@ interface ActiveMatchItem {
 
 export default function StudyMatchDropdown() {
     const navigate = useNavigate()
+    const { matchStates } = useClassroomModal()
+
     const [open,          setOpen]          = useState(false)
     const [activeMatches, setActiveMatches] = useState<ActiveMatchItem[]>([])
     const [weekNumMap,    setWeekNumMap]    = useState<Record<string, number>>({})
     const ref            = useRef<HTMLDivElement>(null)
     const loadedRoomsRef = useRef(new Set<string>())
 
-    // localStorage에서 completed 매칭 읽어 학습실 subject와 연결
+    // matchStates(Context)에서 completed 매칭을 추출해 학습실 subject와 연결
     useEffect(() => {
         let cancelled = false
-        try {
-            const raw = localStorage.getItem('moai_match_states')
-            if (!raw) return
-            const states = JSON.parse(raw) as Record<string, WeekMatchState>
-            const hasCompleted = Object.values(states).some(
-                s => s.matchStatus === 'completed' && s.groupId && s.partnerInfo
-            )
-            if (!hasCompleted) return
+        const hasCompleted = Object.values(matchStates).some(
+            s => s.matchStatus === 'completed' && s.groupId && s.partnerInfo
+        )
+        if (!hasCompleted) { setActiveMatches([]); return }
 
-            getLearningRooms().then(rooms => {
-                if (cancelled) return
-                const matches: ActiveMatchItem[] = []
-                for (const [key, state] of Object.entries(states)) {
-                    if (state.matchStatus !== 'completed' || !state.groupId || !state.partnerInfo) continue
-                    const sep = key.lastIndexOf('_')
-                    if (sep === -1) continue
-                    const roomId = key.slice(0, sep)
-                    const weekId = key.slice(sep + 1)
-                    const room   = rooms.find(r => r.roomId === roomId)
-                    if (!room) continue
-                    matches.push({ roomId, weekId, subject: room.subject, partnerName: state.partnerInfo!.partnerName })
-                }
-                setActiveMatches(matches)
-            }).catch(() => {})
-        } catch { /* localStorage 파싱 실패 무시 */ }
+        getLearningRooms().then(rooms => {
+            if (cancelled) return
+            const matches: ActiveMatchItem[] = []
+            for (const [key, state] of Object.entries(matchStates)) {
+                if (state.matchStatus !== 'completed' || !state.groupId || !state.partnerInfo) continue
+                const sep = key.lastIndexOf('_')
+                if (sep === -1) continue
+                const roomId = key.slice(0, sep)
+                const weekId = key.slice(sep + 1)
+                const room   = rooms.find(r => r.roomId === roomId)
+                if (!room) continue
+                matches.push({ roomId, weekId, subject: room.subject, partnerName: state.partnerInfo!.partnerName })
+            }
+            setActiveMatches(matches)
+        }).catch(() => {})
+
         return () => { cancelled = true }
-    }, [])
+    }, [matchStates])
 
     // 외부 클릭 시 닫기
     useEffect(() => {

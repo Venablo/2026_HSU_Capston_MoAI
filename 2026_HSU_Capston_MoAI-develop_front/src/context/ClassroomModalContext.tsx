@@ -92,6 +92,9 @@ interface ClassroomModalContextValue {
 
     /** SSE 핸들러 등 특정 키를 직접 갱신해야 할 때 사용 */
     setMatchStateForKey: (key: string, updater: (prev: WeekMatchState) => WeekMatchState) => void
+
+    /** 전체 주차별 매칭 상태 맵 (읽기 전용 — StudyMatchDropdown 등에서 사용) */
+    matchStates: Record<string, WeekMatchState>
 }
 
 // ── Context + provider ────────────────────────────────────────────────────────
@@ -149,6 +152,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             matchStatus,      partnerConnected, partnerInfo, groupId,
             setMatchStatus,   setPartnerConnected, setPartnerInfo, setGroupId,
             setMatchStateForKey,
+            matchStates,
         }}>
             {children}
         </ClassroomModalContext.Provider>
