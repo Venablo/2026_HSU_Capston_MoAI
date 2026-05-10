@@ -19,6 +19,7 @@
 
 import type { ReactNode } from 'react'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Client } from '@stomp/stompjs'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
     Search, Bell, ChevronLeft, ChevronRight,
@@ -193,7 +194,7 @@ function StudyClassroomContent() {
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
     const [chatInput,    setChatInput]    = useState('')
     const chatBottomRef = useRef<HTMLDivElement | null>(null)
-    const wsRef         = useRef<WebSocket | null>(null)
+    const stompRef      = useRef<Client | null>(null)
 
     const {
         open, metacogComplete, partnerConnected, partnerInfo,
@@ -818,7 +819,7 @@ function StudyClassroomContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // ── WebSocket 채팅 — groupId 확정 시 연결 ──────────────────────────────────
+    // ── STOMP 채팅 — groupId 확정 시 연결 ────────────────────────────────────
     useEffect(() => {
         if (!groupId) return
 
@@ -834,23 +835,18 @@ function StudyClassroomContent() {
             })
             .catch(() => {})
 
-        // WebSocket 연결
-        const ws = connectGroupChat(groupId)
-        wsRef.current = ws
+        // STOMP over SockJS 연결
+        const client = connectGroupChat(groupId, (msg) => {
+            setChatMessages(prev => [...prev, {
+                id:   Number(msg.messageId) || Date.now(),
+                role: msg.senderNickname === nickname ? 'me' : 'partner',
+                text: msg.content,
+                time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            }])
+        })
+        stompRef.current = client
 
-        ws.onmessage = (e) => {
-            try {
-                const msg = JSON.parse(e.data as string) as ChatMessage
-                setChatMessages(prev => [...prev, {
-                    id:   Number(msg.messageId) || Date.now(),
-                    role: msg.senderNickname === nickname ? 'me' : 'partner',
-                    text: msg.content,
-                    time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
-                }])
-            } catch {}
-        }
-
-        return () => { ws.close(); wsRef.current = null }
+        return () => { client.deactivate(); stompRef.current = null }
     }, [groupId, nickname])
 
     // ── 채팅 자동 스크롤 ────────────────────────────────────────────────────
@@ -859,16 +855,18 @@ function StudyClassroomContent() {
     }, [chatMessages])
 
     // ── 채팅 메시지 전송 ────────────────────────────────────────────────────
-    // groupId가 확정된 경우 WebSocket으로 전송. 백엔드가 모든 참여자에게 에코하므로
-    // 낙관적 추가 없이 onmessage에서만 chatMessages를 업데이트한다.
+    // 백엔드가 모든 참여자에게 에코하므로 낙관적 추가 없이 구독 콜백에서만 업데이트한다.
     const handleSendChat = useCallback(() => {
         const text = chatInput.trim()
-        if (!text) return
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ content: text } satisfies WsChatSend))
+        if (!text || !groupId) return
+        if (stompRef.current?.connected) {
+            stompRef.current.publish({
+                destination: `/pub/chat/${groupId}`,
+                body: JSON.stringify({ content: text } satisfies WsChatSend),
+            })
         }
         setChatInput('')
-    }, [chatInput])
+    }, [chatInput, groupId])
 
     // ── 퀴즈 상세 확장 핸들러 ────────────────────────────────────────────────
     const handleExpandQuiz = useCallback(async (attemptId: string) => {

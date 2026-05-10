@@ -25,6 +25,8 @@
  * ============================================================================
  */
 
+import SockJS from 'sockjs-client'
+import { Client } from '@stomp/stompjs'
 import api from '../api/axios'
 import type { ApiResponse } from '../types/api'
 import type {
@@ -1017,39 +1019,42 @@ export async function getGroupMessages(
 }
 
 /**
- * connectGroupChat  —  WS wss://api.moai.app/ws/study-groups/{groupId}  (JWT 필요)
+ * connectGroupChat  —  STOMP over SockJS  /ws/study-groups  (JWT 필요)
  *
- * 실시간 채팅 WebSocket 연결.
+ * 실시간 채팅 연결 (Spring STOMP + SockJS).
  * getGroupMessages 로 이전 이력을 먼저 로드한 후 이 함수를 호출한다.
- *
- * ⚠️  WebSocket 인증 제약:
- *   브라우저 WebSocket API 는 커스텀 헤더를 지원하지 않는다.
- *   accessToken 을 URL 쿼리 파라미터(?token=...)로 전달한다.
- *
- * 메시지 전송 형식 (클라이언트 → 서버):
- *   ws.send(JSON.stringify({ content: "메시지 내용" }))
  *
  * 메시지 수신 형식 (서버 → 클라이언트):
  *   { messageId, senderType, senderId, senderNickname, content, isAiCorrection, sentAt }
  *
- * 사용 예시:
- *   const history = await getGroupMessages(groupId)
- *   setMessages(history)
- *
- *   const ws = connectGroupChat(groupId)
- *   ws.onmessage = (e) => setMessages(prev => [...prev, JSON.parse(e.data)])
- *   ws.onerror   = () => console.error('WebSocket 오류')
- *   // 컴포넌트 unmount 시: ws.close()
- *
- * @param groupId - 스터디 그룹 고유 ID (acceptStudySuggestion 응답 또는 getStudyGroup 에서 획득)
- * @returns WebSocket 인스턴스 — 컴포넌트 unmount 시 반드시 .close() 호출
+ * @param groupId   - 스터디 그룹 고유 ID
+ * @param onMessage - 수신 메시지 콜백
+ * @returns Client 인스턴스 — unmount 시 반드시 .deactivate() 호출
  */
-export function connectGroupChat(groupId: string): WebSocket {
-  // WebSocket 실시간 채팅 연결. Authorization 헤더 미지원으로 ?token= 쿼리 파라미터 사용.
+export function connectGroupChat(
+  groupId: string,
+  onMessage: (msg: ChatMessage) => void,
+): Client {
   const token = localStorage.getItem('accessToken') ?? ''
-  // http(s):// → ws(s):// 로 변환
-  const wsBase = (import.meta.env.VITE_API_BASE_URL as string).replace(/^http/, 'ws')
-  return new WebSocket(`${wsBase}/ws/study-groups/${groupId}?token=${token}`)
+  const httpBase = import.meta.env.VITE_API_BASE_URL as string
+
+  const client = new Client({
+    webSocketFactory: () => new SockJS(`${httpBase}/ws/study-groups`),
+    connectHeaders: { Authorization: `Bearer ${token}` },
+    debug: (str) => console.log('[STOMP]', str),
+    reconnectDelay: 5000,
+    onConnect: () => {
+      client.subscribe(`/sub/chat/${groupId}`, (frame) => {
+        try { onMessage(JSON.parse(frame.body) as ChatMessage) } catch {}
+      })
+    },
+    onStompError: (frame) => {
+      console.error('[STOMP] error:', frame.headers['message'])
+    },
+  })
+
+  client.activate()
+  return client
 }
 
 // =============================================================================
