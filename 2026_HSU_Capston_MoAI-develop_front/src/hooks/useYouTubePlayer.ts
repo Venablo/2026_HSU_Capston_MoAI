@@ -45,6 +45,10 @@ interface YTPlayer {
     getCurrentTime(): number
     /** 영상 전체 길이를 초(seconds) 단위로 반환 */
     getDuration(): number
+    /** 현재 재생 배속 반환: 0.25, 0.5, 1, 1.5, 2 등 */
+    getPlaybackRate(): number
+    /** 영상 일시정지 */
+    pauseVideo(): void
     /** 플레이어 인스턴스를 DOM에서 제거하고 메모리 해제 */
     destroy(): void
 }
@@ -84,6 +88,8 @@ const SKIP_THRESHOLD_SEC = 30
 const POLL_INTERVAL_MS = 1_000
 /** 장시간 일시정지 임계값(초): pause 상태가 이 시간 이상 지속되면 video_pause 이벤트 발송 */
 const LONG_PAUSE_THRESHOLD_SEC = 180
+/** 고배속 감지 임계값: 이 배속 이상이면 video_speed_up 이벤트 추적 시작 */
+const SPEED_THRESHOLD = 2.0
 
 // ── 훅 인터페이스 ─────────────────────────────────────────────────────────────
 export interface UseYouTubePlayerOptions {
@@ -113,6 +119,8 @@ export interface UseYouTubePlayerReturn {
      */
     playerDivId: string
     playerHostRef: RefObject<HTMLDivElement | null>
+    /** 외부에서 영상을 일시정지할 때 사용 (모달 오픈 시 등) */
+    pausePlayer: () => void
 }
 
 /** 진행률 마일스톤 목록 (오름차순) */
@@ -140,6 +148,10 @@ export function useYouTubePlayer({
 
     // 일시정지가 시작된 시각(Date.now() ms) — null이면 현재 재생 중
     const pauseStartedAtRef = useRef<number | null>(null)
+
+    // 고배속(>= 2x) 구간 추적: 배속 시작 시각과 해당 시점의 영상 위치
+    const speedStartedAtRef = useRef<number | null>(null)
+    const speedStartSecRef  = useRef<number>(0)
 
     // 탭 이탈 횟수 누적 카운터
     const tabDepartureCountRef = useRef<number>(0)
@@ -194,6 +206,20 @@ export function useYouTubePlayer({
                     })
                 }
 
+                // ── 고배속(2x 이상) 감지 ──────────────────────────────────
+                const rate = player.getPlaybackRate()
+                if (rate >= SPEED_THRESHOLD && speedStartedAtRef.current === null) {
+                    speedStartedAtRef.current = Date.now()
+                    speedStartSecRef.current  = current
+                } else if (rate < SPEED_THRESHOLD && speedStartedAtRef.current !== null) {
+                    onPatternRef.current('video_speed_up', {
+                        video_id:        videoId,
+                        speed_start_sec: speedStartSecRef.current,
+                        duration_sec:    (Date.now() - speedStartedAtRef.current) / 1000,
+                    })
+                    speedStartedAtRef.current = null
+                }
+
                 // ── 진행률 마일스톤 감지 ───────────────────────────────────
                 if (onProgressRef.current) {
                     const duration = durationRef.current || player.getDuration()
@@ -215,6 +241,17 @@ export function useYouTubePlayer({
 
             } else if (state === 2) {
                 // ── 일시정지 중(paused): 장시간 일시정지 감지 ───────────────
+
+                // 2배속 구간 중 일시정지 → 해당 구간 이벤트 발송
+                if (speedStartedAtRef.current !== null) {
+                    onPatternRef.current('video_speed_up', {
+                        video_id:        videoId,
+                        speed_start_sec: speedStartSecRef.current,
+                        duration_sec:    (Date.now() - speedStartedAtRef.current) / 1000,
+                    })
+                    speedStartedAtRef.current = null
+                }
+
                 if (pauseStartedAtRef.current === null) {
                     // 방금 일시정지됨 → 시작 시각 기록
                     pauseStartedAtRef.current = Date.now()
@@ -254,6 +291,8 @@ export function useYouTubePlayer({
         }
         lastTimeRef.current = 0
         pauseStartedAtRef.current = null
+        speedStartedAtRef.current = null
+        speedStartSecRef.current = 0
         tabDepartureCountRef.current = 0
         durationRef.current = 0
         reportedMilestonesRef.current = new Set()
@@ -368,5 +407,9 @@ export function useYouTubePlayer({
         }
     }, [videoId, playerDivId, startPolling, stopPolling])
 
-    return { playerDivId, playerHostRef }
+    const pausePlayer = useCallback(() => {
+        playerRef.current?.pauseVideo()
+    }, [])
+
+    return { playerDivId, playerHostRef, pausePlayer }
 }

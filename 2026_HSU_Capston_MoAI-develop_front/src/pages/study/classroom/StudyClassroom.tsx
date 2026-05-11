@@ -236,6 +236,8 @@ function StudyClassroomContent() {
     const toastTimerRef    = useRef<number | null>(null)
     const matchTimeoutRef  = useRef<number | null>(null)
     const { nickname, refreshToken, clearAuth } = useAuth()
+    const nicknameRef = useRef(nickname)
+    useEffect(() => { nicknameRef.current = nickname }, [nickname])
     const navigate = useNavigate()
     const avatarChar = nickname ? nickname.charAt(0).toUpperCase() : '?'
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -548,6 +550,7 @@ function StudyClassroomContent() {
             ) {
                 if (result.materialId) {
                     const material = await getMaterialDetail(roomId, result.materialId)
+                    pausePlayerRef.current()
                     open('monitoring', {
                         type:        'monitoring',
                         conceptName: material.title,
@@ -565,6 +568,7 @@ function StudyClassroomContent() {
                 }
             } else if (result.eventType === 'video_skip' || result.eventType === 'video_speed_up') {
                 const quiz = await getInstantQuiz(roomId, weekData.weekId)
+                pausePlayerRef.current()
                 open('quiz-pass', { type: 'quiz-pass', quiz })
             }
         } catch {
@@ -662,6 +666,8 @@ function StudyClassroomContent() {
     const setMatchStateForKeyRef    = useRef(setMatchStateForKey)
     /** 매칭 요청을 보낸 주차의 복합 키 — handleRequestMatching에서 세팅 */
     const matchRequestKeyRef        = useRef<string | null>(null)
+    /** 모달 오픈 시 영상 정지용 — 훅 호출 후 동기 할당 */
+    const pausePlayerRef            = useRef<() => void>(() => {})
     openRef.current                 = open
     setPartnerInfoRef.current       = setPartnerInfo
     partnerInfoRef.current          = partnerInfo
@@ -818,7 +824,7 @@ function StudyClassroomContent() {
             .then(msgs => {
                 setChatMessages(msgs.map((m: ChatMessage) => ({
                     id:   Number(m.messageId) || Date.now() + Math.random(),
-                    role: m.senderNickname === nickname ? 'me' : 'partner',
+                    role: m.senderNickname === nicknameRef.current ? 'me' : 'partner',
                     text: m.content,
                     time: new Date(m.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
                 })))
@@ -829,7 +835,7 @@ function StudyClassroomContent() {
         const client = connectGroupChat(groupId, (msg) => {
             setChatMessages(prev => [...prev, {
                 id:   Number(msg.messageId) || Date.now(),
-                role: msg.senderNickname === nickname ? 'me' : 'partner',
+                role: msg.senderNickname === nicknameRef.current ? 'me' : 'partner',
                 text: msg.content,
                 time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             }])
@@ -837,7 +843,7 @@ function StudyClassroomContent() {
         stompRef.current = client
 
         return () => { client.deactivate(); stompRef.current = null }
-    }, [groupId, nickname])
+    }, [groupId])
 
     // ── 채팅 자동 스크롤 ────────────────────────────────────────────────────
     useEffect(() => {
@@ -875,11 +881,12 @@ function StudyClassroomContent() {
     }, [expandedQuizId, quizDetailCache])
 
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
-    const { playerHostRef } = useYouTubePlayer({
+    const { playerHostRef, pausePlayer } = useYouTubePlayer({
         videoId:             activeVideoId,
         onPatternDetected:   handlePatternDetected,
         onProgressMilestone: handleProgressMilestone,
     })
+    pausePlayerRef.current = pausePlayer
 
     const isWeekLocked = (w: CurriculumWeekSummary) =>
         unlockedUpToWeekNumber !== null && w.weekNumber > unlockedUpToWeekNumber
