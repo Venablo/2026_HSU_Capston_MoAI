@@ -9,6 +9,7 @@
  *   suggestions[0].partner.nickname      → partnerName
  *   suggestions[0].matchScore * 100      → matchRate
  *   suggestions[0].partner.strengthKeyword → partnerStrengths[0]
+ *   suggestions[0].matchKeyword            → matchKeyword
  *   suggestions[0].suggestedRole === 'mentee' → partnerRole = 'mentor' (나의 역할이 멘티면 파트너는 멘토)
  */
 
@@ -38,5 +39,6 @@ export async function fetchStudyMatch(
         partnerRole:      s.suggestedRole === 'mentee' ? 'mentor' : 'mentee',
         matchRate:        Math.round(s.matchScore * 100),
         partnerStrengths: [s.partner.strengthKeyword],
+        matchKeyword:     s.matchKeyword,
     }
 }

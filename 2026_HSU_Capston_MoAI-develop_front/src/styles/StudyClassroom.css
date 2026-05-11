@@ -2025,6 +2025,30 @@
     margin-bottom: 8px;
 }
 
+.modal-matching__match-keyword-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.modal-matching__match-keyword-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    letter-spacing: 0.5px;
+}
+
+.modal-matching__match-keyword-tag {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #14b8a6, var(--color-purple-500));
+    border-radius: 99px;
+    padding: 4px 14px;
+}
+
 .modal-matching__strengths {
     display: flex;
     flex-wrap: wrap;

@@ -69,6 +69,12 @@ export default function StudyMatchingModal({
                     </div>
                 </div>
 
+                {/* 매칭 키워드 */}
+                <div className="modal-matching__match-keyword-wrap">
+                    <div className="modal-matching__match-keyword-label">이 키워드로 매칭됐어요</div>
+                    <span className="modal-matching__match-keyword-tag">{match.matchKeyword}</span>
+                </div>
+
                 {/* 파트너 강점 태그 */}
                 {match.partnerStrengths.length > 0 && (
                     <div style={{ marginBottom: '12px' }}>

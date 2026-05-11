@@ -26,9 +26,8 @@ export interface MetaEvaluationResponse {
  *   matchScore * 100           → matchRate
  *   partner.nickname           → partnerName
  *   partner.strengthKeyword    → partnerStrengths[0]
+ *   matchKeyword               → matchKeyword
  *   suggestedRole              → partnerRole
- *
- * TODO: replace fetchStudyMatch mock with real getStudySuggestions() call.
  */
 export interface StudyMatchResponse {
     partnerId: string
@@ -39,6 +38,8 @@ export interface StudyMatchResponse {
     /** matchScore (0–1) × 100, e.g. 98 */
     matchRate: number
     partnerStrengths: string[]
+    /** The specific keyword that triggered this match (user's weak ↔ partner's strong) */
+    matchKeyword: string
 }
 
 // ─── Modal data (discriminated union) ────────────────────────────────────────
