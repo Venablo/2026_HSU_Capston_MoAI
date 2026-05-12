@@ -13,6 +13,7 @@ YouTube 자막 스크래퍼.
 - 종료 코드는 Java SubtitleErrorCode enum 과 1:1 로 매핑됨 (CLAUDE.md / TODO.md 의 표 참조).
 """
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -156,14 +157,20 @@ def try_yt_dlp(video_id, langs):
             "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
+            # progress / 일반 로그까지 모두 stderr 로 우회 (stdout 오염 방지)
+            "noprogress": True,
+            "logtostderr": True,
+            "consoletitle": False,
             "extractor_args": {
                 "youtube": {"player_client": ["android", "web", "ios", "tv_embedded"]}
             },
         }
 
         try:
-            with YoutubeDL(opts) as ydl:
-                ydl.download(["https://www.youtube.com/watch?v={}".format(video_id)])
+            # 옵션만으로 막지 못한 잔여 stdout 누출까지 차단하기 위해 호출 영역 자체를 stderr 로 redirect
+            with contextlib.redirect_stdout(sys.stderr):
+                with YoutubeDL(opts) as ydl:
+                    ydl.download(["https://www.youtube.com/watch?v={}".format(video_id)])
         except DownloadError as e:
             code = classify_yt_dlp_error(str(e))
             return None, code or EC_NO_SUBTITLES, str(e)
