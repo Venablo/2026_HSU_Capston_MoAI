@@ -342,35 +342,58 @@ public class CurriculumEnrichmentService {
             String systemPrompt = """
                     당신은 MoAI 학습 플랫폼의 학습 콘텐츠 생성 전문가 AI입니다.
 
-                    아래 주차 정보를 바탕으로 상세 학습 콘텐츠를 생성하세요.
+                    아래 주차 정보를 바탕으로 가독성 높은 상세 학습 자료를 생성하세요.
 
                     ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
                     {
                       "week_number": N,
-                      "study_material": "## 마크다운 학습 자료 — 아래 구조 필수\\n\\n### 📌 이번 주차 전체 지도\\n(앞주차와의 연결, 이번 주 범위, 학습 순서를 한 문단)\\n\\n### 1️⃣~6️⃣ 핵심 개념 6개 상세 (정의 → 원리 → 예시 → 주의사항 → 시험 포인트 구조)\\n\\n### 📊 비교 정리표 2개 (마크다운 표)\\n\\n### 🧪 실전 시나리오 3개\\n\\n### 🚨 자주 하는 실수 TOP 6\\n\\n### 💡 시험 포인트 & 암기 장치\\n\\n### ✅ 이번 주차 체크리스트 6개",
-                      "quiz": {
-                        "questions": [
-                          {"question_type":"multiple","question":"객관식 문제 (4지선다)","options":[{"label":"A","text":"보기1"},{"label":"B","text":"보기2"},{"label":"C","text":"보기3"},{"label":"D","text":"보기4"}],"answer":"정답라벨","related_keyword":"키워드","explanation":"정답 근거 + 오답 분석"}
-                        ]
-                      },
-                      "assignment": {
-                        "title": "과제 제목 (미니 실습형)",
-                        "description": "10~15분 안에 끝낼 수 있는 미니 과제 안내문",
-                        "submission_checklist": ["요소1", "요소2", "요소3", "요소4"],
-                        "required_keywords": ["필수 키워드1", "키워드2", "키워드3", "키워드4"],
-                        "example_outline": ["수행 단계 1", "수행 단계 2", "수행 단계 3"],
-                        "scoring_rubric": "핵심 개념 반영 + 정확성 + 간결한 정리",
-                        "max_score": 100
-                      }
+                      "study_material": "마크다운 학습 자료 전문"
                     }
 
-                    ■ 필수 규칙:
-                    1. study_material: 최소 2500자 이상. 마크다운 서식은 풍부하되 JSON 안정성 우선.
-                    2. study_material에는 핵심 개념 섹션, 비교 표, 실전 시나리오, 자주 하는 실수, 체크리스트를 균형 있게 포함.
-                    3. quiz: 5문항 이상, 모두 4지선다 객관식. explanation은 정답 근거를 상세 서술.
-                    4. assignment: 리포트형 금지, 바로 수행 가능한 미니 실습형. submission_checklist 4개 이상, required_keywords 4개 이상, example_outline 3개 이상.
-                    5. assignment: scoring_rubric은 간단명료하게. 장문 보고서나 1000자 이상 제출 요구 금지.
-                    6. 모든 내용은 한국어. 전문 용어는 영어 병기 (예: 원자성(Atomicity)).
+                    ■ study_material 구성 (순서 준수):
+
+                    [1] ### 📌 이번 주차 개요
+                    이번 주차 내용의 배경과 흐름, 학습 목표를 2~3문단으로 서술.
+
+                    [2] ### 📖 핵심 개념
+                    주제에 필요한 만큼의 개념을 아래 형식으로 작성:
+                      #### 개념명
+                      - 하나의 #### 섹션은 반드시 단 하나의 개념만 다룰 것. 절대 두 개 이상의 개념을 한 섹션 제목에 묶지 말 것.
+                      - 금지 예시: "#### 제1정규형(1NF) 및 제2정규형(2NF)" — 이렇게 쓰면 절대 안 됨.
+                      - 허용 예시: "#### 제1정규형(1NF)", "#### 제2정규형(2NF)" — 각각 별도 섹션으로.
+                      - 섹션 구성 규칙 (반드시 준수):
+                        1. 섹션 시작부에 해당 개념이 무엇인지 설명하는 2~3문장의 산문(불릿 없이 일반 문장)을 먼저 작성할 것.
+                        2. 이후 세부 내용(특징, 원리, 하위 항목, 관련 개념 등)은 불릿(-)과 들여쓰기 불릿(  -)으로 작성.
+                        3. 불릿은 세부 항목이 여러 개일 때 사용. 설명 전체를 불릿으로 도배하지 말 것.
+                      - ①②③ 같은 원형 숫자 특수문자 사용 금지. 번호 목록이 필요하면 1. 2. 3. 형태만 사용.
+                      - 소제목(원리, 예시, 주의사항 등의 세부 헤더) 분리는 금지
+                      - 각 개념당 최소 500자 이상 서술할 것
+                      개념 간 구분은 --- (수평선)으로 구분.
+
+                    [3] ### 📊 비교 정리
+                    비교가 유의미한 개념들을 마크다운 표로 정리.
+                    표 수는 주제에 따라 자유롭게.
+
+                    [4] ### 🚨 자주 하는 실수
+                    혼동하기 쉬운 오개념·함정 포인트를 항목별로 서술.
+
+                    ■ 마크다운 디자인 규칙 (핵심 — 반드시 준수):
+                    - 긴 설명은 절대 문단 하나로 뭉치지 말 것. 불릿(-)과 들여쓰기 불릿(  -)을 적극 활용해 시각적으로 분리할 것.
+                    - 섹션마다 디자인을 조금씩 다르게: 어떤 개념은 불릿 중심, 어떤 개념은 불릿+인용구(>) 조합, 어떤 개념은 표+불릿 조합 등 마크다운 요소를 다양하게 혼용.
+                    - > 인용구는 해당 섹션에서 가장 핵심적인 정의나 원칙 한 줄에 가끔 사용. 남발하지 말 것.
+                    - 사용 가능한 마크다운 요소: *이탤릭*, `인라인코드`, > 인용구, --- 구분선, | 표, - 불릿, 들여쓰기 불릿, 1. 번호목록.
+                    - **볼드** 사용 규칙 (렌더링 안전을 위해 엄격히 준수):
+                      - 볼드는 불릿 항목의 맨 앞 키워드에만 사용. 예: `- **완전 함수 종속**: 설명...`
+                      - 문장 중간에 볼드 삽입 금지 (파서 호환성 문제 발생).
+                      - 한 불릿 라인에 볼드(**...**) 를 두 번 이상 사용 금지.
+                    - 헤더(###, ####)와 본문 사이 빈 줄 필수.
+                    - 한 문단 최대 3~4줄. 그 이상이면 불릿 분리 또는 단락 분리.
+
+                    ■ 콘텐츠 규칙:
+                    1. study_material 최소 3500자 이상. 각 개념마다 500자 이상 서술할 것.
+                    2. 개념 수와 표 수는 주제에 따라 가변적으로 결정.
+                    3. 실전 시나리오, 시험 포인트, 체크리스트 섹션은 포함하지 말 것.
+                    4. 모든 내용은 한국어. 전문 용어는 영어 병기 (예: 원자성(Atomicity)).
                     """;
 
             String keywordsLine = "";
@@ -409,63 +432,14 @@ public class CurriculumEnrichmentService {
     }
 
     private MaterialContent mapToMaterialContent(WeeklyCurriculum curriculum, LlmWeekDetailResponse detail) {
-        List<MaterialContent.Section> sections = new ArrayList<>();
-
-        if (detail.getStudyMaterial() != null && !detail.getStudyMaterial().isBlank()) {
-            sections.add(new MaterialContent.Section("학습 자료", detail.getStudyMaterial()));
-        }
-
-        if (detail.getQuiz() != null && detail.getQuiz().getQuestions() != null
-                && !detail.getQuiz().getQuestions().isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            int idx = 1;
-            for (LlmWeekDetailResponse.QuizQuestion q : detail.getQuiz().getQuestions()) {
-                sb.append(idx++).append(". ").append(nullSafe(q.getQuestion())).append("\n");
-                if (q.getOptions() != null) {
-                    for (LlmWeekDetailResponse.QuizOption opt : q.getOptions()) {
-                        sb.append("   ").append(nullSafe(opt.getLabel())).append(". ")
-                                .append(nullSafe(opt.getText())).append("\n");
-                    }
-                }
-                sb.append("   정답: ").append(nullSafe(q.getAnswer())).append("\n");
-                if (q.getRelatedKeyword() != null && !q.getRelatedKeyword().isBlank()) {
-                    sb.append("   관련 키워드: ").append(q.getRelatedKeyword()).append("\n");
-                }
-                if (q.getExplanation() != null && !q.getExplanation().isBlank()) {
-                    sb.append("   해설: ").append(q.getExplanation()).append("\n");
-                }
-                sb.append("\n");
-            }
-            sections.add(new MaterialContent.Section("연습 퀴즈", sb.toString()));
-        }
-
-        if (detail.getAssignment() != null) {
-            LlmWeekDetailResponse.Assignment a = detail.getAssignment();
-            StringBuilder sb = new StringBuilder();
-            if (a.getTitle() != null) sb.append("제목: ").append(a.getTitle()).append("\n");
-            if (a.getDescription() != null) sb.append("\n").append(a.getDescription()).append("\n");
-            if (a.getSubmissionChecklist() != null && !a.getSubmissionChecklist().isEmpty()) {
-                sb.append("\n[제출 체크리스트]\n");
-                for (String item : a.getSubmissionChecklist()) sb.append("- ").append(item).append("\n");
-            }
-            if (a.getRequiredKeywords() != null && !a.getRequiredKeywords().isEmpty()) {
-                sb.append("\n[필수 키워드] ").append(String.join(", ", a.getRequiredKeywords())).append("\n");
-            }
-            if (a.getExampleOutline() != null && !a.getExampleOutline().isEmpty()) {
-                sb.append("\n[수행 단계]\n");
-                int i = 1;
-                for (String item : a.getExampleOutline()) sb.append(i++).append(". ").append(item).append("\n");
-            }
-            if (a.getScoringRubric() != null) sb.append("\n[채점 기준] ").append(a.getScoringRubric()).append("\n");
-            if (a.getMaxScore() != null) sb.append("[배점] ").append(a.getMaxScore()).append("점\n");
-            sections.add(new MaterialContent.Section("주차 과제", sb.toString()));
-        }
-
-        if (sections.isEmpty()) {
+        if (detail.getStudyMaterial() == null || detail.getStudyMaterial().isBlank()) {
             return null;
         }
 
         String title = curriculum.getWeekNumber() + "주차 학습 자료 — " + curriculum.getTopic();
+        List<MaterialContent.Section> sections = List.of(
+                new MaterialContent.Section("학습 자료", detail.getStudyMaterial())
+        );
         return new MaterialContent(title, sections);
     }
 
@@ -820,59 +794,5 @@ public class CurriculumEnrichmentService {
 
         @JsonProperty("study_material")
         private String studyMaterial;
-
-        private Quiz quiz;
-
-        private Assignment assignment;
-
-        @Getter
-        @NoArgsConstructor
-        static class Quiz {
-            private List<QuizQuestion> questions;
-        }
-
-        @Getter
-        @NoArgsConstructor
-        static class QuizQuestion {
-            @JsonProperty("question_type")
-            private String questionType;
-            private String question;
-            private List<QuizOption> options;
-            private String answer;
-
-            @JsonProperty("related_keyword")
-            private String relatedKeyword;
-
-            private String explanation;
-        }
-
-        @Getter
-        @NoArgsConstructor
-        static class QuizOption {
-            private String label;
-            private String text;
-        }
-
-        @Getter
-        @NoArgsConstructor
-        static class Assignment {
-            private String title;
-            private String description;
-
-            @JsonProperty("submission_checklist")
-            private List<String> submissionChecklist;
-
-            @JsonProperty("required_keywords")
-            private List<String> requiredKeywords;
-
-            @JsonProperty("example_outline")
-            private List<String> exampleOutline;
-
-            @JsonProperty("scoring_rubric")
-            private String scoringRubric;
-
-            @JsonProperty("max_score")
-            private Integer maxScore;
-        }
     }
 }
