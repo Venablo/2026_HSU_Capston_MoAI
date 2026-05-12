@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application on Java 17. Stack: MySQL + Redis + AWS S3, JWT auth, STOMP/WebSocket for chat, SSE for real-time notifications and flipped-learning events, WebFlux `WebClient` for LLM calls, Apache PDFBox for material generation, and a Python subprocess (`youtube-transcript-api`) for subtitle scraping.
+MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application on Java 17. Stack: MySQL + Redis + AWS S3, JWT auth, STOMP/WebSocket for chat, SSE for real-time notifications and flipped-learning events, WebFlux `WebClient` for LLM calls, Apache PDFBox for material generation, and a Python subprocess (yt-dlp 기본 + youtube-transcript-api 폴백) for subtitle scraping.
 
 ## Reference docs
 
@@ -67,7 +67,7 @@ docker-compose up -d
   - `exception/` — `CustomException(status, code, message)`, `GlobalExceptionHandler`
   - `llm/` — shared `LlmService` (WebClient-based), `LlmConfig`, request/response DTOs. All LLM calls go through this module
   - `s3/` — `S3Service` / `S3Config` (AWS SDK v2) for learning-room file URLs
-  - `subtitle/` — `SubtitleScraperService` invokes `scripts/subtitle_scraper.py` via `ProcessBuilder`
+  - `subtitle/` — `SubtitleScraperService` invokes `scripts/scrape_subtitle.py` via `ProcessBuilder` (yt-dlp 기본 + youtube-transcript-api 폴백). 에러는 `SubtitleScrapeException(SubtitleErrorCode)`로 분기.
   - `material/` — `MaterialGeneratorService` + `MaterialContent` (PDF output)
 
 ### Key patterns
@@ -92,7 +92,7 @@ docker-compose up -d
 - Tests use H2 in-memory (`testRuntimeOnly 'com.h2database:h2'`) — running `./gradlew test` does NOT require a live MySQL/Redis.
 - JPA `ddl-auto: update` — schema managed by Hibernate
 - Config file is `src/main/resources/application.yaml` (not `application.yml`). `subtitle.script-path` points at the Python scraper.
-- The deployment environment (and local) must have Python 3 and `youtube-transcript-api` installed.
+- The deployment environment (and local) must have Python 3, `yt-dlp`, and `youtube-transcript-api` installed (`pip install -r src/main/resources/scripts/requirements.txt`).
 
 ### Key dependencies (non-obvious)
 
@@ -134,7 +134,7 @@ graph TB
 
     subgraph External["☁️ External Services"]
         LLM_API[LLM API - OpenAI/Gemini]
-        PY[Python Script - youtube-transcript-api]
+        PY[Python Script - yt-dlp 기본 + youtube-transcript-api 폴백]
     end
 
     subgraph Infra["🗄️ Infrastructure (AWS)"]
@@ -172,9 +172,13 @@ graph TB
 - **패턴 감지**: Redis 기반 카운팅. 키 `moai:events:{userId}:{videoId}:{eventType}` (TTL 10분), 쿨다운 `moai:cooldown:{userId}:{videoId}:{pattern}` (TTL 5분)
 - **진척도**: 영상 시청 40% + 거꾸로 학습 30% + 파이널 퀴즈 30%. 학습실 전체 달성률 = 주차별 평균
 - **매칭 엔진**: 약점 키워드 weakness_count >= 2 + 동일 키워드 strength 보유자 + created_at 7일 이내 + Redis 토큰 존재(온라인)
-- **자막 스크래핑**: Python 스크립트 경로 `src/main/resources/scripts/subtitle_scraper.py`.
-  application.yml `subtitle.script-path` 프로퍼티로 관리.
-  ProcessBuilder로 호출, 실패 시 해당 주차 VideoTranscripts 빈 값으로 저장하고 계속 진행.
+- **자막 스크래핑**: Python 스크립트 경로 `src/main/resources/scripts/scrape_subtitle.py` (yt-dlp 기본 + youtube-transcript-api 폴백).
+  application.yaml `subtitle.script-path` / `python-bin` / `timeout-sec` / `preferred-langs` / `enable-fallback` 프로퍼티로 관리.
+  ProcessBuilder로 호출 (stdout/stderr 분리). 실패 시 `SubtitleScrapeException(SubtitleErrorCode)` 발생, 에러 코드별 분기:
+    - `NO_SUBTITLES_AVAILABLE` → 후보 풀 차순위 영상으로 재선정 1회 시도
+    - `RATE_LIMITED` → `SubtitleRetryQueue` 에 등록 (60초 뒤 같은 영상 재시도)
+    - 기타 (PRIVATE/AGE/REGION/NOT_FOUND/NETWORK/TIMEOUT 등) → 자막 없이 다음 Step 진행
+  학습실 생성 트랜잭션은 자막 실패로 절대 롤백되지 않는다.
 - **LLM 연동**: 프롬프트 설계는 AI 담당이 별도 진행. 백엔드는 LLMService 공통 모듈로 호출만 담당
 - **상세 흐름**: `docs/architecture.md` 참조
 - **YouTube 영상 추천**: LLM이 주차별 topic 기반으로 YouTube video_id를 직접 추천.

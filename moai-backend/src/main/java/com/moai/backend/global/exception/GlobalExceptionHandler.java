@@ -1,5 +1,6 @@
 package com.moai.backend.global.exception;
 
+import com.moai.backend.global.subtitle.exception.SubtitleScrapeException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +42,21 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(e.getStatus()).body(response);
+    }
+
+    // 자막 스크래핑 예외 — errorCode 의 HTTP status / code / message 를 그대로 응답에 매핑
+    @ExceptionHandler(SubtitleScrapeException.class)
+    public ResponseEntity<ErrorResponse> handleSubtitleScrapeException(SubtitleScrapeException e) {
+        log.warn("자막 스크래핑 실패: code={}, detail={}", e.getErrorCode(), e.getDetail());
+
+        ErrorResponse response = ErrorResponse.builder()
+                .success(false)
+                .code(e.getErrorCode().getCode())
+                .message(e.getErrorCode().getMessage())
+                .timestamp(LocalDateTime.now().toString())
+                .build();
+
+        return ResponseEntity.status(e.getErrorCode().getHttpStatus()).body(response);
     }
 
     // 예상치 못한 런타임 예외 — 스택트레이스 노출 방지 + 통일된 ErrorResponse 반환

@@ -4,8 +4,15 @@
 - [x] global/llm/LlmRequestDto.java — 시스템 프롬프트 + 유저 메시지 구조
 - [x] global/llm/LlmResponseDto.java — Gemini 응답 파싱 (content 텍스트 추출)
 - [x] global/llm/LlmConfig.java — WebClient Bean 설정 (llm.api-url 기반)
-- [x] src/main/resources/scripts/subtitle_scraper.py — youtube-transcript-api로 자막 JSON 출력 (인자: video_id)
-- [x] global/subtitle/SubtitleScraperService.java — ProcessBuilder로 Python 스크립트 호출, end_sec = start + duration 계산, 타임아웃 30초, 실패 시 빈 리스트 반환
+- [x] src/main/resources/scripts/scrape_subtitle.py — yt-dlp 기본 + youtube-transcript-api 폴백. 성공 시 stdout 한 줄 JSON({chunks,lang,source}), 실패 시 stderr 구조화 JSON({errorCode,message,detail}). 종료 코드는 Java SubtitleErrorCode 와 1:1 매핑 (10/11/12/13/20/30/31/40/99).
+- [x] src/main/resources/scripts/requirements.txt — yt-dlp>=2026.3.0, youtube-transcript-api>=1.2.0
+- [x] global/subtitle/dto/SubtitleChunk.java — chunkIndex/text/startSec/endSec, end_sec = start + duration 미리 계산
+- [x] global/subtitle/dto/SubtitleScrapeResult.java — chunks/lang/source 보유 record
+- [x] global/subtitle/exception/SubtitleErrorCode.java — 11개 코드 enum, HTTP status·errorCode·exitCode 매핑, fromExitCode/fromName 역매핑 지원
+- [x] global/subtitle/exception/SubtitleScrapeException.java — RuntimeException, errorCode + detail 보유
+- [x] global/subtitle/SubtitleScraperService.java — ProcessBuilder 로 Python 호출, redirectErrorStream(false) + stdout/stderr 별도 스레드 동시 읽기로 데드락 방지. 콤마 구분 python-bin 후보 순회 (Windows/macOS/Linux 모두 무설정 동작). stderr JSON 우선 파싱 → 실패 시 exitCode 로 폴백. 타임아웃 application.yaml 의 subtitle.timeout-sec 기반.
+- [x] global/subtitle/SubtitleRetryQueue.java — RATE_LIMITED 시 60초 뒤 같은 영상 재시도용 ScheduledExecutorService 컴포넌트
+- [x] global/exception/GlobalExceptionHandler.java — @ExceptionHandler(SubtitleScrapeException.class) 추가, errorCode.getHttpStatus() 기반 응답
 - [x] global/s3/S3Service.java — 프로필 이미지 업로드, Presigned URL 생성
 - [x] application.yml — cloud.aws.s3.bucket, cloud.aws.region 프로퍼티 추가
 ## PHASE 2
@@ -22,6 +29,12 @@
 - [x] AsyncConfig.java — @EnableAsync + TaskExecutor 설정
 - [x] @Async 파이프라인 (주차별 병렬): LLM video_id 추천 → 자막 스크래핑 → LLM 키워드 추출 순차 실행, 실패 시 해당 주차 스킵
 - [x] @Async Step D: LLM 학습 자료 생성 → PDF 변환 (PDFBox) → S3 업로드 → resources JSON 추가, 독립 실패 처리
+- [x] 자막 실패 분기 정책 (CurriculumEnrichmentService.enrichWeek + retrySubtitleScrape):
+  - `recommendVideo()` 를 `gatherCandidates()` + `pickBest(candidates, excludedVideoIds)` 두 메서드로 분리 — YouTube API 검색 1회만 하고 점수 1등을 뽑되, 제외 집합으로 차순위 선택 가능
+  - `NO_SUBTITLES_AVAILABLE` → 실패한 videoId 를 excludedVideoIds 에 추가, `pickBest()` 로 차순위 영상 재선정해 1회 재스크래핑. 성공 시 resources 의 youtube 항목 교체 + VideoTranscript 저장
+  - `RATE_LIMITED` → 학습실은 자막 없이 일단 완성하고, `SubtitleRetryQueue.enqueue()` 로 60초 뒤 같은 영상 재시도 예약 (`retrySubtitleScrape` @Async @Transactional)
+  - 그 외 코드(PRIVATE/AGE/REGION/NOT_FOUND/NETWORK/TIMEOUT 등) → 자막 없이 다음 Step 진행
+  - 자막 처리 전체가 try-catch 안에 있어 학습실 생성 트랜잭션은 절대 롤백되지 않음
 ## PHASE 3
 
 - [x] GET /api/learning-rooms — 내 학습실 목록, LearningRoomListResponseDto

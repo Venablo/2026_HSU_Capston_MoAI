@@ -53,7 +53,12 @@ cloud:
       static: ${AWS_REGION}
 
 subtitle:
-  script-path: src/main/resources/scripts/subtitle_scraper.py
+  # 콤마 구분 후보 리스트 — 앞에서부터 시도하여 실행 가능한 첫 명령 사용 (Windows: py / python, Unix: python3)
+  python-bin: ${SUBTITLE_PYTHON_BIN:python3,python,py}
+  script-path: ${SUBTITLE_SCRIPT_PATH:src/main/resources/scripts/scrape_subtitle.py}
+  timeout-sec: ${SUBTITLE_TIMEOUT_SEC:30}
+  preferred-langs: ${SUBTITLE_PREFERRED_LANGS:ko,en}
+  enable-fallback: ${SUBTITLE_ENABLE_FALLBACK:true}
 
 management:
   endpoints:

@@ -18,22 +18,30 @@ import com.moai.backend.global.llm.LlmService;
 import com.moai.backend.global.material.MaterialContent;
 import com.moai.backend.global.material.MaterialGeneratorService;
 import com.moai.backend.global.s3.S3Service;
-import com.moai.backend.global.subtitle.SubtitleChunkDto;
+import com.moai.backend.global.subtitle.SubtitleRetryQueue;
 import com.moai.backend.global.subtitle.SubtitleScraperService;
+import com.moai.backend.global.subtitle.dto.SubtitleChunk;
+import com.moai.backend.global.subtitle.dto.SubtitleScrapeResult;
+import com.moai.backend.global.subtitle.exception.SubtitleErrorCode;
+import com.moai.backend.global.subtitle.exception.SubtitleScrapeException;
 import com.moai.backend.global.youtube.YoutubeApiService;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -52,6 +60,17 @@ public class CurriculumEnrichmentService {
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository quizQuestionRepository;
     private final NotificationService notificationService;
+    private final SubtitleRetryQueue subtitleRetryQueue;
+
+    /**
+     * 재시도 큐에서 @Async/@Transactional 프록시를 거쳐 자기 자신을 호출하기 위한 self 참조.
+     * 같은 빈에서 메서드를 직접 호출하면 트랜잭션 어드바이저를 우회하므로 @Lazy 자기 주입을 사용한다.
+     */
+    @Lazy
+    @Autowired
+    private CurriculumEnrichmentService self;
+
+    private static final long SUBTITLE_RATE_LIMIT_RETRY_SEC = 60L;
 
     public record WeekEnrichmentContext(
             String curriculumId,
@@ -85,8 +104,10 @@ public class CurriculumEnrichmentService {
 
         log.info("[{}주차] enrichment 시작 — topic: {}", curriculum.getWeekNumber(), curriculum.getTopic());
 
-        // Step A: LLM을 통해 YouTube video_id 추천받기
-        YoutubeApiService.VideoMeta videoMeta = recommendVideo(curriculum, context);
+        // Step A: YouTube 검색으로 후보 풀 구성 + 점수 기반 best 영상 선택
+        List<YoutubeApiService.VideoMeta> candidates = gatherCandidates(curriculum, context);
+        Set<String> excludedVideoIds = new HashSet<>();
+        YoutubeApiService.VideoMeta videoMeta = pickBest(curriculum, context, candidates, excludedVideoIds);
         if (videoMeta == null) {
             // 영상 추천 실패 → resources 빈 배열 저장, Step B/C 스킵
             curriculum.updateResources(List.of());
@@ -108,32 +129,42 @@ public class CurriculumEnrichmentService {
         weeklyCurriculumRepository.save(curriculum);
 
         // Step B: YouTube 자막 스크래핑
-        // 실패해도 파이프라인을 중단하지 않고 Step C/D로 계속 진행한다.
-        List<SubtitleChunkDto> chunks = List.of();
+        // 학습실 생성 자체는 절대 실패시키지 않는다. 모든 분기는 이 try-catch 안에서 처리.
+        List<SubtitleChunk> chunks = List.of();
         int transcriptCount = 0;
         try {
-            chunks = subtitleScraperService.scrape(videoId);
-            if (chunks.isEmpty()) {
-                log.warn("[{}주차] 자막 스크래핑 결과 비어있음 (videoId={}) — Step C 스킵, Step D 계속 진행",
-                        curriculum.getWeekNumber(), videoId);
-            } else {
-                // 자막 청크를 VideoTranscript 엔티티로 변환하여 일괄 저장
-                List<VideoTranscript> transcripts = chunks.stream()
-                        .map(chunk -> VideoTranscript.builder()
-                                .curriculum(curriculum)
-                                .videoId(videoId)
-                                .startSec(chunk.getStartSec())
-                                .endSec(chunk.getEndSec())
-                                .textContent(chunk.getText())
-                                .chunkIndex(chunk.getChunkIndex())
-                                .build())
-                        .toList();
-                videoTranscriptRepository.saveAll(transcripts);
-                transcriptCount = transcripts.size();
+            SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
+            chunks = result.chunks();
+            transcriptCount = saveTranscripts(curriculum, videoId, chunks);
+            log.info("[{}주차] 자막 스크래핑 성공 — videoId={}, lang={}, source={}, chunks={}",
+                    curriculum.getWeekNumber(), videoId, result.lang(), result.source(), transcriptCount);
+        } catch (SubtitleScrapeException e) {
+            SubtitleErrorCode code = e.getErrorCode();
+            log.warn("[{}주차] 자막 스크래핑 실패 (videoId={}, code={}, detail={})",
+                    curriculum.getWeekNumber(), videoId, code, e.getDetail());
+
+            if (code == SubtitleErrorCode.NO_SUBTITLES_AVAILABLE) {
+                // 같은 영상은 시간이 지나도 결과가 안 바뀌므로 차선책 영상으로 즉시 재시도
+                excludedVideoIds.add(videoId);
+                SubtitleScrapeResult retried =
+                        retryWithAlternativeVideo(curriculum, context, candidates, excludedVideoIds);
+                if (retried != null) {
+                    chunks = retried.chunks();
+                    transcriptCount = chunks.size();
+                }
+            } else if (code == SubtitleErrorCode.RATE_LIMITED) {
+                // 일시적 차단 — 학습실은 자막 없이 일단 완성하고, 60초 뒤 같은 영상으로 큐 재시도
+                String curriculumId = curriculum.getId();
+                subtitleRetryQueue.enqueue(
+                        () -> self.retrySubtitleScrape(curriculumId, videoId),
+                        SUBTITLE_RATE_LIMIT_RETRY_SEC
+                );
             }
+            // 그 외 코드(VIDEO_PRIVATE / AGE / REGION / NOT_FOUND / NETWORK / TIMEOUT 등)는
+            // 자막 없이 Step C/D 로 진행한다. 학습실 자체는 완성되도록 둔다.
         } catch (Exception e) {
-            log.warn("[{}주차] 자막 스크래핑 중 예외 발생 (videoId={}) — Step C 스킵, Step D 계속 진행: {}",
-                    curriculum.getWeekNumber(), videoId, e.getMessage());
+            log.warn("[{}주차] 자막 처리 중 예기치 못한 예외 (videoId={}): {}",
+                    curriculum.getWeekNumber(), videoId, e.getMessage(), e);
         }
 
         // Step C: 자막 텍스트 기반 LLM 키워드 추출
@@ -158,11 +189,17 @@ public class CurriculumEnrichmentService {
 
     // --- Step A: Algorithmic YouTube 영상 추천 ---
 
-    private YoutubeApiService.VideoMeta recommendVideo(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
-        if (!youtubeApiService.isEnabled()) return null;
+    /**
+     * YouTube 검색 결과로 후보 풀을 구성한다. 점수 계산은 별도 메서드(pickBest)에서 수행한다.
+     * 재시도(NO_SUBTITLES_AVAILABLE 차선책) 시에도 검색 결과를 재사용하기 위해 분리되어 있다.
+     */
+    private List<YoutubeApiService.VideoMeta> gatherCandidates(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
+        if (!youtubeApiService.isEnabled()) return List.of();
 
         String subject = nullSafe(context.subject()).trim();
-        String topic = curriculum.getTopic() != null ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim() : "";
+        String topic = curriculum.getTopic() != null
+                ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim()
+                : "";
         String fullBase = (subject + " " + topic).replaceAll("\\s+", " ").trim();
         String searchQuery = nullSafe(context.youtubeSearchQuery());
 
@@ -173,10 +210,6 @@ public class CurriculumEnrichmentService {
             queries.add(fullBase);
         }
 
-        Pattern problemPattern = Pattern.compile("기출|문제|문제풀이|풀이|해설|모의고사|예상문제|암기법|벼락치기|합격후기|공부법|shorts|쇼츠", Pattern.CASE_INSENSITIVE);
-        Pattern metaPattern = Pattern.compile("시험 정보|응시자격|공부법|합격 전략|빠르게 요약|초단기|한방 정리|오리엔테이션", Pattern.CASE_INSENSITIVE);
-        Pattern conceptPattern = Pattern.compile("강의|개념|이론|원리|기초|입문|정리|소프트웨어 설계|객체지향|데이터베이스|정규화|프로그래밍 언어|운영체제|네트워크|보안", Pattern.CASE_INSENSITIVE);
-
         List<YoutubeApiService.VideoMeta> allCandidates = new ArrayList<>();
         for (String query : queries) {
             if (query.isBlank()) continue;
@@ -184,11 +217,34 @@ public class CurriculumEnrichmentService {
             allCandidates.addAll(results);
             if (!results.isEmpty() && allCandidates.size() >= 10) break;
         }
+        return allCandidates;
+    }
+
+    /**
+     * 미리 모은 후보 풀에서 점수 1등 영상을 고른다.
+     * excludedVideoIds 에 포함된 영상은 후보에서 즉시 제외한다 (NO_SUBTITLES 재시도용).
+     */
+    private YoutubeApiService.VideoMeta pickBest(WeeklyCurriculum curriculum,
+                                                  WeekEnrichmentContext context,
+                                                  List<YoutubeApiService.VideoMeta> allCandidates,
+                                                  Set<String> excludedVideoIds) {
+        if (allCandidates == null || allCandidates.isEmpty()) return null;
+
+        String subject = nullSafe(context.subject()).trim();
+        String topic = curriculum.getTopic() != null
+                ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim()
+                : "";
+
+        Pattern problemPattern = Pattern.compile("기출|문제|문제풀이|풀이|해설|모의고사|예상문제|암기법|벼락치기|합격후기|공부법|shorts|쇼츠", Pattern.CASE_INSENSITIVE);
+        Pattern metaPattern = Pattern.compile("시험 정보|응시자격|공부법|합격 전략|빠르게 요약|초단기|한방 정리|오리엔테이션", Pattern.CASE_INSENSITIVE);
+        Pattern conceptPattern = Pattern.compile("강의|개념|이론|원리|기초|입문|정리|소프트웨어 설계|객체지향|데이터베이스|정규화|프로그래밍 언어|운영체제|네트워크|보안", Pattern.CASE_INSENSITIVE);
 
         YoutubeApiService.VideoMeta bestVideo = null;
         int bestScore = -9999;
 
         for (YoutubeApiService.VideoMeta video : allCandidates) {
+            if (excludedVideoIds != null && excludedVideoIds.contains(video.videoId())) continue;
+
             String title = video.title() != null ? video.title() : "";
             if (problemPattern.matcher(title).find()) continue;
             if (metaPattern.matcher(title).find()) continue;
@@ -225,18 +281,115 @@ public class CurriculumEnrichmentService {
             return bestVideo;
         }
 
-        // 조건 매칭 실패 시 폴백 — 검색 단계에서 이미 자막 있는 영상만 후보로 존재
+        // 조건 매칭 실패 시 폴백 — 후보 풀의 첫 영상 (제외된 것은 건너뛴다)
         log.info("[{}주차] 엄격한 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
-        return allCandidates.isEmpty() ? null : allCandidates.get(0);
+        return allCandidates.stream()
+                .filter(v -> excludedVideoIds == null || !excludedVideoIds.contains(v.videoId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    // --- Step B: 자막 청크 저장 + 재시도 로직 ---
+
+    /**
+     * 청크 리스트를 VideoTranscript 엔티티로 변환해 일괄 저장한다.
+     *
+     * @return 저장된 청크 개수
+     */
+    private int saveTranscripts(WeeklyCurriculum curriculum, String videoId, List<SubtitleChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) return 0;
+        List<VideoTranscript> transcripts = chunks.stream()
+                .map(chunk -> VideoTranscript.builder()
+                        .curriculum(curriculum)
+                        .videoId(videoId)
+                        .startSec(chunk.getStartSec())
+                        .endSec(chunk.getEndSec())
+                        .textContent(chunk.getText())
+                        .chunkIndex(chunk.getChunkIndex())
+                        .build())
+                .toList();
+        videoTranscriptRepository.saveAll(transcripts);
+        return transcripts.size();
+    }
+
+    /**
+     * NO_SUBTITLES_AVAILABLE 발생 시 후보 풀에서 차순위 영상을 골라 자막 스크래핑을 한 번만 더 시도한다.
+     * 학습실 resources 의 youtube 항목을 새 영상으로 교체하고 transcripts 도 저장한다.
+     *
+     * @return 성공 시 결과, 후보가 없거나 또 실패 시 null
+     */
+    private SubtitleScrapeResult retryWithAlternativeVideo(WeeklyCurriculum curriculum,
+                                                            WeekEnrichmentContext context,
+                                                            List<YoutubeApiService.VideoMeta> candidates,
+                                                            Set<String> excludedVideoIds) {
+        YoutubeApiService.VideoMeta alternative = pickBest(curriculum, context, candidates, excludedVideoIds);
+        if (alternative == null) {
+            log.info("[{}주차] 차선책 영상 없음 — 자막 없이 진행", curriculum.getWeekNumber());
+            return null;
+        }
+
+        String altVideoId = alternative.videoId();
+        String altTitle = (alternative.title() != null && !alternative.title().isBlank())
+                ? alternative.title() : curriculum.getTopic();
+        log.info("[{}주차] NO_SUBTITLES 차선책으로 재시도: videoId={}, title={}",
+                curriculum.getWeekNumber(), altVideoId, altTitle);
+
+        try {
+            SubtitleScrapeResult retried = subtitleScraperService.scrape(altVideoId);
+            // 자막 추출에 성공한 영상으로 resources 의 youtube 항목 교체
+            CurriculumResource newResource = new CurriculumResource(
+                    "youtube", altVideoId, altTitle, null, null,
+                    alternative.durationSec(), alternative.viewCount(), null
+            );
+            curriculum.updateResources(List.of(newResource));
+            weeklyCurriculumRepository.save(curriculum);
+
+            saveTranscripts(curriculum, altVideoId, retried.chunks());
+            log.info("[{}주차] 차선책 영상 자막 스크래핑 성공: chunks={}",
+                    curriculum.getWeekNumber(), retried.chunks().size());
+            return retried;
+        } catch (SubtitleScrapeException e) {
+            log.warn("[{}주차] 차선책 영상도 실패 (videoId={}, code={}) — 자막 없이 진행",
+                    curriculum.getWeekNumber(), altVideoId, e.getErrorCode());
+            return null;
+        }
+    }
+
+    /**
+     * RATE_LIMITED 재시도 큐에서 60초 뒤에 호출되는 메서드.
+     * 같은 영상으로 자막 스크래핑을 한 번만 더 시도한다 (무한 재시도 방지).
+     * 별도 트랜잭션 경계가 필요하므로 @Async + @Transactional 로 표시한다.
+     */
+    @Async("curriculumTaskExecutor")
+    @Transactional
+    public void retrySubtitleScrape(String curriculumId, String videoId) {
+        WeeklyCurriculum curriculum = weeklyCurriculumRepository.findById(curriculumId).orElse(null);
+        if (curriculum == null) {
+            log.warn("자막 재시도 대상 커리큘럼을 찾을 수 없음: curriculumId={}", curriculumId);
+            return;
+        }
+
+        try {
+            SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
+            int count = saveTranscripts(curriculum, videoId, result.chunks());
+            log.info("[{}주차] 자막 재시도 성공 — videoId={}, chunks={}",
+                    curriculum.getWeekNumber(), videoId, count);
+        } catch (SubtitleScrapeException e) {
+            log.warn("[{}주차] 자막 재시도 실패 (videoId={}, code={}) — 더 이상 재시도하지 않음",
+                    curriculum.getWeekNumber(), videoId, e.getErrorCode());
+        } catch (Exception e) {
+            log.warn("[{}주차] 자막 재시도 중 예기치 못한 예외 (videoId={}): {}",
+                    curriculum.getWeekNumber(), videoId, e.getMessage(), e);
+        }
     }
 
     // --- Step C: LLM 키워드 추출 ---
 
-    private List<String> extractKeywords(WeeklyCurriculum curriculum, List<SubtitleChunkDto> chunks) {
+    private List<String> extractKeywords(WeeklyCurriculum curriculum, List<SubtitleChunk> chunks) {
         try {
             // 전체 자막 텍스트를 하나로 합침
             String fullText = chunks.stream()
-                    .map(SubtitleChunkDto::getText)
+                    .map(SubtitleChunk::getText)
                     .collect(Collectors.joining(" "));
 
             String systemPrompt = """
