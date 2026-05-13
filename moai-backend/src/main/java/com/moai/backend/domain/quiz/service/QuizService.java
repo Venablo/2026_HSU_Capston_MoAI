@@ -23,6 +23,7 @@ import com.moai.backend.domain.quiz.dto.QuizAttemptResponseDto;
 import com.moai.backend.domain.quiz.dto.QuizReportResponseDto;
 import com.moai.backend.domain.quiz.entity.Quiz;
 import com.moai.backend.domain.quiz.entity.QuizAttempt;
+import com.moai.backend.domain.quiz.entity.QuizOption;
 import com.moai.backend.domain.quiz.entity.QuizQuestion;
 import com.moai.backend.domain.quiz.entity.QuizReport;
 import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
@@ -51,6 +52,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Slf4j
@@ -157,9 +159,21 @@ public class QuizService {
         Quiz quiz = quizRepository.findById(request.getQuizId())
                 .orElseThrow(() -> new CustomException(ErrorCode.QUIZ_NOT_FOUND));
 
-        // 제출한 답과 정답을 대소문자 무시하고 비교
-        boolean isCorrect = question.getAnswer() != null
-                && question.getAnswer().equalsIgnoreCase(request.getSelected());
+        // 정답 비교 전 원본 값 로깅 (DB 정답 / 클라이언트 선택값)
+        log.info("[QuizSubmit] questionId={} dbAnswer='{}' selected='{}'",
+                question.getId(), question.getAnswer(), request.getSelected());
+
+        // DB 정답은 라벨, 프론트 selected 는 라벨 또는 선택지 텍스트일 수 있으므로
+        // 양쪽 모두 라벨로 정규화한 뒤 비교한다.
+        List<QuizOption> options = question.getOptions();
+        String correctLabel = normalizeToLabel(question.getAnswer(), options);
+        String selectedLabel = normalizeToLabel(request.getSelected(), options);
+
+        boolean isCorrect = correctLabel != null
+                && correctLabel.equalsIgnoreCase(selectedLabel);
+
+        log.info("[QuizSubmit] correctLabel='{}' selectedLabel='{}' match={}",
+                correctLabel, selectedLabel, isCorrect);
 
         // 2. LLM으로 AI 해설 생성
         String aiExplanation = generateAiExplanation(question, request.getSelected(), isCorrect);
@@ -910,6 +924,35 @@ public class QuizService {
                 .build();
 
         return llmService.call(request).getContent();
+    }
+
+    /**
+     * 라벨 또는 선택지 텍스트 어느 쪽이 들어와도 라벨로 정규화한다.
+     * - 한 글자 알파벳이면 그대로 대문자 라벨로 간주
+     * - 그 외에는 options 에서 text 가 일치하는 항목의 label 반환
+     * - 어느 쪽에도 해당 안 되면 원본 trim 값 반환 (→ 자연스럽게 false 판정)
+     */
+    private String normalizeToLabel(String value, List<QuizOption> options) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) return null;
+
+        // 한 글자 알파벳 → 그대로 대문자 라벨로 처리
+        if (trimmed.length() == 1 && Character.isLetter(trimmed.charAt(0))) {
+            return trimmed.toUpperCase();
+        }
+
+        if (options == null) return trimmed;
+
+        // 옵션 텍스트와 매칭되는 label 찾기 (대소문자 무시, 공백 정규화)
+        return options.stream()
+                .filter(o -> o.getText() != null
+                        && o.getText().trim().equalsIgnoreCase(trimmed))
+                .map(QuizOption::getLabel)
+                .filter(Objects::nonNull)
+                .map(String::toUpperCase)
+                .findFirst()
+                .orElse(trimmed);
     }
 
     /**

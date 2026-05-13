@@ -36,8 +36,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter { // 한 요�
                 return;
             }
 
-            // Redis에서 해당 토큰이 로그아웃된 상태인지 확인
-            String isLogout = redisTemplate.opsForValue().get(token);
+            // Redis에서 해당 토큰이 로그아웃된 상태인지 확인.
+            // 키는 토큰 원문이 아닌 'BL:<sha256>' 형태이므로 동일 헬퍼로 생성하여 조회한다.
+            String isLogout = redisTemplate.opsForValue().get(JwtTokenProvider.blacklistKey(token));
 
             if (isLogout == null) { // Redis에 없을 때만(정상 토큰일 때만) 인증 정보를 세션에 저장
                 // 토큰에서 유저 정보(명찰)를 꺼내옴

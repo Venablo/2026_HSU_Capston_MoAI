@@ -75,8 +75,9 @@ public class AuthService {
 
         Long expiration = jwtTokenProvider.getExpiration(accessToken);
 
+        // 토큰 원문 대신 'BL:<sha256>' 키에 저장한다. (JwtTokenProvider.blacklistKey 참조)
         redisTemplate.opsForValue()
-                .set(accessToken, "logout", expiration, TimeUnit.MILLISECONDS);
+                .set(JwtTokenProvider.blacklistKey(accessToken), "logout", expiration, TimeUnit.MILLISECONDS);
     }
 
     @Transactional
@@ -100,15 +101,13 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        UserTokenResponseDto newTokens = jwtTokenProvider.createToken(user.getEmail(), user.getId(), user.getNickname());
+        // accessToken 만 새로 발급하고 refreshToken 은 그대로 유지한다.
+        // 이전에는 createToken 으로 refreshToken 까지 새로 만든 뒤 Redis 만 덮어쓰고
+        // 응답에는 새 RT 를 싣지 않아, 다음 refresh 때 클라이언트의 옛 RT 와 Redis 값이
+        // 불일치하여 AUTH_TOKEN_MISMATCH 가 발생했다.
+        JwtTokenProvider.AccessTokenInfo accessTokenInfo =
+                jwtTokenProvider.createAccessToken(user.getEmail(), user.getId());
 
-        redisTemplate.opsForValue().set(
-                "RT:" + email,
-                newTokens.getRefreshToken(),
-                jwtTokenProvider.getRefreshExpirationTime(),
-                TimeUnit.MILLISECONDS
-        );
-
-        return new UserRefreshResponseDto(newTokens.getAccessToken(), newTokens.getExpiresIn());
+        return new UserRefreshResponseDto(accessTokenInfo.token(), accessTokenInfo.expiresIn());
     }
 }

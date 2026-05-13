@@ -12,8 +12,11 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HexFormat;
 
 @Component
 public class JwtTokenProvider {
@@ -52,6 +55,41 @@ public class JwtTokenProvider {
                 .compact();
 
         return new UserTokenResponseDto(accessToken, refreshToken, accessTokenExpiration / 1000, userId, nickname);
+    }
+
+    // 토큰 재발급 전용: refreshToken 은 재생성하지 않고 accessToken 만 발급한다.
+    // 호출자(AuthService.reissue)는 Redis 의 기존 RT 를 그대로 두어야 한다.
+    public AccessTokenInfo createAccessToken(String email, String userId) {
+        Date now = new Date();
+        String accessToken = Jwts.builder()
+                .subject(email)
+                .claim("userId", userId)
+                .claim("type", "access")
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + accessTokenExpiration))
+                .signWith(key)
+                .compact();
+        return new AccessTokenInfo(accessToken, accessTokenExpiration / 1000);
+    }
+
+    public record AccessTokenInfo(String token, long expiresIn) {}
+
+    // 로그아웃된 accessToken 을 Redis 블랙리스트에 저장/조회할 때 사용하는 키.
+    // 토큰 원문을 키로 쓰면 Redis MONITOR / 백업 파일 / 슬로우로그 등에서 토큰이
+    // 그대로 노출되어 세션 탈취 위험이 있고 키 사이즈도 비효율적이라,
+    // 'BL:' 네임스페이스 prefix + SHA-256 hex 해시로 변환한다.
+    public static String blacklistKey(String accessToken) {
+        return "BL:" + sha256Hex(accessToken);
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 알고리즘을 사용할 수 없습니다", e);
+        }
     }
 
     public String getEmail(String token) {

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 import java.time.LocalDateTime;
 
@@ -57,6 +58,15 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(e.getErrorCode().getHttpStatus()).body(response);
+    }
+
+    // SSE / long-polling 의 비동기 요청 타임아웃 — 정상 흐름이므로 본문 없이 종료한다.
+    // SseEmitter.onTimeout() 콜백이 emitter 정리를 담당하므로 여기서는 응답 본문을 쓰지 않는다.
+    // ※ Exception.class 핸들러보다 먼저 매칭되어야 하며, ErrorResponse JSON 을 text/event-stream
+    //   응답에 쓰려다 발생하던 HttpMessageNotWritableException 을 방지한다.
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncRequestTimeout(AsyncRequestTimeoutException e) {
+        log.debug("SSE/Async 요청 타임아웃 — emitter 정리 위임");
     }
 
     // 예상치 못한 런타임 예외 — 스택트레이스 노출 방지 + 통일된 ErrorResponse 반환
