@@ -692,6 +692,7 @@ function StudyClassroomContent() {
                     partnerAvatar:    String(data.partner?.nickname ?? '파').charAt(0).toUpperCase(),
                     partnerRole:      (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
                     matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
+                    matchKeyword:     String(data.matchKeyword ?? ''),
                     partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
                 }
                 if (matchTimeoutRef.current) { window.clearTimeout(matchTimeoutRef.current); matchTimeoutRef.current = null }
@@ -1700,7 +1701,7 @@ function StudyClassroomContent() {
                                                             className="partner-widget__chat-input"
                                                             value={chatInput}
                                                             onChange={e => setChatInput(e.target.value)}
-                                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() } }}
+                                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSendChat() } }}
                                                             placeholder="메시지 입력... (Enter 전송)"
                                                         />
                                                         <button
