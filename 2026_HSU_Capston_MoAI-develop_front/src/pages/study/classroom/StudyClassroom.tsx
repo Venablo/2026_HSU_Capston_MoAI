@@ -169,10 +169,11 @@ function StudyClassroomContent() {
     const [lockedToast, setLockedToast] = useState<string | null>(null)
 
     // 탭별 데이터 (lazy-load)
-    const [videos,        setVideos]        = useState<RecommendedVideo[] | null>(null)
-    const [videosLoading, setVideosLoading] = useState(false)
-    const [quizAttempts,  setQuizAttempts]  = useState<QuizAttemptListItem[] | null>(null)
-    const [quizLoading,   setQuizLoading]   = useState(false)
+    const [videos,           setVideos]           = useState<RecommendedVideo[] | null>(null)
+    const [videosLoading,    setVideosLoading]    = useState(false)
+    const [quizAttempts,     setQuizAttempts]     = useState<QuizAttemptListItem[] | null>(null)
+    const [quizLoading,      setQuizLoading]      = useState(false)
+    const [videoGenTimedOut, setVideoGenTimedOut] = useState(false)
 
     // 아코디언 / 더 보기 UI 상태
     const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
@@ -480,6 +481,7 @@ function StudyClassroomContent() {
         const hasResources = (weekData.resources?.length ?? 0) > 0
         if (hasMainVideo && hasResources) return
 
+        setVideoGenTimedOut(false)
         let cancelled = false
         let attempts = 0
         const timer = window.setInterval(async () => {
@@ -491,9 +493,17 @@ function StudyClassroomContent() {
                 if (tab === 'videos') void loadVideosForWeek(false)
 
                 const ready = Boolean(detail.mainVideoId) && detail.resources.length > 0
-                if (ready || attempts >= 12) window.clearInterval(timer)
+                if (ready) {
+                    window.clearInterval(timer)
+                } else if (attempts >= 12) {
+                    window.clearInterval(timer)
+                    setVideoGenTimedOut(true)
+                }
             } catch {
-                if (attempts >= 12) window.clearInterval(timer)
+                if (attempts >= 12) {
+                    window.clearInterval(timer)
+                    setVideoGenTimedOut(true)
+                }
             }
         }, 5_000)
 
@@ -1120,7 +1130,9 @@ function StudyClassroomContent() {
                                     ? <Loader2 size={32} strokeWidth={1.5} className="animate-spin sc-video-spinner" />
                                     : weekError
                                         ? <span className="sc-video-error-text">⚠ {weekError}</span>
-                                        : <span className="sc-video-pending-text">AI 영상 생성 중입니다. 잠시 뒤 자동으로 다시 확인합니다.</span>
+                                        : videoGenTimedOut
+                                            ? <span className="sc-video-error-text">⚠ 영상 준비에 시간이 걸리고 있습니다. 잠시 후 페이지를 새로고침해 주세요.</span>
+                                            : <span className="sc-video-pending-text">AI 영상 생성 중입니다. 잠시 뒤 자동으로 다시 확인합니다.</span>
                                 }
                             </div>
                         )}

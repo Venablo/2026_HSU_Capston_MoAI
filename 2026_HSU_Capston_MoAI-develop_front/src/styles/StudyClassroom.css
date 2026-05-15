@@ -1845,6 +1845,26 @@
         flex: none;
     }
 
+    /* 주차 선택 버튼: 긴 토픽명 잘림 처리 */
+    .classroom__week-btn {
+        max-width: calc(100vw - 28px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* 주차 드롭다운: 좁은 화면에서 viewport 오버플로 방지 */
+    .sc-week-dropdown {
+        min-width: unset;
+        width: calc(100vw - 28px);
+        max-width: 360px;
+    }
+
+    /* 검색창 너비 모바일 조정 */
+    .sc-search-input {
+        width: 100px;
+    }
+
     .classroom__lesson-title {
         font-size: 18px;
     }

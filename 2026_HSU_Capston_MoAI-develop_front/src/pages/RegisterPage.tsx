@@ -24,7 +24,7 @@
  * ============================================================================
  */
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
     ChevronRight,
@@ -126,6 +126,7 @@ export default function RegisterPage() {
     const [stepError, setStepError] = useState('')  // 단계별 인라인 에러
     const [showPw,  setShowPw]  = useState(false)
     const [showPwC, setShowPwC] = useState(false)
+    const steppingRef = useRef(false)
 
     // 단일 필드 업데이트 헬퍼
     function setField<K extends keyof FormData>(field: K, value: FormData[K]) {
@@ -152,12 +153,15 @@ export default function RegisterPage() {
         setField('customKeyword', '')
     }
 
-    // 다음 단계
+    // 다음 단계 — ref 가드로 연속 클릭 시 step이 두 번 증가하는 것을 방지
     const next = () => {
+        if (steppingRef.current) return
         const err = validateStep(step, form)
         if (err) { setStepError(err); return }
+        steppingRef.current = true
         setStepError('')
         setStep(s => s + 1)
+        setTimeout(() => { steppingRef.current = false }, 300)
     }
 
     // 이전 단계
@@ -311,6 +315,7 @@ export default function RegisterPage() {
                                                 value={form.name}
                                                 onChange={e => setField('name', e.target.value)}
                                                 autoComplete="name"
+                                                maxLength={50}
                                             />
                                         </div>
                                         <div>
@@ -323,6 +328,7 @@ export default function RegisterPage() {
                                                 value={form.loginId}
                                                 onChange={e => setField('loginId', e.target.value)}
                                                 autoComplete="username"
+                                                maxLength={30}
                                             />
                                         </div>
                                     </div>
@@ -353,6 +359,7 @@ export default function RegisterPage() {
                                             value={form.nickname}
                                             onChange={e => setField('nickname', e.target.value)}
                                             autoComplete="nickname"
+                                            maxLength={30}
                                         />
                                     </div>
 
@@ -370,6 +377,7 @@ export default function RegisterPage() {
                                                 onChange={e => setField('password', e.target.value)}
                                                 style={{ paddingRight: '44px' }}
                                                 autoComplete="new-password"
+                                                maxLength={100}
                                             />
                                             <button
                                                 type="button"
@@ -396,6 +404,7 @@ export default function RegisterPage() {
                                                 onChange={e => setField('passwordConfirm', e.target.value)}
                                                 style={{ paddingRight: '44px' }}
                                                 autoComplete="new-password"
+                                                maxLength={100}
                                             />
                                             <button
                                                 type="button"

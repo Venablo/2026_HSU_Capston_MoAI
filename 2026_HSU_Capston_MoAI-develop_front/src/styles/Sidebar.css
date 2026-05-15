@@ -150,8 +150,9 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* ── Mobile backdrop ── */
+/* ── Mobile backdrop (모바일에서만 표시) ── */
 .layout__backdrop {
+    display: none;
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
@@ -295,5 +296,10 @@
     /* Show hamburger toggle on mobile */
     .layout__mobile-toggle {
         display: flex;
+    }
+
+    /* Show backdrop on mobile when sidebar is open */
+    .layout__backdrop {
+        display: block;
     }
 }

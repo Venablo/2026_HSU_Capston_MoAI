@@ -186,7 +186,7 @@
 .active-study__label {
     font-size: 16px;
     font-weight: 700;
-    color: #374151;
+    color: var(--color-text-primary);
     margin-bottom: 16px;
 }
 
@@ -727,6 +727,6 @@
 
     .mp-notif-dropdown {
         width: 260px;
-        right: -40px;
+        right: 0;
     }
 }
