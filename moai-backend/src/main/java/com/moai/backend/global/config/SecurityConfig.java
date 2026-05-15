@@ -1,5 +1,6 @@
 package com.moai.backend.global.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moai.backend.global.auth.JwtAuthenticationFilter;
 import com.moai.backend.global.auth.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
+    private final ObjectMapper objectMapper;
 
     @Bean
     public BCryptPasswordEncoder passwordEncoder() {
@@ -63,8 +65,8 @@ public class SecurityConfig {
                 )
 
                 // 5. JWT 필터를 기존 시큐리티 필터 체인에 끼워 넣기
-                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, redisTemplate),
-                UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, redisTemplate, objectMapper),
+                        UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

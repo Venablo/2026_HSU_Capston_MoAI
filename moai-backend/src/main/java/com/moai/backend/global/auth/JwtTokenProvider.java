@@ -1,6 +1,7 @@
 package com.moai.backend.global.auth;
 
 import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -126,6 +127,22 @@ public class JwtTokenProvider {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    // 토큰 상태 — 필터에서 만료/무효를 구분하기 위해 사용
+    public enum TokenStatus { VALID, EXPIRED, INVALID }
+
+    // validateToken 과 달리 만료(ExpiredJwtException) 와 그 외 무효를 구분해서 반환한다.
+    // 필터에서 클라이언트에게 정확한 에러 코드를 내려보내기 위해 필요하다.
+    public TokenStatus parseTokenStatus(String token) {
+        try {
+            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
+            return TokenStatus.VALID;
+        } catch (ExpiredJwtException e) {
+            return TokenStatus.EXPIRED;
+        } catch (Exception e) {
+            return TokenStatus.INVALID;
         }
     }
 

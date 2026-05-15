@@ -17,6 +17,7 @@ public enum ErrorCode {
     AUTH_DUPLICATE_NICKNAME(409, "AUTH_003", "이미 사용 중인 닉네임입니다."),
     AUTH_INVALID_TOKEN(401, "AUTH_004", "유효하지 않거나 이미 로그아웃된 토큰입니다."),
     AUTH_TOKEN_MISMATCH(401, "AUTH_005", "토큰 정보가 일치하지 않습니다."),
+    AUTH_TOKEN_EXPIRED(401, "AUTH_007", "토큰이 만료되었습니다."),
 
     // User
     USER_NOT_FOUND(404, "USER_001", "사용자를 찾을 수 없습니다."),
