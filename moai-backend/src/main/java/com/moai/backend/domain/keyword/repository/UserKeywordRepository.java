@@ -19,6 +19,8 @@ public interface UserKeywordRepository extends JpaRepository<UserKeyword, String
 
     List<UserKeyword> findByUserIdAndRoomId(String userId, String roomId);
 
+    List<UserKeyword> findByUserIdAndRoomIdAndCurriculumId(String userId, String roomId, String curriculumId);
+
     @Modifying
     @Query("DELETE FROM UserKeyword uk WHERE uk.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);

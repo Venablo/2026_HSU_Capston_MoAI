@@ -27,4 +27,16 @@ public class KeywordController {
 
         return ResponseEntity.ok(ApiResponse.success("키워드 목록 조회 성공", responseDto));
     }
+
+    @GetMapping("/api/learning-rooms/{roomId}/curriculum/{weekId}/keywords")
+    public ResponseEntity<ApiResponse<KeywordListResponseDto>> getKeywordsByCurriculum(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String roomId,
+            @PathVariable String weekId) {
+
+        KeywordListResponseDto responseDto =
+                keywordService.getKeywordsByCurriculum(userDetails.getUsername(), roomId, weekId);
+
+        return ResponseEntity.ok(ApiResponse.success("주차별 키워드 목록 조회 성공", responseDto));
+    }
 }

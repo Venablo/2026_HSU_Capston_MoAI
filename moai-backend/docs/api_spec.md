@@ -67,6 +67,7 @@
 | 24 | GET | /api/learning-rooms/{roomId}/flipped/result/{sessionId} | 평가 결과 + 대화 기록 조회 | JWT |
 | **7. 키워드 (User Keywords)** |
 | 25 | GET | /api/learning-rooms/{roomId}/keywords | 강점·약점 키워드 목록 | JWT |
+| 25-1 | GET | /api/learning-rooms/{roomId}/curriculum/{weekId}/keywords | 주차별 강점·약점 키워드 목록 | JWT |
 | **8. 파이널 퀴즈 (Final Quiz)** |
 | 26 | GET | /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final | 파이널 퀴즈 문제 목록 | JWT |
 | 27 | POST | /api/learning-rooms/{roomId}/curriculum/{weekId}/quizzes/final/submit | 파이널 퀴즈 답안 제출 (비동기) | JWT |
@@ -702,12 +703,31 @@ data: {"type": "done", "interactionId": "uuid-xxx"}
   "success": true,
   "data": {
     "strengths": [
-      { "keyword": "원자성", "isResolved": false },
-      { "keyword": "TCL_기초", "isResolved": false }
+      { "keyword": "원자성" },
+      { "keyword": "TCL_기초" }
     ],
     "weaknesses": [
       { "keyword": "DML", "weaknessCount": 2, "isResolved": false },
       { "keyword": "고립성(Isolation)_개념", "weaknessCount": 1, "isResolved": false }
+    ]
+  }
+}
+```
+
+### GET /api/learning-rooms/{roomId}/curriculum/{weekId}/keywords (JWT 필요)
+
+주차별 강점·약점 키워드 목록 조회
+
+**RESPONSE 200**
+```json
+{
+  "success": true,
+  "data": {
+    "strengths": [
+      { "keyword": "원자성" }
+    ],
+    "weaknesses": [
+      { "keyword": "DML", "weaknessCount": 2, "isResolved": false }
     ]
   }
 }

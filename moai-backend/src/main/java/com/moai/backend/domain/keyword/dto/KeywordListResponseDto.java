@@ -17,10 +17,9 @@ public class KeywordListResponseDto {
     @AllArgsConstructor
     public static class StrengthKeyword {
         private String keyword;
-        private Boolean isResolved;
 
         public static StrengthKeyword from(UserKeyword uk) {
-            return new StrengthKeyword(uk.getKeyword(), uk.getIsResolved());
+            return new StrengthKeyword(uk.getKeyword());
         }
     }
 
