@@ -198,3 +198,61 @@
     margin-bottom: 8px;
     margin-top: -4px;
 }
+
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 1023px) {
+    .login__left {
+        padding: 40px 36px;
+    }
+
+    .login__headline {
+        font-size: 32px;
+    }
+
+    .login__right {
+        width: 380px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+    .login {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .login__left {
+        padding: 28px 24px;
+        flex: 0 0 auto;
+    }
+
+    .login__brand-name {
+        font-size: 28px;
+    }
+
+    .login__brand-sub {
+        margin-bottom: 20px;
+    }
+
+    .login__headline {
+        font-size: 24px;
+        margin-bottom: 12px;
+    }
+
+    .login__description {
+        font-size: 14px;
+        margin-bottom: 0;
+    }
+
+    .login__features {
+        display: none;
+    }
+
+    .login__right {
+        width: 100%;
+        padding: 28px 24px 40px;
+        flex: 1;
+    }
+}

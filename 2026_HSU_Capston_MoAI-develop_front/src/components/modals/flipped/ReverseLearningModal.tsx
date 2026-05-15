@@ -246,9 +246,9 @@ export default function ReverseLearningModal({
         }
     }, [])
 
-    // Enter 키로 메시지 전송 (Shift+Enter는 줄바꿈)
+    // Enter 키로 메시지 전송 (Shift+Enter는 줄바꿈, IME 조합 중에는 전송 안 함)
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             handleSend()
         }

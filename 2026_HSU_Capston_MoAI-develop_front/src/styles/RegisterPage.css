@@ -544,3 +544,65 @@
     cursor: pointer;
     font-weight: 600;
 }
+
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 1023px) {
+    .reg__left {
+        padding: 40px 36px;
+    }
+
+    .reg__headline {
+        font-size: 28px;
+    }
+
+    .reg__right {
+        width: 420px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+    .reg {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .reg__left {
+        padding: 28px 24px 20px;
+        flex: 0 0 auto;
+    }
+
+    .reg__brand-name {
+        font-size: 28px;
+    }
+
+    .reg__brand-sub {
+        margin-bottom: 16px;
+    }
+
+    .reg__headline {
+        font-size: 20px;
+        margin-bottom: 8px;
+    }
+
+    .reg__description {
+        font-size: 13px;
+        margin-bottom: 0;
+    }
+
+    .reg__step-guide {
+        display: none;
+    }
+
+    .reg__right {
+        width: 100%;
+        padding: 24px 20px 40px;
+        overflow-y: visible;
+    }
+
+    .reg__row {
+        grid-template-columns: 1fr;
+    }
+}

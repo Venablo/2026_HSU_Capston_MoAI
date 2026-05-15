@@ -1807,6 +1807,98 @@
     line-height: 1.5;
 }
 
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 1023px) {
+    .classroom__aside {
+        width: 240px;
+    }
+
+    .classroom__main {
+        padding: 18px;
+    }
+
+    .classroom__lesson-title {
+        font-size: 20px;
+    }
+
+    .classroom__video-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .classroom__fab-ask {
+        font-size: 13px;
+        padding: 10px 16px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+    .classroom {
+        flex-direction: column;
+    }
+
+    .classroom__main {
+        padding: 14px;
+        overflow-y: visible;
+        flex: none;
+    }
+
+    .classroom__lesson-title {
+        font-size: 18px;
+    }
+
+    .classroom__lesson-desc {
+        font-size: 13px;
+    }
+
+    .classroom__aside {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--color-border);
+        flex-shrink: 0;
+        max-height: 360px;
+    }
+
+    .classroom__aside--collapsed {
+        width: 100%;
+        max-height: 44px;
+        overflow: hidden;
+    }
+
+    .classroom__aside--collapsed .classroom__aside-header {
+        justify-content: flex-start;
+    }
+
+    .classroom__video-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .classroom__fab-ask {
+        left: 16px;
+        bottom: 380px;
+        font-size: 13px;
+        padding: 10px 16px;
+    }
+
+    .classroom__fab-sparkle {
+        bottom: 380px;
+    }
+
+    /* Modal responsiveness */
+    .modal-box {
+        padding: 20px;
+    }
+
+    .modal-monitoring__btn-row,
+    .modal-metacog__btn-row,
+    .modal-fast-track__btn-row,
+    .modal-summary__btn-row {
+        flex-direction: column;
+    }
+}
+
 .modal-reverse__btn-row {
     display: flex;
     gap: 10px;

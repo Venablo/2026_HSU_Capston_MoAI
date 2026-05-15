@@ -1,5 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
+import { Menu, X } from 'lucide-react'
 import Sidebar from './Sidebar'
 import StudyMatchingModal from './modals/flipped/StudyMatchingModal'
 import { connectNotificationStream, acceptStudySuggestion } from '../services/apiService'
@@ -11,7 +12,7 @@ import '../styles/Sidebar.css'
 
 // Inner component so useClassroomModal() is inside ClassroomModalProvider
 function AppLayoutContent() {
-    const [collapsed, setCollapsed] = useState(false)
+    const [collapsed, setCollapsed] = useState(() => window.innerWidth < 768)
     const location = useLocation()
     const navigate = useNavigate()
 
@@ -74,6 +75,7 @@ function AppLayoutContent() {
                         partnerRole:      (data.partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
                         matchRate:        Math.round(Number(data.matchScore ?? 0) * 100),
                         partnerStrengths: data.partner?.strengthKeyword ? [String(data.partner.strengthKeyword)] : [],
+                        matchKeyword:     String(data.matchKeyword ?? ''),
                     })
                 } else if (type === 'study_group_activated') {
                     handleStudyGroupActivated(e)
@@ -129,6 +131,18 @@ function AppLayoutContent() {
                 collapsed={collapsed}
                 onToggle={() => setCollapsed(c => !c)}
             />
+            {/* Mobile backdrop — closes sidebar on outside click */}
+            {!collapsed && (
+                <div className="layout__backdrop" onClick={() => setCollapsed(true)} />
+            )}
+            {/* Mobile hamburger toggle */}
+            <button
+                className="layout__mobile-toggle"
+                onClick={() => setCollapsed(c => !c)}
+                aria-label={collapsed ? '메뉴 열기' : '메뉴 닫기'}
+            >
+                {collapsed ? <Menu size={20} strokeWidth={2} /> : <X size={20} strokeWidth={2} />}
+            </button>
             <div className={`layout__main${collapsed ? ' layout__main--left-collapsed' : ''}`}>
                 <Outlet />
             </div>

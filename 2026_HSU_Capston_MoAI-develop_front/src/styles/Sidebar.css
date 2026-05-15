@@ -131,6 +131,34 @@
     color: var(--color-purple-800);
 }
 
+/* ── Mobile hamburger toggle (AppLayout에서 렌더링) ── */
+.layout__mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 22px;
+    left: 14px;
+    z-index: 400;
+    background: #ffffff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Mobile backdrop ── */
+.layout__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    backdrop-filter: blur(2px);
+}
+
 /* ── Layout wrapper ── */
 .layout {
     display: flex;
@@ -204,4 +232,68 @@
     font-weight: 700;
     font-size: 14px;
     cursor: pointer;
+}
+
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 1023px) {
+    .topbar {
+        padding: 0 20px;
+    }
+
+    .topbar__title {
+        font-size: 16px;
+    }
+}
+
+/* Mobile: sidebar as slide-in overlay drawer */
+@media (max-width: 767px) {
+    .sidebar {
+        z-index: 300;
+        width: 220px;
+        min-width: 220px;
+        padding: 24px 16px;
+        transform: translateX(0);
+        transition: transform 0.25s ease;
+    }
+
+    /* On mobile, collapsed = hidden off-screen (transform instead of width) */
+    .sidebar--collapsed {
+        transform: translateX(-220px);
+        width: 220px;
+        min-width: 220px;
+        padding: 24px 16px;
+    }
+
+    /* Sidebar labels always visible (override desktop icon-only mode) */
+    .sidebar--collapsed .sidebar__nav-btn {
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+
+    .sidebar--collapsed .sidebar__bottom-btn {
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+
+    /* Main content always full width on mobile */
+    .layout__main,
+    .layout__main--left-collapsed {
+        margin-left: 0;
+    }
+
+    /* Topbar: leave room for hamburger button */
+    .topbar {
+        padding: 0 16px 0 58px;
+    }
+
+    .topbar__title {
+        font-size: 15px;
+    }
+
+    /* Show hamburger toggle on mobile */
+    .layout__mobile-toggle {
+        display: flex;
+    }
 }
