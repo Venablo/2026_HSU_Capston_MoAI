@@ -19,7 +19,7 @@ export default function MarkdownViewerPage() {
     })()
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f9fafb' }}>
+        <div style={{ minHeight: '100vh', background: '#eef2f7' }}>
             <header style={{
                 position: 'sticky', top: 0, zIndex: 10,
                 background: '#fff', borderBottom: '1px solid #e5e7eb',
@@ -41,7 +41,7 @@ export default function MarkdownViewerPage() {
                     </span>
                 )}
             </header>
-            <main style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 24px' }}>
+            <main style={{ maxWidth: '980px', margin: '0 auto', padding: '48px 32px 64px' }}>
                 <MarkdownViewer s3Url={url} />
             </main>
         </div>

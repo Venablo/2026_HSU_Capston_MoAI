@@ -5,6 +5,7 @@ import com.moai.backend.domain.curriculum.service.CurriculumService;
 import com.moai.backend.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -53,6 +54,18 @@ public class CurriculumController {
                 curriculumService.updateProgress(userDetails.getUsername(), roomId, weekId, requestDto);
 
         return ResponseEntity.ok(ApiResponse.success("진척도 업데이트 성공", responseDto));
+    }
+
+    @GetMapping(value = "/{weekId}/material-preview", produces = "text/html; charset=utf-8")
+    public ResponseEntity<String> getMaterialPreviewHtml(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String roomId,
+            @PathVariable String weekId) {
+
+        String html = curriculumService.getMaterialPreviewHtml(userDetails.getUsername(), roomId, weekId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.valueOf("text/html; charset=utf-8"))
+                .body(html);
     }
 
     @GetMapping("/{weekId}/recommended-videos")

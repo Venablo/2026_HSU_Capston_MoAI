@@ -7,7 +7,9 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 @Getter
@@ -48,10 +50,31 @@ public class CurriculumDetailResponseDto {
                 .weekNumber(curriculum.getWeekNumber())
                 .topic(curriculum.getTopic())
                 .description(curriculum.getDescription())
-                .keywords(curriculum.getKeywords())
+                .keywords(resolveKeywords(curriculum))
                 .mainVideoId(mainVideoId)
                 .resources(docResources)
                 .completionRate(curriculum.getCompletionRate())
                 .build();
+    }
+
+    private static List<String> resolveKeywords(WeeklyCurriculum curriculum) {
+        List<String> keywords = cleanKeywords(curriculum.getKeywords());
+        if (!keywords.isEmpty()) return keywords;
+
+        String topic = curriculum.getTopic();
+        if (topic != null && !topic.isBlank()) return List.of(topic.trim());
+        return Collections.emptyList();
+    }
+
+    private static List<String> cleanKeywords(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) return Collections.emptyList();
+
+        LinkedHashSet<String> cleaned = new LinkedHashSet<>();
+        for (String keyword : keywords) {
+            if (keyword != null && !keyword.isBlank()) {
+                cleaned.add(keyword.trim());
+            }
+        }
+        return new ArrayList<>(cleaned);
     }
 }

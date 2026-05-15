@@ -10,6 +10,8 @@ import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
 import com.moai.backend.global.exception.ErrorCode;
+import com.moai.backend.global.material.MaterialGeneratorService;
+import com.moai.backend.global.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +29,8 @@ public class CurriculumService {
     private final WeeklyCurriculumRepository weeklyCurriculumRepository;
     private final LearningRoomRepository learningRoomRepository;
     private final UserRepository userRepository;
+    private final S3Service s3Service;
+    private final MaterialGeneratorService materialGeneratorService;
 
     public CurriculumListResponseDto getCurriculumList(String email, String roomId) {
         LearningRoom room = findRoomByOwner(email, roomId);
@@ -115,6 +119,39 @@ public class CurriculumService {
         }
 
         return new RecommendedVideoListResponseDto(videos);
+    }
+
+    /**
+     * MD 파일을 S3/로컬에서 읽어 HTML로 변환해 반환한다.
+     * 표(table) 등 마크다운 문법이 브라우저에서 바로 렌더링되도록 하기 위한 뷰어용 엔드포인트에서 사용.
+     */
+    public String getMaterialPreviewHtml(String email, String roomId, String weekId) {
+        LearningRoom room = findRoomByOwner(email, roomId);
+
+        WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
+
+        if (curriculum.getWeekNumber() > room.getCurrentWeek()) {
+            throw new CustomException(ErrorCode.WEEK_LOCKED);
+        }
+
+        String mdUrl = curriculum.getResources() == null ? null :
+                curriculum.getResources().stream()
+                        .filter(r -> "md".equals(r.getType()) && r.getUrl() != null && !r.getUrl().isBlank())
+                        .map(CurriculumResource::getUrl)
+                        .findFirst()
+                        .orElse(null);
+
+        if (mdUrl == null) {
+            throw new CustomException(ErrorCode.CURRICULUM_NOT_FOUND);
+        }
+
+        String markdown = s3Service.fetchTextContent(mdUrl);
+        if (markdown == null) {
+            throw new CustomException(ErrorCode.CURRICULUM_NOT_FOUND);
+        }
+
+        return materialGeneratorService.renderMarkdownHtml(markdown, curriculum.getTopic());
     }
 
     /**

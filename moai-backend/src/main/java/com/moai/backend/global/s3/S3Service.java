@@ -15,6 +15,8 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -114,6 +116,41 @@ public class S3Service {
                 .filter(path -> Files.exists(path.resolve("materials")) || Files.exists(path))
                 .findFirst()
                 .orElse(configured);
+    }
+
+    /**
+     * URL에서 파일 내용을 텍스트로 읽어 반환한다.
+     * 로컬 폴백 URL(/api/files/...)은 디스크에서, S3 URL은 S3Client로 읽는다.
+     * 읽기에 실패하면 null을 반환한다.
+     */
+    public String fetchTextContent(String url) {
+        if (url == null || url.isBlank()) return null;
+
+        if (url.startsWith("/api/files/")) {
+            String relativePath = url.substring("/api/files/".length());
+            try {
+                Path filePath = resolveLocalRoot().resolve(relativePath).toAbsolutePath().normalize();
+                return Files.readString(filePath, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                log.warn("로컬 파일 읽기 실패: {}", url, e);
+                return null;
+            }
+        }
+
+        if (s3Client != null && url.contains("amazonaws.com")) {
+            try {
+                String key = URI.create(url).getPath().substring(1);
+                byte[] bytes = s3Client.getObjectAsBytes(
+                        b -> b.bucket(bucket).key(key)
+                ).asByteArray();
+                return new String(bytes, StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                log.warn("S3 파일 읽기 실패: {}", url, e);
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**

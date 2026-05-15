@@ -181,6 +181,7 @@
     color: var(--color-text-secondary);
     line-height: 1.6;
     margin-bottom: 6px;
+    white-space: pre-line;
 }
 
 .fq-report__q-kw-row {

@@ -47,7 +47,7 @@ public class FlippedSession {
     @JoinColumn(name = "curriculum_id", nullable = false)
     private WeeklyCurriculum curriculum;
 
-    // "pass" | "fail" — pass→강점 키워드 추출 / fail→약점 키워드 추출
+    // "pass"(60+) | "partial"(30~59) | "fail"(<30) — pass/partial→강점 키워드 추출 / fail→약점 키워드 추출
     @Column(name = "flipped_result", nullable = false, length = 10)
     private String flippedResult;
 

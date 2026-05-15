@@ -312,7 +312,9 @@ export interface FlippedStreamRequest {
 export type FlippedStreamEvent =
   | { type: 'token';            content: string }
   | { type: 'counter_question'; content: string }
-  | { type: 'done';             interactionId: string }
+  | { type: 'next_keyword';     keyword: string; keywordIndex: number }
+  | { type: 'session_complete'; content: string }
+  | { type: 'done';             content?: string; interactionId?: string }
 
 export interface EndFlippedRequest {
   sessionId: string

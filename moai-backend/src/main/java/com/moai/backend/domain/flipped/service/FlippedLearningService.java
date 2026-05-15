@@ -141,27 +141,21 @@ public class FlippedLearningService {
         String systemPrompt = """
                 당신은 MoAI 학습 플랫폼의 거꾸로 학습(Flipped Learning) 튜터 AI입니다.
 
-                역할: 학생이 이번 주차 핵심 키워드를 스스로 말로 설명하도록 유도해 메타인지 학습을 시작하게 합니다.
-                지금은 **세션 최초의 안내 문구**를 생성하는 단계입니다.
+                역할: 학생이 첫 번째 키워드를 스스로 설명하도록 유도하는 세션 시작 안내를 작성합니다.
 
-                ■ 출력 형식: 순수 텍스트 (마크다운/코드블록/따옴표/JSON 금지)
+                ■ 출력 형식: 줄 바꿈을 활용한 텍스트 (마크다운/코드블록/JSON 금지)
+                예시 구조:
+                  환영 + 세션 목표 한 줄.
 
-                ■ 톤 & 문체
-                1. 따뜻하고 친근한 한국어 존댓말 ("~해볼까요?", "~설명해 주실래요?").
-                2. 학생을 학습 주체로 세우는 긍정 프레임 — 평가하는 톤 금지.
-                3. 이모지 1개까지만 허용 (예: 🙂, ✨). 남용 금지.
-                4. 영어 병기가 도움이 되는 전문용어는 "한글(영문)" 형태로 1회만 제시.
+                  첫 번째 키워드: [키워드명]
+                  아는 만큼 자유롭게 설명해 주세요!
 
-                ■ 구조 (3문장, 다음 순서 권장)
-                1) 간단한 환영 인사 + 이번 세션의 목표 한 줄 ("직접 설명해 보며 이해도를 점검").
-                2) 첫 키워드를 제시하면서 학생이 무엇을 말해주면 좋을지 구체적 가이드 (정의·예시·왜 중요한지 중 1~2개).
-                3) 부담을 낮추는 격려 문장 (예: "편하게 아는 만큼만 말씀해 주셔도 괜찮아요").
-
-                ■ 금지 사항
-                - 정답을 먼저 설명해 주지 말 것 (학생이 먼저 말해야 함).
-                - [COUNTER_QUESTION], [NEXT_KEYWORD] 등 제어 태그 사용 금지 (첫 메시지에는 태그 불필요).
-                - "오늘 수업에서 배운"처럼 학생이 실제로 수업을 들었는지 단정하지 말 것.
-                - 너무 길게 쓰지 말 것 (총 3문장, 200자 내외).
+                ■ 규칙
+                - 따뜻하고 친근한 한국어 존댓말.
+                - 키워드를 별도 줄에 강조해서 보여줄 것.
+                - 전문용어는 "한글(영문)" 형태로 1회만 병기.
+                - 짧고 부담 없게 — 장황한 가이드 없이 핵심만.
+                - 정답 설명 금지. 제어 태그([COUNTER_QUESTION] 등) 금지.
                 """;
 
         String userMessage = String.format(
@@ -309,28 +303,35 @@ public class FlippedLearningService {
         String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 거꾸로 학습 메타인지 평가 전문가 AI입니다.
 
-                학생과 AI 튜터의 전체 대화 기록을 종합해 학생의 이해도를 블룸 분류법(기억/이해/적용/분석) 기준으로 평가합니다.
+                학생과 AI 튜터의 전체 대화 기록을 종합해 학생의 이해도를 평가합니다.
 
-                ■ 평가 기준:
+                ■ 분석 항목 (내부 분석용 — JSON 출력에 포함하지 않음):
                 1. correct_points: 학생이 정확하게 설명한 포인트 (정의, 원리, 예시, 실전 적용)
-                2. incorrect_points: 학생이 잘못 말한 내용과 바로잡아야 할 올바른 내용 (severity: minor/major)
+                2. incorrect_points: 주제와 무관하거나 완전히 틀린 내용
                 3. missing_points: 핵심 개념 중 학생이 언급하지 않은 부분
-                4. understanding_score: 0~100 점. correct_points의 깊이 + incorrect_points의 심각도 + missing_points의 양을 종합.
-                5. keywords_mastered: 학생이 충분히 이해한 키워드 (정의+예시+원리를 모두 설명한 것)
-                6. keywords_to_review: 학생이 놓쳤거나 틀린 키워드 (설명이 얕거나 incorrect인 것)
+
+                ■ 점수 산정 원칙 (매우 중요):
+                - 점수는 0에서 시작하여 correct_points에 한해서만 가산한다.
+                - 틀린 내용(incorrect_points)과 누락된 내용(missing_points)은 점수에 영향을 주지 않는다 (감점도 없고, 가점도 없다).
+                - 참여 자체, 노력, 시도에 대한 기본 점수는 절대 부여하지 않는다.
+                - 빈 답변이거나 '모르겠다' 수준 → 반드시 0점.
+                - 완전히 틀렸거나 주제와 관련 없는 답변 → 반드시 0점.
+                - 핵심 키워드 중 일부를 정확히 설명한 경우에만 해당 비율만큼 점수를 준다.
+                  예) 키워드 5개 중 2개를 깊이 있게 설명 → 40점 내외 (2/5 비율).
+                - 부분 점수를 세밀하게 반영하여 1점 단위로 정확하게 산정한다.
 
                 ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
                 {
-                  "score": 0~100 (understanding_score와 동일),
-                  "flippedResult": "pass" 또는 "fail" (60점 이상이면 pass),
-                  "gainedKeywords": ["학생이 잘 이해한 키워드"],
-                  "weakKeywords": ["학생이 부족한 키워드"],
-                  "feedback": "종합 피드백 (한국어). correct_points 요약 + incorrect_points의 correct_info로 바로잡기 + missing_points 보강 제안을 2~4문장으로 통합. 격려와 구체적 피드백 균형 유지."
+                  "score": 0~100 (정수),
+                  "flippedResult": "pass", "partial", 또는 "fail" (60점 이상 pass / 30~59점 partial / 30점 미만 fail),
+                  "gainedKeywords": ["학생이 정확히 이해한 키워드"],
+                  "weakKeywords": ["학생이 틀렸거나 누락한 키워드"],
+                  "feedback": "종합 피드백 (한국어). correct_points 요약 + 틀린 내용 교정 + missing_points 보강 제안을 2~4문장으로 통합."
                 }
 
                 ■ 필수 규칙:
                 1. 틀린 내용은 반드시 피드백에서 올바르게 바로잡을 것.
-                2. feedback은 격려 + 구체적 개선 제안 균형.
+                2. feedback에 격려 문구를 넣어도 되지만, 격려가 score에 영향을 줘서는 안 된다.
                 3. gainedKeywords와 weakKeywords에는 반드시 아래 목록에 있는 키워드만 사용. 임의 생성/변경 금지, 목록 원문 그대로 반환.
                 4. 대상 키워드 목록: [%s]
                 """, keywordList);
@@ -442,13 +443,14 @@ public class FlippedLearningService {
     private void cleanupSessionState(String sessionId) {
         redisTemplate.delete(redisKey(sessionId, "keywordIndex"));
         redisTemplate.delete(redisKey(sessionId, "exchangeCount"));
+        redisTemplate.delete(redisKey(sessionId, "completed"));
     }
 
     // ── 5-3: SSE 스트리밍 채팅 ──
 
     // 키워드당 최소/최대 교환 횟수
-    private static final int MIN_EXCHANGES_PER_KEYWORD = 2;
-    private static final int MAX_EXCHANGES_PER_KEYWORD = 5;
+    private static final int MIN_EXCHANGES_PER_KEYWORD = 1;
+    private static final int MAX_EXCHANGES_PER_KEYWORD = 3;
 
     // LLM 태그
     private static final String TAG_COUNTER_QUESTION = "[COUNTER_QUESTION]";
@@ -471,6 +473,17 @@ public class FlippedLearningService {
      */
     public void streamChat(String email, String roomId,
                            FlippedStreamRequestDto requestDto, SseEmitter emitter) {
+
+        // 세션 완료 후 추가 메시지 차단
+        if ("true".equals(redisTemplate.opsForValue().get(redisKey(requestDto.getSessionId(), "completed")))) {
+            try {
+                sendSseEvent(emitter, "session_complete", "모든 키워드를 다뤘습니다.");
+                emitter.complete();
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+            return;
+        }
 
         // 클래스 레벨 @Transactional(readOnly=true)의 읽기 전용 트랜잭션에 합류하지 않도록
         // REQUIRES_NEW로 독립 트랜잭션을 생성한다.
@@ -597,11 +610,9 @@ public class FlippedLearningService {
                             return aiInteractionRepository.save(assistantInteraction);
                         });
 
-                        // 키워드 전환 처리: [NEXT_KEYWORD] 감지 또는 최대 교환 횟수 도달
-                        boolean forceTransition = (ctx.exchangeCount() >= MAX_EXCHANGES_PER_KEYWORD)
-                                && !nextKeywordDetected.get();
-
-                        if (nextKeywordDetected.get() || forceTransition) {
+                        // 키워드 전환/완료는 LLM 태그가 아니라 서버의 교환 횟수 기준으로 확정한다.
+                        // 각 키워드는 학생 답변 1회 이후 다음 키워드로 넘어가며, 마지막 키워드는 즉시 완료 처리한다.
+                        if (ctx.exchangeCount() >= MIN_EXCHANGES_PER_KEYWORD) {
                             handleKeywordTransition(ctx.sessionId(), ctx.keywordIndex(),
                                     ctx.keywords(), emitter);
                         }
@@ -694,7 +705,8 @@ public class FlippedLearningService {
         String exchangeCountKey = redisKey(sessionId, "exchangeCount");
 
         if (nextIndex >= keywords.size()) {
-            // 모든 키워드 완료
+            // 모든 키워드 완료 — Redis에 완료 플래그 기록하여 이후 메시지 차단
+            redisTemplate.opsForValue().set(redisKey(sessionId, "completed"), "true", SESSION_TTL);
             sendSseEvent(emitter, "session_complete", "모든 키워드를 다뤘습니다!");
         } else {
             // 다음 키워드로 전환: Redis 인덱스 증가, 교환 횟수 리셋
@@ -725,10 +737,7 @@ public class FlippedLearningService {
 
         return String.format("""
                 당신은 MoAI 학습 플랫폼의 거꾸로 학습(Flipped Learning) AI 튜터입니다.
-                학생이 키워드를 하나씩 설명하면 다음 절차로 피드백합니다.
-                1) 학생 설명에서 맞은 부분을 구체적으로 인정/칭찬
-                2) 부정확하거나 부족한 부분은 부드럽게 지적하고 올바른 내용을 제공
-                3) 더 깊은 이해를 유도하는 역질문 또는 정리 질문 제공 (블룸 분류법: 기억→이해→적용→분석 순으로 단계 상승)
+                학생이 키워드를 하나씩 설명하면, 평가나 교정 없이 짧게 호응하고 바로 다음 키워드로 넘어갑니다.
 
                 ## 전체 키워드 목록
                 [%s]
@@ -737,21 +746,31 @@ public class FlippedLearningService {
                 - 현재 키워드: '%s' (인덱스 %d/%d)
                 - 현재 교환 횟수: %d회
 
-                ## 태그 사용 규칙
-                1. IMPORTANT: 학생에게 질문을 할 때는 — 역질문, 후속 질문, 마무리 질문 등 종류에 관계없이 — 반드시 [COUNTER_QUESTION] 태그를 질문 텍스트 바로 앞에 붙여주세요. 질문하면서 이 태그를 빠뜨리지 마세요.
-                2. 학생이 현재 키워드를 충분히 이해했다고 판단되면 [NEXT_KEYWORD] 태그를 응답 끝에 붙여주세요.
-                   - 단, 현재 교환 횟수가 2회 미만이면 [NEXT_KEYWORD]를 사용하지 마세요.
-                   - 마지막 키워드에서 [NEXT_KEYWORD]를 사용할 때는, 지금까지 다룬 모든 키워드를 요약하고 학생을 격려하는 자연스러운 마무리 메시지와 함께 출력하세요. [NEXT_KEYWORD]만 단독으로 출력하지 마세요.
-                     예시: '오늘 원자성, 일관성, 고립성, 지속성까지 모두 살펴봤는데 정말 잘 따라와주셨어요! 특히 원자성 설명이 인상적이었습니다. [NEXT_KEYWORD]'
-                3. 태그는 텍스트 내에 자연스럽게 포함시키되, 태그 자체를 학생에게 보여주지는 마세요.
+                ## 응답 방식
+                학생의 설명을 받으면:
+                1. 완전히 중립적인 인식 표현 1문장만. 예시: "네, 들었습니다.", "알겠습니다.", "설명해 주셨네요."
+                   ※ "잘", "훌륭", "완벽", "정확", "좋은", "깔끔", "멋진" 같은 긍정 평가 어휘 절대 금지.
+                   ※ 답변 내용에 대한 어떠한 평가·칭찬·교정도 금지.
+                2. 바로 [NEXT_KEYWORD] 태그로 다음 키워드 요청
 
-                ## 응답 규칙
-                - 응답은 한국어로 작성합니다. 전문 용어는 한글(영문) 병기.
-                - 현재 키워드('%s')에 집중하여 대화합니다.
-                - 틀린 부분이 있으면 반드시 올바른 내용으로 바로잡으세요. 그냥 넘어가지 마세요.
-                - 부족한 부분은 실생활 비유나 예시로 보충 설명하거나, 스스로 보완할 수 있도록 역질문하세요.
-                - 칭찬 → 보충/정정 → 역질문 순서로 균형 있게 응답합니다.
-                - CRITICAL: [COUNTER_QUESTION]을 사용한 응답에서는 절대 [NEXT_KEYWORD]를 함께 사용하지 마세요. 학생의 답변을 먼저 기다린 후, 다음 응답에서 키워드 전환 여부를 결정하세요.
+                다음 키워드를 요청할 때는 줄 바꿈을 활용해 키워드를 눈에 띄게 제시할 것.
+                예시:
+                  네, 들었습니다.
+
+                  다음 키워드: [키워드명]
+                  이 개념도 아는 만큼 자유롭게 설명해 주세요. [NEXT_KEYWORD]
+
+                ## 태그 사용 규칙
+                1. 학생 답변을 받으면 항상 [NEXT_KEYWORD]로 다음 키워드로 전환하세요.
+                2. [COUNTER_QUESTION] 태그는 사용하지 마세요.
+                3. 마지막 키워드에서 [NEXT_KEYWORD]를 쓸 때는 짧은 마무리 인사를 함께 쓰세요.
+                4. 태그 자체를 학생에게 보여주지 마세요.
+
+                ## 금지 사항
+                - 답변의 옳고 그름·수준 평가 금지 (잘했다/못했다/훌륭하다 등 일체 금지).
+                - 올바른 내용으로 교정하거나 보충 설명하는 것 금지.
+                - 역질문([COUNTER_QUESTION]) 금지.
+                - 장황한 응답 금지 — 중립 인식 1문장 + 다음 키워드 요청만.
                 """,
                 keywordList, currentKeyword, keywordIndex + 1, keywords.size(),
                 exchangeCount, currentKeyword

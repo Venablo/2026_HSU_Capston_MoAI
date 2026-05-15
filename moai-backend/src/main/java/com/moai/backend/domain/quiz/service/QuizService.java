@@ -30,6 +30,8 @@ import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
 import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizReportRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.notification.dto.SseSimpleEvent;
+import com.moai.backend.domain.notification.service.NotificationService;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.exception.CustomException;
@@ -75,6 +77,7 @@ public class QuizService {
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
     private final CurriculumEnrichmentService curriculumEnrichmentService;
+    private final NotificationService notificationService;
 
     @Autowired
     @Lazy
@@ -364,10 +367,14 @@ public class QuizService {
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findByIdAndRoomId(weekId, room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
 
-        // 중복 제출 검사
-        if (quizReportRepository.findByUserIdAndCurriculumId(user.getId(), weekId).isPresent()) {
-            throw new CustomException(ErrorCode.FINAL_QUIZ_ALREADY_SUBMITTED);
-        }
+        // 중복 제출 검사 — failed 상태는 삭제 후 재시도 허용
+        quizReportRepository.findByUserIdAndCurriculumId(user.getId(), weekId).ifPresent(existing -> {
+            if ("failed".equals(existing.getStatus())) {
+                quizReportRepository.delete(existing);
+            } else {
+                throw new CustomException(ErrorCode.FINAL_QUIZ_ALREADY_SUBMITTED);
+            }
+        });
 
         Quiz quiz = quizRepository.findById(request.getQuizId())
                 .orElseThrow(() -> new CustomException(ErrorCode.QUIZ_NOT_FOUND));
@@ -522,23 +529,23 @@ public class QuizService {
         String systemPrompt = """
                 당신은 MoAI 학습 플랫폼의 AI 채점 전문가입니다.
 
-                학습자의 서술형 답변을 분석하여 상세한 채점 결과와 피드백을 제공하세요.
+                학습자의 서술형 답변을 분석하여 간결한 채점 결과와 피드백을 제공하세요.
 
                 ■ 출력: 순수 JSON (코드블록 없이)
                 {
                   "score": 0~20,
                   "max_score": 20,
                   "grade": "A+/A/B+/B/C+/C/D/F",
-                  "overall_feedback": "종합 피드백 (3~4문장. 칭찬→부족한 점→개선 방향 순)",
+                  "overall_feedback": "종합 피드백 1~2문장. 가장 핵심적인 강점 또는 부족한 점 하나만. 반복·장황 금지.",
                   "keyword_analysis": [
-                    {"keyword":"필수키워드","found":true,"in_context":"해당 키워드 사용 문맥","score_contribution":4},
-                    {"keyword":"빠진키워드","found":false,"suggestion":"보완 방법","score_contribution":0}
+                    {"keyword":"필수키워드","found":true,"in_context":"문맥(10자 이내)","score_contribution":4},
+                    {"keyword":"빠진키워드","found":false,"suggestion":"보완 방법(10자 이내)","score_contribution":0}
                   ],
-                  "accuracy_score": {"score":0,"max":8,"detail":"정확성 평가"},
-                  "depth_score": {"score":0,"max":6,"detail":"깊이/비유 평가"},
-                  "logic_score": {"score":0,"max":6,"detail":"논리 구성 평가"},
-                  "correct_answer_summary": "모범 답안 요약 (3~5문장)",
-                  "improvement_tips": ["구체적 개선 팁1","팁2"],
+                  "accuracy_score": {"score":0,"max":8,"detail":"10자 이내 한 줄"},
+                  "depth_score": {"score":0,"max":6,"detail":"10자 이내 한 줄"},
+                  "logic_score": {"score":0,"max":6,"detail":"10자 이내 한 줄"},
+                  "correct_answer_summary": "핵심 키워드 2~3개 나열 수준의 1문장. 설명 없이 키워드만.",
+                  "improvement_tips": ["개선 팁 1문장"],
                   "gained_keywords": ["학생이 잘 이해한 키워드"],
                   "weakness_keywords": ["학생이 부족한 키워드"]
                 }
@@ -547,10 +554,12 @@ public class QuizService {
                 1. scoring_rubric이 있다면 그 기준에 따라 엄격하되 공정하게 채점
                 2. keyword_analysis에서 각 필수 키워드의 등장 여부와 맥락 분석
                 3. 부분 점수 인정 (키워드는 있지만 설명이 부정확한 경우 등)
-                4. correct_answer_summary로 학습자가 부족한 부분을 보완할 수 있게 안내
-                5. 격려와 건설적 피드백 균형
-                6. gained_keywords, weakness_keywords 는 반드시 입력된 curriculum_keywords 목록에서만 선택. 목록 외 임의 생성 금지.
+                4. 모든 텍스트 필드: 핵심만, 장황 금지. detail·summary는 각 10~15자 이내 초간결하게.
+                5. gained_keywords, weakness_keywords 는 반드시 입력된 curriculum_keywords 목록에서만 선택. 목록 외 임의 생성 금지.
                    [허용 키워드] %s
+                6. 문항별 해설은 반드시 3줄 화면 형식(점수 / 핵심 / 보완)에 맞춘다.
+                   최종 해설은 줄바꿈으로 줄을 나눈다.
+                   각 피드백 필드는 한 문장만 작성하고 문단형 설명은 금지한다.
                 """.formatted(keywordsStr);
 
         LlmRequestDto request = LlmRequestDto.builder()
@@ -567,39 +576,41 @@ public class QuizService {
             throw new IllegalStateException("채점 응답이 비어있습니다");
         }
 
-        StringBuilder comment = new StringBuilder();
-        if (raw.getOverallFeedback() != null) comment.append(raw.getOverallFeedback()).append("\n\n");
-        if (raw.getAccuracyScore() != null && raw.getAccuracyScore().getDetail() != null) {
-            comment.append("🎯 정확성(").append(nn(raw.getAccuracyScore().getScore()))
-                    .append("/").append(nn(raw.getAccuracyScore().getMax())).append("): ")
-                    .append(raw.getAccuracyScore().getDetail()).append("\n");
-        }
-        if (raw.getDepthScore() != null && raw.getDepthScore().getDetail() != null) {
-            comment.append("🔬 깊이(").append(nn(raw.getDepthScore().getScore()))
-                    .append("/").append(nn(raw.getDepthScore().getMax())).append("): ")
-                    .append(raw.getDepthScore().getDetail()).append("\n");
-        }
-        if (raw.getLogicScore() != null && raw.getLogicScore().getDetail() != null) {
-            comment.append("🧩 논리(").append(nn(raw.getLogicScore().getScore()))
-                    .append("/").append(nn(raw.getLogicScore().getMax())).append("): ")
-                    .append(raw.getLogicScore().getDetail()).append("\n");
-        }
-        if (raw.getCorrectAnswerSummary() != null) {
-            comment.append("\n📘 모범 답안 요약\n").append(raw.getCorrectAnswerSummary()).append("\n");
-        }
-        if (raw.getImprovementTips() != null && !raw.getImprovementTips().isEmpty()) {
-            comment.append("\n💡 개선 팁\n");
-            for (String tip : raw.getImprovementTips()) comment.append("- ").append(tip).append("\n");
-        }
-
         int score = raw.getScore() != null ? raw.getScore() : 0;
         List<String> gained = raw.getGainedKeywords() != null ? raw.getGainedKeywords() : List.of();
         List<String> weak = raw.getWeaknessKeywords() != null ? raw.getWeaknessKeywords() : List.of();
 
-        return new LlmEssayGradingResult(score, gained, weak, comment.toString().trim());
+        List<String> lines = new ArrayList<>();
+        String feedback = compactLine(raw.getOverallFeedback(), 70);
+        lines.add(feedback.isBlank()
+                ? String.format("🎯 점수: %d/20", score)
+                : String.format("🎯 점수: %d/20. %s", score, feedback));
+
+        String summary = compactLine(raw.getCorrectAnswerSummary(), 80);
+        if (!summary.isBlank()) {
+            lines.add("🧠 핵심: " + summary);
+        }
+
+        String tip = "";
+        if (raw.getImprovementTips() != null && !raw.getImprovementTips().isEmpty()) {
+            tip = compactLine(raw.getImprovementTips().get(0), 70);
+        }
+        if (tip.isBlank() && !weak.isEmpty()) {
+            tip = compactLine(String.join(", ", weak), 70);
+        }
+        if (!tip.isBlank()) {
+            lines.add("💡 보완: " + tip);
+        }
+
+        return new LlmEssayGradingResult(score, gained, weak, String.join("\n", lines));
     }
 
-    private int nn(Integer v) { return v != null ? v : 0; }
+    private String compactLine(String value, int maxLength) {
+        if (value == null) return "";
+        String text = value.replaceAll("\\s+", " ").trim();
+        if (text.length() <= maxLength) return text;
+        return text.substring(0, Math.max(0, maxLength - 3)).trim() + "...";
+    }
 
     private String quoteJson(String s) {
         if (s == null) return "\"\"";
@@ -620,7 +631,7 @@ public class QuizService {
                 ■ 출력: 순수 JSON (코드블록 없이)
                 {
                   "개념이해도": 0~100,
-                  "응용력": 0~100,
+                  "적용력": 0~100,
                   "논리력": 0~100,
                   "키워드적중률": 0~100
                 }
@@ -772,6 +783,21 @@ public class QuizService {
         short nextWeekNumber = (short) (curriculum.getWeekNumber() + 1);
         room.updateCurrentWeek(nextWeekNumber);
 
+        // 트랜잭션 커밋 후 SSE 전송: 프론트엔드가 새로고침 없이 다음 주차를 바로 열 수 있게 함
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            notificationService.pushSse(userId,
+                                    new SseSimpleEvent("week_unlocked", String.valueOf(nextWeekNumber)));
+                        } catch (Exception e) {
+                            log.warn("week_unlocked SSE 전송 실패: userId={}, week={}", userId, nextWeekNumber, e);
+                        }
+                    }
+                }
+        );
+
         List<UserKeyword> unresolvedWeaknesses =
                 userKeywordRepository
                         .findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc(
@@ -900,22 +926,26 @@ public class QuizService {
         String systemPrompt = """
                 당신은 MoAI 학습 플랫폼의 돌발 OX/객관식 퀴즈 해설 튜터 AI입니다.
 
-                역할: 학생이 방금 응답한 문항에 대해 즉시 이해를 돕는 짧은 해설을 제공합니다.
+                역할: 학생이 방금 응답한 문항에 대해 핵심만 짚는 읽기 쉬운 해설을 제공합니다.
 
-                ■ 출력 형식: 순수 텍스트 (마크다운/코드블록/JSON 금지), 한국어 존댓말, 3~4문장.
+                ■ 출력 형식: 한국어 존댓말. 흐르는 문장과 불릿을 혼합해 구성하되, 하나의 긴 글 뭉텅이가 되지 않도록 적절히 줄 바꿈과 불릿으로 시각적으로 분리할 것.
+                예시 구조 (고정 형식 아님, 상황에 맞게 변형 가능):
+                  정답/오답 여부와 핵심 이유를 1~2문장으로 자연스럽게 설명.
+                  - 핵심 개념: 관련 키워드 의미나 올바른 내용
+                  - 오답 분석: 왜 틀렸는지 (오답일 때만)
+                  격려 한 줄.
 
                 ■ 필수 규칙
-                1. 선택지 라벨(A/B/C/D)은 단순 식별자이며 내용과 무관함. 반드시 "A: 선택지 텍스트" 형태로 라벨과 원문을 함께 인용.
-                2. 정답일 때: 학생의 정답 선택지가 왜 맞는지 핵심 근거를 제시하고, 관련 키워드의 의미를 1문장으로 복습.
-                3. 오답일 때: (a) 학생이 고른 선택지가 왜 틀렸는지 오개념을 짚어주고, (b) 정답 선택지가 왜 옳은지 비교 포인트를 명시.
-                4. 관련 키워드를 "한글(영문)" 형태로 1회만 병기 (예: 트랜잭션(Transaction)).
-                5. 학생을 질책하거나 평가절하하지 말 것 — 오답도 학습 기회라는 전제로 격려 문장을 마지막에 1줄 포함.
-                6. 문항 밖 정보를 추측해 덧붙이지 말 것. 주어진 정보만 근거로 해설.
+                1. 선택지 인용 시 "A: 선택지 텍스트" 형태로 라벨과 원문 함께 인용.
+                2. 관련 키워드를 "한글(영문)" 형태로 1회만 병기.
+                3. 문항 밖 정보 추측 금지. 주어진 정보만 근거로.
+                4. 핵심만 — 부연 설명, 반복, 장황한 문장 모두 금지. 읽는 데 10초면 충분한 분량.
 
                 ■ 금지 사항
-                - "당신은/사용자는" 같은 3인칭 묘사 대신 "학생분의 선택이..." 처럼 자연스러운 존칭 사용.
-                - "정답입니다!" 같은 단답 + 이모지 범벅 금지. 설명 내용이 본질.
-                - 같은 문장을 반복하거나 선택지 텍스트를 통째로 재복사하는 낭비 금지.
+                - 줄 바꿈 없이 이어지는 긴 문단 금지.
+                - 이모지 남발 금지.
+                - 같은 내용 반복 금지.
+                - 이미 선택지에 나온 내용을 그대로 다시 쓰는 것 금지.
                 """;
 
         LlmRequestDto request = LlmRequestDto.builder()

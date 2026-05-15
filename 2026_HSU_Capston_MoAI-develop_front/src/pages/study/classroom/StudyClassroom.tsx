@@ -127,6 +127,11 @@ function openResource(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+function videoWatchRateToWeekProgress(rate: number): number {
+    const clampedRate = Math.max(0, Math.min(100, rate))
+    return Math.min(40, Number(((clampedRate * 40) / 100).toFixed(2)))
+}
+
 function TabLoading() {
     return (
         <div className="sc-tab-loading">
@@ -147,7 +152,7 @@ function TabEmpty({ message }: { message: string }) {
 // ── 핵심 컴포넌트 (ClassroomModalProvider 내부에서 렌더링) ─────────────────────
 function StudyClassroomContent() {
     const { studyId: roomId = '' } = useParams<{ studyId: string }>()
-    const [searchParams] = useSearchParams()
+    const [searchParams, setSearchParams] = useSearchParams()
     // curriculumId가 URL에 있으면 해당 주차를 우선 선택 (매칭 수락 후 이동 시 주입됨)
     const targetCurriculumId = searchParams.get('curriculumId') ?? null
 
@@ -375,11 +380,13 @@ function StudyClassroomContent() {
                 if (!weeks.length) throw new Error('이 학습실에 커리큘럼이 없습니다.')
                 setAllWeeks(weeks)
                 // URL에 curriculumId(weekId)가 있으면 해당 주차 우선 — 없으면 진행 중인 첫 주차
-                const active =
-                    (targetCurriculumId && weeks.find(w => w.weekId === targetCurriculumId)) ||
+                const firstIncomplete =
                     weeks.find(w => w.completionRate < 100) ||
                     weeks[weeks.length - 1]
-                setUnlockedUpToWeekNumber(active.weekNumber)
+                const active =
+                    (targetCurriculumId && weeks.find(w => w.weekId === targetCurriculumId)) ||
+                    firstIncomplete
+                setUnlockedUpToWeekNumber(Math.max(active.weekNumber, firstIncomplete.weekNumber))
                 return getCurriculumWeek(roomId, active.weekId)
             })
             .then(detail => {
@@ -414,6 +421,11 @@ function StudyClassroomContent() {
         getCurriculumWeek(roomId, weekId)
             .then(detail => {
                 applyWeekDetail(detail)
+                setSearchParams(prev => {
+                    const next = new URLSearchParams(prev)
+                    next.set('curriculumId', detail.weekId)
+                    return next
+                }, { replace: true })
             })
             .catch(e => {
                 const isLocked =
@@ -438,7 +450,7 @@ function StudyClassroomContent() {
                 }
             })
             .finally(() => setWeekLoading(false))
-    }, [roomId, weekData, videos, quizAttempts, quizSubmitted, videoProgress, applyWeekDetail, setCurrentWeekId, setMetacogComplete, setQuizSubmitted])
+    }, [roomId, weekData, videos, quizAttempts, quizSubmitted, videoProgress, applyWeekDetail, setCurrentWeekId, setMetacogComplete, setQuizSubmitted, setSearchParams])
 
     // ── 잠긴 주차 토스트 자동 닫기 ───────────────────────────────────────────
     useEffect(() => {
@@ -523,6 +535,37 @@ function StudyClassroomContent() {
     ])
 
     useEffect(() => {
+        if (tab !== 'summary' || !roomId || !weekData?.weekId) return
+
+        let cancelled = false
+        let attempts = 0
+        const initialKeywords = JSON.stringify(weekData.keywords ?? [])
+
+        const timer = window.setInterval(async () => {
+            attempts += 1
+            try {
+                const detail = await getCurriculumWeek(roomId, weekData.weekId)
+                if (cancelled) return
+
+                applyWeekDetail(detail, { syncMetacog: false })
+                const nextKeywords = JSON.stringify(detail.keywords ?? [])
+                if (nextKeywords !== initialKeywords || attempts >= 12) {
+                    window.clearInterval(timer)
+                }
+            } catch {
+                if (attempts >= 12) {
+                    window.clearInterval(timer)
+                }
+            }
+        }, 5_000)
+
+        return () => {
+            cancelled = true
+            window.clearInterval(timer)
+        }
+    }, [tab, roomId, weekData?.weekId, weekData?.keywords?.length, applyWeekDetail])
+
+    useEffect(() => {
         if (!metacogComplete || !roomId || !weekData?.weekId) return
 
         setWeekData(prev => prev
@@ -536,6 +579,42 @@ function StudyClassroomContent() {
             }, { syncMetacog: false }))
             .catch(() => {})
     }, [metacogComplete, roomId, weekData?.weekId, applyWeekDetail])
+
+    useEffect(() => {
+        if (!quizSubmitted || !roomId || !weekData?.weekId) return
+
+        const completedWeekId = weekData.weekId
+        const completedWeekNumber = weekData.weekNumber
+
+        setWeekData(prev => prev && prev.weekId === completedWeekId
+            ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, 100) }
+            : prev)
+
+        setAllWeeks(prev => {
+            const lastWeekNumber = prev.reduce((max, week) => Math.max(max, week.weekNumber), completedWeekNumber)
+            const nextWeekNumber = Math.min(completedWeekNumber + 1, lastWeekNumber)
+            setUnlockedUpToWeekNumber(current => Math.max(current ?? completedWeekNumber, nextWeekNumber))
+            return prev.map(week => week.weekId === completedWeekId
+                ? { ...week, completionRate: Math.max(Number(week.completionRate) || 0, 100) }
+                : week)
+        })
+
+        getCurriculum(roomId)
+            .then(weeks => {
+                setAllWeeks(weeks)
+                const lastWeekNumber = weeks.reduce((max, week) => Math.max(max, week.weekNumber), completedWeekNumber)
+                const nextWeekNumber = Math.min(completedWeekNumber + 1, lastWeekNumber)
+                setUnlockedUpToWeekNumber(current => Math.max(current ?? completedWeekNumber, nextWeekNumber))
+            })
+            .catch(() => {})
+
+        getCurriculumWeek(roomId, completedWeekId)
+            .then(detail => applyWeekDetail({
+                ...detail,
+                completionRate: Math.max(Number(detail.completionRate) || 0, 100),
+            }, { syncMetacog: false }))
+            .catch(() => {})
+    }, [quizSubmitted, roomId, weekData?.weekId, weekData?.weekNumber, applyWeekDetail])
 
     // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
     const handlePatternDetected = useCallback(async (
@@ -607,12 +686,13 @@ function StudyClassroomContent() {
     // ── 진행률 마일스톤 핸들러 ────────────────────────────────────────────────
     const handleProgressMilestone = useCallback((rate: number) => {
         if (!weekData || !roomId) return
+        const nextProgress = videoWatchRateToWeekProgress(rate)
         // 로컬 진행률 즉시 업데이트 (서버 응답에 의존하지 않음)
-        setVideoProgress(prev => Math.max(prev, rate))
+        setVideoProgress(prev => Math.max(prev, nextProgress))
         // 서버에도 동기 (서버 응답값이 낮더라도 로컬 videoProgress는 유지됨)
         const currentRate = Number(weekData.completionRate) || 0
-        if (rate <= currentRate) return
-        updateProgress(roomId, weekData.weekId, { completionRate: rate })
+        if (nextProgress <= currentRate) return
+        updateProgress(roomId, weekData.weekId, { completionRate: nextProgress })
             .then(res => {
                 setWeekData(prev => prev
                     ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, res.completionRate) }
@@ -812,6 +892,15 @@ function StudyClassroomContent() {
                 else if (type === 'study_no_candidate')    handleNoCandidate()
                 else if (type === 'study_accepted')        handleStudyAccepted(e)
                 else if (type === 'study_group_activated') handleStudyGroupActivated(e)
+                else if (type === 'week_unlocked') {
+                    const nextWeekNumber = Number(data.message ?? data.weekNumber ?? 0)
+                    if (Number.isFinite(nextWeekNumber) && nextWeekNumber > 0) {
+                        setUnlockedUpToWeekNumber(current => Math.max(current ?? 0, nextWeekNumber))
+                    }
+                    if (roomId) {
+                        getCurriculum(roomId).then(setAllWeeks).catch(() => {})
+                    }
+                }
             } catch {}
         }
         sse.addEventListener('notification', dispatchByType as EventListener)
@@ -902,11 +991,11 @@ function StudyClassroomContent() {
     const isWeekLocked = (w: CurriculumWeekSummary) =>
         unlockedUpToWeekNumber !== null && w.weekNumber > unlockedUpToWeekNumber
 
-    // progress: 서버 값과 로컬 추적 값 중 높은 것을 표시 (서버 캡 우회)
+    // progress: 서버 값과 로컬 영상 기여도(최대 40) 중 높은 값을 표시
     const progress = Math.max(Number(weekData?.completionRate) || 0, videoProgress)
     const safeResources = weekData?.resources ?? []
     const safeKeywords = weekData?.keywords ?? []
-    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 100)
+    const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 40)
     const canStartFinalQuiz = Boolean(weekData && metacogComplete && progress >= 70)
 
     return (
@@ -1528,8 +1617,8 @@ function StudyClassroomContent() {
                                     </>
                                 ) : (
                                     <p className="metacog-card__status">
-                                        영상을 100% 시청한 후 시작할 수 있습니다.{' '}
-                                        {progress > 0 && progress < 100 && `(현재 ${progress}%)`}
+                                        주차 진행률 40%부터 시작할 수 있습니다.{' '}
+                                        {progress > 0 && progress < 40 && `(현재 ${progress}%)`}
                                     </p>
                                 )}
                             </div>

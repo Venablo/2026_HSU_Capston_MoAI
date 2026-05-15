@@ -111,6 +111,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
     const analyzeStepRef    = useRef(0)
     const pollStartedAtRef  = useRef(0)
     const pollErrorCountRef = useRef(0)
+    const completionNotifiedRef = useRef(false)
 
     // ── 폴링 정지 ─────────────────────────────────────────────────────────────
     const stopPolling = useCallback(() => {
@@ -124,6 +125,12 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
             msgIntervalRef.current = null
         }
     }, [])
+
+    const notifyComplete = useCallback(() => {
+        if (completionNotifiedRef.current) return
+        completionNotifiedRef.current = true
+        onComplete?.()
+    }, [onComplete])
 
     useEffect(() => () => stopPolling(), [stopPolling])
 
@@ -197,6 +204,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                 if (result.status === 'completed' && result.radarData && Array.isArray(result.questions)) {
                     stopPolling()
                     setReport(result)
+                    notifyComplete()
                     setPhase('report')
                     return
                 }
@@ -224,7 +232,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
         pollRef.current = setInterval(pollReport, delaySec * 1000)
         void pollReport()
 
-    }, [roomId, weekId, stopPolling])
+    }, [roomId, weekId, stopPolling, notifyComplete])
 
     // ── ④ 전체 제출 ──────────────────────────────────────────────────────────
     const handleSubmit = useCallback(async () => {
@@ -422,7 +430,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                         })}
                     </div>
 
-                    <button className="fq-report__close-btn" onClick={() => { onComplete?.(); onClose() }}>
+                    <button className="fq-report__close-btn" onClick={() => { notifyComplete(); onClose() }}>
                         확인
                     </button>
                 </div>

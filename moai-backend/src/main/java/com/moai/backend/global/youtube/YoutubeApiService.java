@@ -101,7 +101,8 @@ public class YoutubeApiService {
         Long durationSec = parseDuration(item.path("contentDetails").path("duration").asText(null));
         Long viewCount   = parseViewCount(item.path("statistics").path("viewCount").asText(null));
         boolean hasCaptions = "true".equalsIgnoreCase(item.path("contentDetails").path("caption").asText("false"));
-        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions));
+        String description = truncate(item.path("snippet").path("description").asText(""), 300);
+        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description));
     }
 
     public List<VideoMeta> searchVideos(String query, int maxResults) {
@@ -152,7 +153,8 @@ public class YoutubeApiService {
             Long durationSec = parseDuration(v.path("contentDetails").path("duration").asText(null));
             Long viewCount   = parseViewCount(v.path("statistics").path("viewCount").asText(null));
             boolean hasCaptions = "true".equalsIgnoreCase(v.path("contentDetails").path("caption").asText("false"));
-            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions));
+            String description = truncate(v.path("snippet").path("description").asText(""), 300);
+            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description));
         }
         return results;
     }
@@ -216,6 +218,11 @@ public class YoutubeApiService {
         return s.length() > 300 ? s.substring(0, 300) + "..." : s;
     }
 
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        return s.length() > maxLen ? s.substring(0, maxLen) : s;
+    }
+
     public record VideoMeta(String videoId, String title, String url, boolean embeddable,
-                            Long durationSec, Long viewCount, boolean hasCaptions) {}
+                            Long durationSec, Long viewCount, boolean hasCaptions, String description) {}
 }

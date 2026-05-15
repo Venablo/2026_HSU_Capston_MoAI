@@ -90,6 +90,7 @@ export default function ReverseLearningModal({
     const [messages,    setMessages]    = useState<ChatMessage[]>([])
     const [inputText,   setInputText]   = useState('')
     const [isStreaming, setIsStreaming]  = useState(false)
+    const [sessionComplete, setSessionComplete] = useState(false)
 
     // 현재 스트리밍 중인 AI 메시지 버퍼
     const streamBufferRef = useRef('')
@@ -107,6 +108,9 @@ export default function ReverseLearningModal({
         const initialize = async () => {
             setInitLoading(true)
             setInitError(null)
+            setSessionId(null)
+            setMessages([])
+            setSessionComplete(false)
             try {
                 const { sessionId: sid, firstMessage } =
                     await startFlippedSession(roomId!, { curriculum_id: weekId! })
@@ -134,7 +138,7 @@ export default function ReverseLearningModal({
     // ── 메시지 전송 + SSE 스트리밍 처리 ─────────────────────────────────────
     const handleSend = useCallback(() => {
         const trimmed = inputText.trim()
-        if (!trimmed || isStreaming || !sessionId || !roomId) return
+        if (!trimmed || isStreaming || sessionComplete || !sessionId || !roomId) return
 
         // 사용자 메시지를 채팅 UI에 추가
         setMessages(prev => [...prev, { role: 'user', content: trimmed }])
@@ -184,6 +188,29 @@ export default function ReverseLearningModal({
                         }
                         return updated
                     })
+                } else if (event.type === 'next_keyword') {
+                    // Backend already streams the next prompt text; this event only marks progress.
+                } else if (event.type === 'session_complete') {
+                    setSessionComplete(true)
+                    if (!streamBufferRef.current.trim()) {
+                        sse.close()
+                        sseRef.current = null
+                        setMessages(prev => {
+                            const updated = [...prev]
+                            const last = updated[updated.length - 1]
+                            if (last?.role === 'ai' && last.isStreaming) {
+                                updated[updated.length - 1] = {
+                                    role: 'ai',
+                                    content: event.content,
+                                    isStreaming: false,
+                                }
+                            } else if (event.content) {
+                                updated.push({ role: 'ai', content: event.content })
+                            }
+                            return updated
+                        })
+                        setIsStreaming(false)
+                    }
                 } else if (event.type === 'done') {
                     sse.close()
                     sseRef.current = null
@@ -210,7 +237,7 @@ export default function ReverseLearningModal({
             sseRef.current = null
             setIsStreaming(false)
         }
-    }, [inputText, isStreaming, sessionId, roomId])
+    }, [inputText, isStreaming, sessionComplete, sessionId, roomId])
 
     // ── 최종 평가 요청 (세션 종료) ────────────────────────────────────────────
     const handleFinalEvaluation = useCallback(async () => {
@@ -256,12 +283,13 @@ export default function ReverseLearningModal({
 
     const canFinish =
         !!sessionId &&
+        sessionComplete &&
         !isStreaming &&
         !endLoading &&
-        !externalLoading &&
-        messages.some(m => m.role === 'user')
+        !externalLoading
 
     const isLoading = initLoading || endLoading || externalLoading
+    const inputDisabled = isStreaming || isLoading || sessionComplete
 
     return (
         <Modal onClose={onClose} wide>
@@ -336,12 +364,12 @@ export default function ReverseLearningModal({
                                 onKeyDown={handleKeyDown}
                                 placeholder={`예: ${conceptName}은 트랜잭션이 지켜야 할 네 가지 속성입니다...`}
                                 rows={3}
-                                disabled={isStreaming || isLoading}
+                                disabled={inputDisabled}
                             />
                             <button
-                                className={`modal-reverse__send-btn${inputText.trim() && !isStreaming ? ' modal-reverse__send-btn--active' : ''}`}
+                                className={`modal-reverse__send-btn${inputText.trim() && !inputDisabled ? ' modal-reverse__send-btn--active' : ''}`}
                                 onClick={handleSend}
-                                disabled={!inputText.trim() || isStreaming || isLoading}
+                                disabled={!inputText.trim() || inputDisabled}
                                 title="전송 (Enter)"
                             >
                                 {isStreaming

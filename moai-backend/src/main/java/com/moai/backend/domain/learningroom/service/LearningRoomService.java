@@ -114,7 +114,7 @@ public class LearningRoomService {
                     .weekNumber((short) week.getWeekNumber())
                     .topic(week.getTopic())
                     .description(week.getWeeklySummary())
-                    .keywords(null)
+                    .keywords(initialKeywords(week))
                     .build();
             weeklyCurriculumRepository.save(curriculum);
             savedCurriculums.add(curriculum);
@@ -245,7 +245,7 @@ public class LearningRoomService {
                     {
                       "week_number": 1,
                       "topic": "구체적 학습 주제명 — 세부범위",
-                      "weekly_summary": "이번 주차에서 배우게 될 범위, 앞주차와의 연결, 왜 중요한지를 2~3문장으로 설명한 요약",
+                      "weekly_summary": "이번 주차 흐름을 자연스러운 1~2문장으로 소개한 뒤, 핵심 포인트를 불릿 2~3개로 정리한 텍스트",
                       "learning_objectives": ["목표1", "목표2", "목표3", "목표4"],
                       "key_concepts": ["핵심 키워드1", "키워드2", "키워드3", "키워드4", "키워드5"],
                       "focus_questions": ["스스로 답해야 할 핵심 질문1", "질문2"],
@@ -260,7 +260,7 @@ public class LearningRoomService {
                 1. 요청된 주차 수 전부 빠짐없이 생성
                 2. topic은 반드시 대주제 — 세부범위 형태로 구체적 작성
                 3. 주차 간 선수학습→심화 논리적 연결 (1주차 기초 → 마지막 주차 종합)
-                4. weekly_summary는 2~3문장으로 "왜 중요한지 / 앞뒤 주차와 어떻게 연결되는지 / 실전에서 어디에 쓰이는지" 포함
+                4. weekly_summary는 도입 문장(1~2문장) + 핵심 포인트 불릿(2~3개) 혼합 구성. 전체가 한 덩어리 글이 되지 않도록 불릿으로 시각적으로 분리할 것. 지나치게 길지 않게, 핵심만 간결하게.
                 5. key_concepts는 최소 5개 이상 (시험 출제 키워드 중심)
                 6. learning_objectives는 최소 4개 이상, 행동동사 사용 (설명할 수 있다, 비교할 수 있다, 구현할 수 있다)
                 7. focus_questions는 최소 2개 이상
@@ -284,6 +284,27 @@ public class LearningRoomService {
 
     private <T> List<T> nullSafe(List<T> list) {
         return list != null ? list : Collections.emptyList();
+    }
+
+    private List<String> initialKeywords(P1CurriculumResponse.WeekItem week) {
+        List<String> keyConcepts = cleanKeywordList(week.getKeyConcepts());
+        if (!keyConcepts.isEmpty()) return keyConcepts;
+
+        List<String> practiceKeywords = cleanKeywordList(week.getPracticeKeywords());
+        if (!practiceKeywords.isEmpty()) return practiceKeywords;
+
+        String topic = week.getTopic();
+        if (topic != null && !topic.isBlank()) return List.of(topic.trim());
+        return Collections.emptyList();
+    }
+
+    private List<String> cleanKeywordList(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) return Collections.emptyList();
+        return keywords.stream()
+                .filter(k -> k != null && !k.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
     @Getter

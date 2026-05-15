@@ -35,6 +35,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -104,38 +105,36 @@ public class CurriculumEnrichmentService {
 
         log.info("[{}주차] enrichment 시작 — topic: {}", curriculum.getWeekNumber(), curriculum.getTopic());
 
-        // Step A: YouTube 검색으로 후보 풀 구성 + 점수 기반 best 영상 선택
+        // Step A: YouTube 검색으로 후보 풀 구성 → LLM이 1~2개 영상 선택
         List<YoutubeApiService.VideoMeta> candidates = gatherCandidates(curriculum, context);
         Set<String> excludedVideoIds = new HashSet<>();
-        YoutubeApiService.VideoMeta videoMeta = pickBest(curriculum, context, candidates, excludedVideoIds);
-        if (videoMeta == null) {
-            // 영상 추천 실패 → resources 빈 배열 저장, Step B/C 스킵
-            curriculum.updateResources(List.of());
-            weeklyCurriculumRepository.save(curriculum);
-            log.warn("[{}주차] 영상 추천 실패 — enrichment 스킵", curriculum.getWeekNumber());
+        List<String> llmSelectedIds = llmSelectVideoIds(curriculum, context, candidates);
+        List<YoutubeApiService.VideoMeta> selectedVideos = pickVideosWithLlm(curriculum, context, candidates, llmSelectedIds, excludedVideoIds);
+
+        if (selectedVideos.isEmpty()) {
+            applyFallbackKeywordsIfMissing(curriculum, context);
+            generateAndUploadMaterials(curriculum, context);
+            log.warn("[{}주차] 영상 추천 실패 — 키워드/자료 fallback으로 enrichment 진행", curriculum.getWeekNumber());
             return;
         }
 
-        String videoId = videoMeta.videoId();
-        String videoTitle = (videoMeta.title() != null && !videoMeta.title().isBlank())
-                ? videoMeta.title() : curriculum.getTopic();
-
-        // video_id를 resources JSON에 저장 (duration/viewCount 포함)
-        CurriculumResource resource = new CurriculumResource(
-                "youtube", videoId, videoTitle, null, null,
-                videoMeta.durationSec(), videoMeta.viewCount(), null
-        );
-        curriculum.updateResources(List.of(resource));
+        // 선택된 영상들을 resources에 저장 (주력 영상 먼저)
+        List<CurriculumResource> initialResources = selectedVideos.stream()
+                .map(v -> toYoutubeResource(curriculum, v))
+                .collect(Collectors.toCollection(ArrayList::new));
+        curriculum.updateResources(mergeNormalYoutubeResources(curriculum.getResources(), initialResources));
         weeklyCurriculumRepository.save(curriculum);
 
-        // Step B: YouTube 자막 스크래핑
+        // Step B: YouTube 자막 스크래핑 (주력 영상 기준)
         // 학습실 생성 자체는 절대 실패시키지 않는다. 모든 분기는 이 try-catch 안에서 처리.
-        List<SubtitleChunk> chunks = List.of();
+        YoutubeApiService.VideoMeta primaryVideo = selectedVideos.get(0);
+        String videoId = primaryVideo.videoId();
+        List<SubtitleChunk> chunks = new ArrayList<>();
         int transcriptCount = 0;
         try {
             SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
-            chunks = result.chunks();
-            transcriptCount = saveTranscripts(curriculum, videoId, chunks);
+            chunks.addAll(result.chunks());
+            transcriptCount = saveTranscripts(curriculum, videoId, result.chunks());
             log.info("[{}주차] 자막 스크래핑 성공 — videoId={}, lang={}, source={}, chunks={}",
                     curriculum.getWeekNumber(), videoId, result.lang(), result.source(), transcriptCount);
         } catch (SubtitleScrapeException e) {
@@ -144,13 +143,14 @@ public class CurriculumEnrichmentService {
                     curriculum.getWeekNumber(), videoId, code, e.getDetail());
 
             if (code == SubtitleErrorCode.NO_SUBTITLES_AVAILABLE) {
-                // 같은 영상은 시간이 지나도 결과가 안 바뀌므로 차선책 영상으로 즉시 재시도
                 excludedVideoIds.add(videoId);
+                if (selectedVideos.size() > 1) excludedVideoIds.add(selectedVideos.get(1).videoId());
                 SubtitleScrapeResult retried =
-                        retryWithAlternativeVideo(curriculum, context, candidates, excludedVideoIds);
+                        retryWithAlternativeVideo(curriculum, context, candidates, llmSelectedIds,
+                                excludedVideoIds, selectedVideos, videoId);
                 if (retried != null) {
-                    chunks = retried.chunks();
-                    transcriptCount = chunks.size();
+                    chunks.addAll(retried.chunks());
+                    transcriptCount = retried.chunks().size();
                 }
             } else if (code == SubtitleErrorCode.RATE_LIMITED) {
                 // 일시적 차단 — 학습실은 자막 없이 일단 완성하고, 60초 뒤 같은 영상으로 큐 재시도
@@ -167,15 +167,37 @@ public class CurriculumEnrichmentService {
                     curriculum.getWeekNumber(), videoId, e.getMessage(), e);
         }
 
+        // Step B-2: 보완 영상 자막 스크래핑 (best-effort, 실패해도 계속 진행)
+        if (selectedVideos.size() > 1) {
+            String secondaryVideoId = selectedVideos.get(1).videoId();
+            try {
+                SubtitleScrapeResult secondaryResult = subtitleScraperService.scrape(secondaryVideoId);
+                int secondaryCount = saveTranscripts(curriculum, secondaryVideoId, secondaryResult.chunks());
+                chunks.addAll(secondaryResult.chunks());
+                transcriptCount += secondaryCount;
+                log.info("[{}주차] 보완 영상 자막 스크래핑 성공 — videoId={}, chunks={}",
+                        curriculum.getWeekNumber(), secondaryVideoId, secondaryCount);
+            } catch (Exception e) {
+                log.info("[{}주차] 보완 영상 자막 스크래핑 실패 (무시) — videoId={}: {}",
+                        curriculum.getWeekNumber(), secondaryVideoId, e.getMessage());
+            }
+        }
+
         // Step C: 자막 텍스트 기반 LLM 키워드 추출
-        // 자막이 있을 때만 실행. 실패해도 Step D로 계속 진행한다.
+        // 자막이 있을 때만 실행. 자막 없거나 실패 시 P1 key_concepts로 폴백.
         List<String> keywords = null;
         if (!chunks.isEmpty()) {
             keywords = extractKeywords(curriculum, chunks);
-            if (keywords != null && !keywords.isEmpty()) {
-                curriculum.updateKeywords(keywords);
-                weeklyCurriculumRepository.save(curriculum);
+        }
+        if (keywords == null || keywords.isEmpty()) {
+            keywords = fallbackKeywords(curriculum, context);
+            if (!keywords.isEmpty()) {
+                log.info("[{}주차] 자막 키워드 없음 — P1 fallback 키워드 적용: {}개", curriculum.getWeekNumber(), keywords.size());
             }
+        }
+        if (keywords != null && !keywords.isEmpty()) {
+            curriculum.updateKeywords(keywords);
+            weeklyCurriculumRepository.save(curriculum);
         }
 
         // Step D: LLM 학습 자료 생성 → PDF 변환 → S3 업로드 → resources에 추가
@@ -218,6 +240,183 @@ public class CurriculumEnrichmentService {
             if (!results.isEmpty() && allCandidates.size() >= 10) break;
         }
         return allCandidates;
+    }
+
+    /**
+     * LLM에게 후보 영상들의 학습 목표 커버리지를 평가받아, 1~2개 videoId 목록을 반환한다.
+     * 한 영상으로 모든 핵심 개념을 커버하기 어렵다면 두 번째 보완 영상을 함께 고르게 한다.
+     * LLM 호출 실패 시 빈 리스트를 반환하고 기존 scoring 방식으로 폴백된다.
+     */
+    private List<String> llmSelectVideoIds(WeeklyCurriculum curriculum, WeekEnrichmentContext context,
+                                           List<YoutubeApiService.VideoMeta> candidates) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+        if (!youtubeApiService.isEnabled()) return List.of();
+
+        StringBuilder sb = new StringBuilder();
+        for (YoutubeApiService.VideoMeta v : candidates) {
+            sb.append("- videoId: ").append(v.videoId())
+              .append(" | 제목: ").append(v.title() != null ? v.title() : "")
+              .append(" | 설명: ").append(v.description() != null ? v.description() : "")
+              .append("\n");
+        }
+
+        String systemPrompt = """
+                당신은 MoAI 학습 플랫폼의 유튜브 영상 적합도 평가 AI입니다.
+
+                아래 주차 학습 정보를 기준으로 후보 영상 중 1개 또는 2개를 선택하세요.
+
+                ■ 선택 기준
+                1. 학습 목표(learningObjectives)와 핵심 개념(keyConcepts)을 얼마나 넓고 정확하게 커버하는가
+                2. 한 영상으로 핵심 개념 대부분을 커버하면 1개만 선택한다
+                3. 한 영상만으로 실행 컨텍스트, 엔진, 메모리처럼 서로 다른 핵심 개념을 충분히 커버하기 어렵다면 보완 영상 1개를 추가한다
+                4. 두 영상을 고를 때는 첫 번째를 주력 영상, 두 번째를 보완 영상으로 둔다
+                5. 개념·이론 중심의 강의 영상인가 (문제풀이·시험대비·단순 요약 영상은 낮은 점수)
+
+                ■ 출력 형식: 순수 JSON (코드블록 금지)
+                {"rankings": [{"videoId": "영상ID", "score": 0~10, "reason": "한 줄 이유"}]}
+                - 최대 2개까지만 포함, score 내림차순 정렬
+                - 적합도 5점 이상인 영상만 포함
+                - 적합한 영상이 없으면 빈 배열: {"rankings": []}
+                """;
+
+        String userMessage = String.format(
+                "주차 주제: %s\n학습 목표:\n%s\n핵심 개념: %s\n\n영상 후보:\n%s",
+                curriculum.getTopic(),
+                joinLines(context.learningObjectives()),
+                joinCsv(context.keyConcepts()),
+                sb.toString()
+        );
+
+        try {
+            LlmRequestDto request = LlmRequestDto.builder()
+                    .systemPrompt(systemPrompt)
+                    .userMessage(userMessage)
+                    .build();
+            LlmVideoRankResponse response = llmService.callJson(request, LlmVideoRankResponse.class);
+            if (response == null || response.getRankings() == null || response.getRankings().isEmpty()) {
+                log.info("[{}주차] LLM 영상 적합도 평가 — 적합한 후보 없음, 기존 scoring 방식 폴백",
+                        curriculum.getWeekNumber());
+                return List.of();
+            }
+            log.info("[{}주차] LLM 영상 적합도 평가 완료 — {}개 후보 중 {}개 적합",
+                    curriculum.getWeekNumber(), candidates.size(), response.getRankings().size());
+            return response.getRankings().stream()
+                    .map(LlmVideoRankResponse.RankingItem::getVideoId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .distinct()
+                    .limit(2)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("[{}주차] LLM 영상 적합도 평가 실패 — 기존 scoring 방식 폴백: {}",
+                    curriculum.getWeekNumber(), e.getMessage());
+            return List.of();
+        }
+    }
+
+    private CurriculumResource toYoutubeResource(WeeklyCurriculum curriculum, YoutubeApiService.VideoMeta video) {
+        String title = (video.title() != null && !video.title().isBlank())
+                ? video.title() : curriculum.getTopic();
+        return new CurriculumResource(
+                "youtube", video.videoId(), title, null, null,
+                video.durationSec(), video.viewCount(), null
+        );
+    }
+
+    /**
+     * LLM 선택 결과가 있으면 그 순서를 따르고, 없으면 기존 scoring 방식으로 최대 2개를 고른다.
+     */
+    private List<YoutubeApiService.VideoMeta> pickVideosWithLlm(WeeklyCurriculum curriculum,
+                                                                 WeekEnrichmentContext context,
+                                                                 List<YoutubeApiService.VideoMeta> candidates,
+                                                                 List<String> llmSelectedIds,
+                                                                 Set<String> excludedVideoIds) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+
+        List<YoutubeApiService.VideoMeta> selected = new ArrayList<>();
+        if (llmSelectedIds != null && !llmSelectedIds.isEmpty()) {
+            Map<String, YoutubeApiService.VideoMeta> candidateMap = new LinkedHashMap<>();
+            for (YoutubeApiService.VideoMeta candidate : candidates) {
+                if (candidate.videoId() == null || candidate.videoId().isBlank()) continue;
+                candidateMap.putIfAbsent(candidate.videoId(), candidate);
+            }
+
+            for (String videoId : llmSelectedIds) {
+                if (excludedVideoIds != null && excludedVideoIds.contains(videoId)) continue;
+                YoutubeApiService.VideoMeta video = candidateMap.get(videoId);
+                if (video == null) continue;
+                boolean alreadySelected = selected.stream()
+                        .anyMatch(v -> videoId.equals(v.videoId()));
+                if (!alreadySelected) {
+                    selected.add(video);
+                }
+                if (selected.size() == 2) break;
+            }
+
+            if (!selected.isEmpty()) {
+                log.info("[{}주차] LLM 기반 영상 선택 — {}개: {}",
+                        curriculum.getWeekNumber(),
+                        selected.size(),
+                        selected.stream()
+                                .map(v -> nullSafe(v.videoId()))
+                                .collect(Collectors.joining(", ")));
+                return selected;
+            }
+
+            log.info("[{}주차] LLM 선택 후보가 검색 후보에 없음 — 기존 scoring 방식 폴백",
+                    curriculum.getWeekNumber());
+        }
+
+        Set<String> localExcluded = new HashSet<>();
+        if (excludedVideoIds != null) {
+            localExcluded.addAll(excludedVideoIds);
+        }
+        for (int i = 0; i < 2; i++) {
+            YoutubeApiService.VideoMeta next = pickBest(curriculum, context, candidates, localExcluded);
+            if (next == null) break;
+            selected.add(next);
+            localExcluded.add(next.videoId());
+        }
+
+        if (!selected.isEmpty()) {
+            log.info("[{}주차] scoring 기반 영상 선택 — {}개: {}",
+                    curriculum.getWeekNumber(),
+                    selected.size(),
+                    selected.stream()
+                            .map(v -> nullSafe(v.videoId()))
+                            .collect(Collectors.joining(", ")));
+        }
+        return selected;
+    }
+
+    /**
+     * LLM 랭킹이 있으면 순서대로 시도하고, 없거나 모두 제외된 경우 기존 scoring 방식으로 폴백한다.
+     */
+    private YoutubeApiService.VideoMeta pickBestWithLlm(WeeklyCurriculum curriculum,
+                                                         WeekEnrichmentContext context,
+                                                         List<YoutubeApiService.VideoMeta> candidates,
+                                                         List<String> llmRankedIds,
+                                                         Set<String> excludedVideoIds) {
+        if (llmRankedIds != null && !llmRankedIds.isEmpty()) {
+            Map<String, YoutubeApiService.VideoMeta> candidateMap = new LinkedHashMap<>();
+            if (candidates != null) {
+                for (YoutubeApiService.VideoMeta candidate : candidates) {
+                    if (candidate.videoId() == null || candidate.videoId().isBlank()) continue;
+                    candidateMap.putIfAbsent(candidate.videoId(), candidate);
+                }
+            }
+            for (String videoId : llmRankedIds) {
+                if (excludedVideoIds != null && excludedVideoIds.contains(videoId)) continue;
+                YoutubeApiService.VideoMeta v = candidateMap.get(videoId);
+                if (v != null) {
+                    log.info("[{}주차] LLM 적합도 기반 영상 선택: {} (videoId={})",
+                            curriculum.getWeekNumber(), v.title(), videoId);
+                    return v;
+                }
+            }
+            log.info("[{}주차] LLM 랭킹 후보가 모두 제외됨 — 기존 scoring 방식 폴백",
+                    curriculum.getWeekNumber());
+        }
+        return pickBest(curriculum, context, candidates, excludedVideoIds);
     }
 
     /**
@@ -321,8 +520,11 @@ public class CurriculumEnrichmentService {
     private SubtitleScrapeResult retryWithAlternativeVideo(WeeklyCurriculum curriculum,
                                                             WeekEnrichmentContext context,
                                                             List<YoutubeApiService.VideoMeta> candidates,
-                                                            Set<String> excludedVideoIds) {
-        YoutubeApiService.VideoMeta alternative = pickBest(curriculum, context, candidates, excludedVideoIds);
+                                                            List<String> llmRankedIds,
+                                                            Set<String> excludedVideoIds,
+                                                            List<YoutubeApiService.VideoMeta> selectedVideos,
+                                                            String failedVideoId) {
+        YoutubeApiService.VideoMeta alternative = pickBestWithLlm(curriculum, context, candidates, llmRankedIds, excludedVideoIds);
         if (alternative == null) {
             log.info("[{}주차] 차선책 영상 없음 — 자막 없이 진행", curriculum.getWeekNumber());
             return null;
@@ -336,12 +538,19 @@ public class CurriculumEnrichmentService {
 
         try {
             SubtitleScrapeResult retried = subtitleScraperService.scrape(altVideoId);
-            // 자막 추출에 성공한 영상으로 resources 의 youtube 항목 교체
-            CurriculumResource newResource = new CurriculumResource(
-                    "youtube", altVideoId, altTitle, null, null,
-                    alternative.durationSec(), alternative.viewCount(), null
-            );
-            curriculum.updateResources(List.of(newResource));
+            // 자막 추출에 성공한 차선책으로 실패한 주력 영상만 교체하고, 기존 보완 영상은 유지한다.
+            List<CurriculumResource> normalVideos = new ArrayList<>();
+            normalVideos.add(toYoutubeResource(curriculum, alternative));
+            if (selectedVideos != null) {
+                selectedVideos.stream()
+                        .filter(v -> !altVideoId.equals(v.videoId()))
+                        .filter(v -> failedVideoId == null || !failedVideoId.equals(v.videoId()))
+                        .map(v -> toYoutubeResource(curriculum, v))
+                        .forEach(normalVideos::add);
+            }
+            curriculum.updateResources(mergeNormalYoutubeResources(
+                    curriculum.getResources(),
+                    normalVideos.stream().limit(2).toList()));
             weeklyCurriculumRepository.save(curriculum);
 
             saveTranscripts(curriculum, altVideoId, retried.chunks());
@@ -372,6 +581,13 @@ public class CurriculumEnrichmentService {
         try {
             SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
             int count = saveTranscripts(curriculum, videoId, result.chunks());
+            List<String> keywords = extractKeywords(curriculum, result.chunks());
+            if (keywords != null && !keywords.isEmpty()) {
+                curriculum.updateKeywords(keywords);
+                weeklyCurriculumRepository.save(curriculum);
+                log.info("[{}주차] 자막 재시도 후 키워드 갱신 완료 — {}개",
+                        curriculum.getWeekNumber(), keywords.size());
+            }
             log.info("[{}주차] 자막 재시도 성공 — videoId={}, chunks={}",
                     curriculum.getWeekNumber(), videoId, count);
         } catch (SubtitleScrapeException e) {
@@ -618,6 +834,83 @@ public class CurriculumEnrichmentService {
         return items == null || items.isEmpty() ? "" : String.join(", ", items);
     }
 
+    private void applyFallbackKeywordsIfMissing(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
+        if (curriculum.getKeywords() != null && !curriculum.getKeywords().isEmpty()) return;
+
+        List<String> keywords = fallbackKeywords(curriculum, context);
+        if (keywords.isEmpty()) return;
+
+        curriculum.updateKeywords(keywords);
+        weeklyCurriculumRepository.save(curriculum);
+    }
+
+    private List<String> fallbackKeywords(WeeklyCurriculum curriculum, WeekEnrichmentContext context) {
+        List<String> keyConcepts = cleanKeywordList(context.keyConcepts());
+        if (!keyConcepts.isEmpty()) return keyConcepts;
+
+        List<String> practiceKeywords = cleanKeywordList(context.practiceKeywords());
+        if (!practiceKeywords.isEmpty()) return practiceKeywords;
+
+        String topic = curriculum.getTopic();
+        if (topic != null && !topic.isBlank()) return List.of(topic.trim());
+        return Collections.emptyList();
+    }
+
+    private List<String> cleanKeywordList(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) return Collections.emptyList();
+        return keywords.stream()
+                .filter(keyword -> keyword != null && !keyword.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+    }
+
+    private List<CurriculumResource> mergeNormalYoutubeResources(List<CurriculumResource> current,
+                                                                  List<CurriculumResource> normalVideos) {
+        List<CurriculumResource> merged = new ArrayList<>();
+        if (normalVideos != null) {
+            normalVideos.forEach(resource -> addResourceIfAbsent(merged, resource));
+        }
+
+        if (current != null) {
+            current.stream()
+                    .filter(resource -> !"youtube".equals(resource.getType()) || "weakness".equals(resource.getTag()))
+                    .forEach(resource -> addResourceIfAbsent(merged, resource));
+        }
+        return merged;
+    }
+
+    private boolean hasWeaknessResource(WeeklyCurriculum curriculum, String type) {
+        return curriculum.getResources() != null &&
+                curriculum.getResources().stream()
+                        .anyMatch(resource -> type.equals(resource.getType())
+                                && "weakness".equals(resource.getTag()));
+    }
+
+    private void addResourceIfAbsent(List<CurriculumResource> resources, CurriculumResource candidate) {
+        if (candidate == null) return;
+        boolean exists = resources.stream().anyMatch(existing -> sameResource(existing, candidate));
+        if (!exists) {
+            resources.add(candidate);
+        }
+    }
+
+    private boolean sameResource(CurriculumResource a, CurriculumResource b) {
+        if (a == null || b == null) return false;
+        if (!stringEquals(a.getType(), b.getType())) return false;
+        if (a.getVideoId() != null || b.getVideoId() != null) {
+            return stringEquals(a.getVideoId(), b.getVideoId());
+        }
+        if (a.getUrl() != null || b.getUrl() != null) {
+            return stringEquals(a.getUrl(), b.getUrl());
+        }
+        return stringEquals(a.getTitle(), b.getTitle()) && stringEquals(a.getTag(), b.getTag());
+    }
+
+    private boolean stringEquals(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
     // --- 약점 키워드 보충 enrichment ---
 
     /**
@@ -636,28 +929,29 @@ public class CurriculumEnrichmentService {
             return;
         }
 
-        // 이미 약점 보충 콘텐츠가 있으면 스킵 (멱등성)
-        boolean alreadyEnriched = curriculum.getResources() != null &&
-                curriculum.getResources().stream().anyMatch(r -> "weakness".equals(r.getTag()));
-        if (alreadyEnriched) {
-            log.info("[{}주차] 약점 보충 enrichment 이미 완료됨 — 스킵", curriculum.getWeekNumber());
-            return;
-        }
-
         log.info("[{}주차] 약점 키워드 보충 enrichment 시작 — keywords: {}", curriculum.getWeekNumber(), weaknessKeywords);
 
         // Step W-A: 약점 키워드별 YouTube 영상 검색 (videoId 기준 중복 제거)
-        List<CurriculumResource> weaknessVideos = findVideosForWeaknessKeywords(weaknessKeywords, subject);
-        if (!weaknessVideos.isEmpty()) {
+        boolean hasWeaknessVideo = hasWeaknessResource(curriculum, "youtube");
+        List<CurriculumResource> weaknessVideos = hasWeaknessVideo
+                ? List.of()
+                : findVideosForWeaknessKeywords(weaknessKeywords, subject);
+        if (!hasWeaknessVideo && !weaknessVideos.isEmpty()) {
             List<CurriculumResource> resources = new ArrayList<>(
                     curriculum.getResources() != null ? curriculum.getResources() : List.of());
-            resources.addAll(weaknessVideos);
+            weaknessVideos.forEach(resource -> addResourceIfAbsent(resources, resource));
             curriculum.updateResources(resources);
             weeklyCurriculumRepository.save(curriculum);
+        } else if (hasWeaknessVideo) {
+            log.info("[{}주차] 약점 보충 영상 이미 존재 — 영상 검색 스킵", curriculum.getWeekNumber());
         }
 
         // Step W-B: 약점 키워드 통합 학습 자료 1개 생성
-        generateAndUploadWeaknessMaterial(curriculum, weaknessKeywords, subject, level);
+        if (!hasWeaknessResource(curriculum, "md")) {
+            generateAndUploadWeaknessMaterial(curriculum, weaknessKeywords, subject, level);
+        } else {
+            log.info("[{}주차] 약점 보충 자료 이미 존재 — 자료 생성 스킵", curriculum.getWeekNumber());
+        }
 
         // Step W-C: 약점 퀴즈 생성
         generateWeaknessQuiz(curriculum, weaknessKeywords);
@@ -776,10 +1070,9 @@ public class CurriculumEnrichmentService {
                 String mdSize = formatFileSize(mdBytes.length);
                 if (mdUrl != null) {
                     resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null, "weakness"));
-                    log.info("[{}주차] 약점 Markdown 업로드 완료 — size: {}", curriculum.getWeekNumber(), mdSize);
+                    log.info("[{}주차] 약점 Markdown 업로드 완료 — url: {}, size: {}", curriculum.getWeekNumber(), mdUrl, mdSize);
                 } else {
-                    resources.add(new CurriculumResource("md", null, materialTitle, null, mdSize, null, null, "weakness"));
-                    log.info("[{}주차] 약점 Markdown 생성 완료 ({}) — S3 비활성화로 저장 스킵", curriculum.getWeekNumber(), mdSize);
+                    log.info("[{}주차] 약점 Markdown 생성 완료 ({}) — URL 없음, 리소스 미등록", curriculum.getWeekNumber(), mdSize);
                 }
             } catch (Exception e) {
                 log.warn("[{}주차] 약점 Markdown 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());
@@ -922,6 +1215,21 @@ public class CurriculumEnrichmentService {
         static class OptionItem {
             private String label;
             private String text;
+        }
+    }
+
+    @Getter
+    @NoArgsConstructor
+    static class LlmVideoRankResponse {
+        private List<RankingItem> rankings;
+
+        @Getter
+        @NoArgsConstructor
+        static class RankingItem {
+            @JsonProperty("videoId")
+            private String videoId;
+            private int score;
+            private String reason;
         }
     }
 
