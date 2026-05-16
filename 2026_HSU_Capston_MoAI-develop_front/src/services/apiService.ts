@@ -66,6 +66,7 @@ import type {
   FlippedResultResponse,
   // ── 키워드 (Keywords) ──
   UserKeywordsResponse,
+  CurriculumKeywordsResponse,
   // ── 파이널 퀴즈 (Final Quiz) ──
   FinalQuizResponse,
   SubmitFinalQuizRequest, SubmitFinalQuizResponse,
@@ -835,6 +836,16 @@ export async function getFlippedResult(roomId: string, sessionId: string): Promi
 export async function getUserKeywords(roomId: string): Promise<UserKeywordsResponse> {
   // 사용자 강점·약점 키워드 목록 조회. 스터디 매칭 우선순위 및 거꾸로 학습 결과 모달에서 사용.
   return unwrap(api.get<ApiResponse<UserKeywordsResponse>>(`/api/learning-rooms/${roomId}/keywords`))
+}
+
+/**
+ * getCurriculumKeywords  —  GET /api/learning-rooms/{roomId}/curriculum/{weekId}/keywords
+ *
+ * 특정 주차(curriculum)의 강점·약점 키워드 조회.
+ * 사이드바 키워드 분석 카드에서 현재 선택된 주차 기준으로 표시할 때 사용.
+ */
+export async function getCurriculumKeywords(roomId: string, weekId: string): Promise<CurriculumKeywordsResponse> {
+  return unwrap(api.get<ApiResponse<CurriculumKeywordsResponse>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}/keywords`))
 }
 
 // =============================================================================

@@ -290,6 +290,8 @@ export interface SubmitQuizResponse {
   aiExplanation: string
   relatedVideoId: string
   relatedTimestamp: number
+  /** 패턴3·4 퀴즈 오답 시 되돌아갈 영상 초단위 위치. null이면 되돌리지 않음. */
+  rewindToSec?: number | null
 }
 
 // ── 6. Flipped Learning ───────────────────────────────────────────────────────
@@ -357,6 +359,17 @@ export interface WeaknessKeyword {
 
 export interface UserKeywordsResponse {
   strengths: StrengthKeyword[]
+  weaknesses: WeaknessKeyword[]
+}
+
+// ── 커리큘럼별 키워드 — GET /api/learning-rooms/{roomId}/curriculum/{weekId}/keywords
+
+export interface CurriculumStrengthKeyword {
+  keyword: string
+}
+
+export interface CurriculumKeywordsResponse {
+  strengths: CurriculumStrengthKeyword[]
   weaknesses: WeaknessKeyword[]
 }
 

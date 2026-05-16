@@ -411,5 +411,9 @@ export function useYouTubePlayer({
         playerRef.current?.pauseVideo()
     }, [])
 
-    return { playerDivId, playerHostRef, pausePlayer }
+    const seekPlayer = useCallback((sec: number) => {
+        playerRef.current?.seekTo(sec, true)
+    }, [])
+
+    return { playerDivId, playerHostRef, pausePlayer, seekPlayer }
 }

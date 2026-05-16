@@ -60,6 +60,7 @@ import {
     getGroupMessages,
     getStudyGroup,
     getStudySuggestions,
+    getCurriculumKeywords,
 } from '../../../services/apiService'
 import { MoaiApiError } from '../../../api/axios'
 import type {
@@ -73,6 +74,7 @@ import type {
     NotificationItem,
     ChatMessage,
     WsChatSend,
+    CurriculumKeywordsResponse,
 } from '../../../types/api'
 
 // ── 타입 정의 ─────────────────────────────────────────────────────────────────
@@ -180,6 +182,10 @@ function StudyClassroomContent() {
     const [quizLoading,      setQuizLoading]      = useState(false)
     const [videoGenTimedOut, setVideoGenTimedOut] = useState(false)
 
+    // 강점 / 약점 키워드 (현재 주차 기준)
+    const [userKeywords,    setUserKeywords]    = useState<CurriculumKeywordsResponse | null>(null)
+    const [keywordsLoading, setKeywordsLoading] = useState(false)
+
     // 아코디언 / 더 보기 UI 상태
     const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
     const [quizCorrectOpen,   setQuizCorrectOpen]   = useState(true)
@@ -210,6 +216,7 @@ function StudyClassroomContent() {
         quizSubmitted, setQuizSubmitted,
         matchStatus, setMatchStatus, setPartnerInfo, groupId, setGroupId, setPartnerConnected,
         currentMatchKey, setCurrentMatchKey, setMatchStateForKey,
+        savedSummaries, loadSummariesForWeek,
     } = useClassroomModal()
 
     // ── 주차 전환 시 해당 주차의 매칭 상태를 백엔드로 검증 ──────────────────
@@ -616,6 +623,25 @@ function StudyClassroomContent() {
             .catch(() => {})
     }, [quizSubmitted, roomId, weekData?.weekId, weekData?.weekNumber, applyWeekDetail])
 
+    // ── 주차 전환 시 해당 주차의 저장된 요약 로드 ───────────────────────────
+    useEffect(() => {
+        if (!roomId || !weekData?.weekId) return
+        loadSummariesForWeek(roomId, weekData.weekId)
+    }, [roomId, weekData?.weekId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── 강점 / 약점 키워드 로드 (주차 전환·메타인지·퀴즈 완료 시 갱신) ────────
+    useEffect(() => {
+        if (!roomId || !weekData?.weekId) return
+        let cancelled = false
+        setUserKeywords(null)
+        setKeywordsLoading(true)
+        getCurriculumKeywords(roomId, weekData.weekId)
+            .then(data => { if (!cancelled) setUserKeywords(data) })
+            .catch(() => { if (!cancelled) setUserKeywords(null) })
+            .finally(() => { if (!cancelled) setKeywordsLoading(false) })
+        return () => { cancelled = true }
+    }, [roomId, weekData?.weekId, metacogComplete, quizSubmitted])
+
     // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
     const handlePatternDetected = useCallback(async (
         eventType: EventType,
@@ -758,6 +784,8 @@ function StudyClassroomContent() {
     const matchRequestKeyRef        = useRef<string | null>(null)
     /** 모달 오픈 시 영상 정지용 — 훅 호출 후 동기 할당 */
     const pausePlayerRef            = useRef<() => void>(() => {})
+    /** 퀴즈 오답 시 영상 특정 구간 이동용 — 훅 호출 후 동기 할당 */
+    const seekPlayerRef             = useRef<(sec: number) => void>(() => {})
     openRef.current                 = open
     setPartnerInfoRef.current       = setPartnerInfo
     partnerInfoRef.current          = partnerInfo
@@ -981,12 +1009,13 @@ function StudyClassroomContent() {
     }, [expandedQuizId, quizDetailCache])
 
     // ── YouTube IFrame API 훅 ─────────────────────────────────────────────────
-    const { playerHostRef, pausePlayer } = useYouTubePlayer({
+    const { playerHostRef, pausePlayer, seekPlayer } = useYouTubePlayer({
         videoId:             activeVideoId,
         onPatternDetected:   handlePatternDetected,
         onProgressMilestone: handleProgressMilestone,
     })
     pausePlayerRef.current = pausePlayer
+    seekPlayerRef.current  = seekPlayer
 
     const isWeekLocked = (w: CurriculumWeekSummary) =>
         unlockedUpToWeekNumber !== null && w.weekNumber > unlockedUpToWeekNumber
@@ -1591,6 +1620,85 @@ function StudyClassroomContent() {
                         </button>
                     </div>
                     <div className="classroom__aside-scroll">
+                        {/* 강점 / 약점 키워드 카드 — 데이터가 있거나 로딩 중일 때만 표시 */}
+                        {(keywordsLoading || (userKeywords && (userKeywords.strengths.length > 0 || userKeywords.weaknesses.length > 0))) && (
+                        <div className="kw-card">
+                            <div className="kw-card__title">
+                                <Zap size={13} strokeWidth={1.5} className="kw-card__icon" />
+                                키워드 분석
+                            </div>
+                            {keywordsLoading ? (
+                                <div className="kw-card__loading">
+                                    <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+                                </div>
+                            ) : (
+                                <>
+                                    {userKeywords.strengths.length > 0 && (
+                                        <div className="kw-card__section">
+                                            <div className="kw-card__section-label kw-card__section-label--strength">강점</div>
+                                            <div className="kw-card__tags">
+                                                {userKeywords.strengths.map(s => (
+                                                    <span
+                                                        key={s.keyword}
+                                                        className="kw-tag kw-tag--strength"
+                                                    >
+                                                        {s.keyword}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {userKeywords.weaknesses.length > 0 && (
+                                        <div className="kw-card__section">
+                                            <div className="kw-card__section-label kw-card__section-label--weakness">약점</div>
+                                            <div className="kw-card__tags">
+                                                {userKeywords.weaknesses.map(w => (
+                                                    <span
+                                                        key={w.keyword}
+                                                        className={`kw-tag kw-tag--weakness${w.isResolved ? ' kw-tag--resolved' : ''}`}
+                                                    >
+                                                        {w.keyword}
+                                                        {w.weaknessCount > 1 && (
+                                                            <span className="kw-tag__count">×{w.weaknessCount}</span>
+                                                        )}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        )}
+
+                        {/* 저장된 요약 카드 */}
+                        {savedSummaries.length > 0 && (
+                            <div className="saved-summary-card">
+                                <div className="saved-summary-card__title">
+                                    <FileText size={13} strokeWidth={1.5} className="saved-summary-card__icon" />
+                                    저장된 요약
+                                    <span className="saved-summary-card__count">{savedSummaries.length}</span>
+                                </div>
+                                <ul className="saved-summary-card__list">
+                                    {savedSummaries.map(s => (
+                                        <li key={s.conceptName}>
+                                            <button
+                                                className="saved-summary-card__item"
+                                                onClick={() => open('summary-detail', {
+                                                    type:        'summary-detail',
+                                                    conceptName: s.conceptName,
+                                                    summaryItems: s.summaryItems,
+                                                })}
+                                            >
+                                                <span className="saved-summary-card__item-name">{s.conceptName}</span>
+                                                <span className="saved-summary-card__item-arrow">›</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
                         {/* 메타인지 확인 카드 */}
                         {!metacogComplete ? (
                             <div className="metacog-card">
@@ -1825,7 +1933,7 @@ function StudyClassroomContent() {
             </div>
 
             {/* ── 모달 ── */}
-            <ClassroomModals />
+            <ClassroomModals onSeekPlayer={sec => seekPlayerRef.current(sec)} />
 
             {/* ── 잠긴 주차 토스트 알림 ── */}
             {lockedToast && (

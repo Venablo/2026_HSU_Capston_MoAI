@@ -1,5 +1,30 @@
 import { createContext, useContext, useState } from 'react'
 import type { ModalData, StudyMatchResponse } from '../types/aiEvents'
+import type { SummaryItem } from '../components/modals/monitoring/SummaryDetailModal'
+
+// ── 저장된 요약 ───────────────────────────────────────────────────────────────
+
+export interface SavedSummary {
+    conceptName:  string
+    summaryItems: SummaryItem[]
+    savedAt:      number  // Date.now()
+}
+
+const LS_SUMMARIES = 'moai_summaries'
+
+function loadSummariesFromStorage(roomId: string, weekId: string): SavedSummary[] {
+    try {
+        const raw = localStorage.getItem(`${LS_SUMMARIES}_${roomId}_${weekId}`)
+        return raw ? (JSON.parse(raw) as SavedSummary[]) : []
+    } catch { return [] }
+}
+
+function persistSummariesToStorage(roomId: string, weekId: string, list: SavedSummary[]) {
+    try {
+        if (list.length === 0) localStorage.removeItem(`${LS_SUMMARIES}_${roomId}_${weekId}`)
+        else localStorage.setItem(`${LS_SUMMARIES}_${roomId}_${weekId}`, JSON.stringify(list))
+    } catch {}
+}
 
 // ── Modal key type ────────────────────────────────────────────────────────────
 
@@ -95,6 +120,14 @@ interface ClassroomModalContextValue {
 
     /** 전체 주차별 매칭 상태 맵 (읽기 전용 — StudyMatchDropdown 등에서 사용) */
     matchStates: Record<string, WeekMatchState>
+
+    // ── 저장된 요약 ──────────────────────────────────────────────────────────
+    /** 현재 주차의 저장된 요약 목록 */
+    savedSummaries: SavedSummary[]
+    /** 요약 저장 (같은 conceptName이면 최신으로 교체) */
+    saveSummary: (roomId: string, weekId: string, conceptName: string, summaryItems: SummaryItem[]) => void
+    /** 주차 전환 시 해당 주차의 저장 요약 로드 */
+    loadSummariesForWeek: (roomId: string, weekId: string) => void
 }
 
 // ── Context + provider ────────────────────────────────────────────────────────
@@ -112,6 +145,9 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     // 주차별 매칭 상태 맵 — 새로고침 시 localStorage에서 복원
     const [matchStates,     setMatchStates]     = useState<Record<string, WeekMatchState>>(loadMatchStates)
     const [currentMatchKey, setCurrentMatchKey] = useState<string | null>(null)
+
+    // 저장된 요약 — 주차 전환 시 loadSummariesForWeek로 교체
+    const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([])
 
     // 현재 주차의 파생 상태
     const currentMatch   = currentMatchKey ? (matchStates[currentMatchKey] ?? DEFAULT_WEEK_MATCH) : DEFAULT_WEEK_MATCH
@@ -142,6 +178,19 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const open  = (key: NonNullable<ModalKey>, data?: ModalData) => { setModalData(data ?? null); setModal(key) }
     const close = () => { setModal(null); setModalData(null) }
 
+    const saveSummary = (roomId: string, weekId: string, conceptName: string, summaryItems: SummaryItem[]) => {
+        setSavedSummaries(prev => {
+            const filtered = prev.filter(s => s.conceptName !== conceptName)
+            const next = [{ conceptName, summaryItems, savedAt: Date.now() }, ...filtered]
+            persistSummariesToStorage(roomId, weekId, next)
+            return next
+        })
+    }
+
+    const loadSummariesForWeek = (roomId: string, weekId: string) => {
+        setSavedSummaries(loadSummariesFromStorage(roomId, weekId))
+    }
+
     return (
         <ClassroomModalContext.Provider value={{
             modal, modalData, open, close,
@@ -153,6 +202,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             setMatchStatus,   setPartnerConnected, setPartnerInfo, setGroupId,
             setMatchStateForKey,
             matchStates,
+            savedSummaries, saveSummary, loadSummariesForWeek,
         }}>
             {children}
         </ClassroomModalContext.Provider>

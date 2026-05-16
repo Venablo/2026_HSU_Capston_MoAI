@@ -83,7 +83,7 @@ export type ModalData =
     | { type: 'meta-evaluation'; evaluation: MetaEvaluationResponse }
     | { type: 'study-matching';  match: StudyMatchResponse }
     | { type: 'quiz-correct';    conceptName: string }
-    | { type: 'quiz-incorrect';  conceptName: string; correctConcept: string; explanation: string }
+    | { type: 'quiz-incorrect';  conceptName: string; correctConcept: string; explanation: string; rewindToSec?: number | null }
     | {
         type: 'final-quiz'
         /** Used by FinalQuizModal for getFinalQuiz / submitFinalQuiz / polling */

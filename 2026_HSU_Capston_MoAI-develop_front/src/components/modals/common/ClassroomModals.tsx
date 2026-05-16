@@ -42,7 +42,12 @@ import FinalQuizModal from '../quiz/FinalQuizModal'
 import type { MetaEvaluationResponse } from '../../../types/aiEvents'
 import type { EndFlippedResponse } from '../../../types/api'
 
-export default function ClassroomModals() {
+interface ClassroomModalsProps {
+    /** 퀴즈 오답 시 영상을 특정 초로 이동시키는 콜백 */
+    onSeekPlayer?: (sec: number) => void
+}
+
+export default function ClassroomModals({ onSeekPlayer }: ClassroomModalsProps) {
     const {
         modal, modalData, open, close,
         setMetacogComplete, setPartnerInfo, partnerInfo,
@@ -52,6 +57,7 @@ export default function ClassroomModals() {
         currentWeekId,
         currentMatchKey,
         setMatchStateForKey,
+        saveSummary,
     } = useClassroomModal()
 
     const [connecting, setConnecting] = useState(false)
@@ -64,7 +70,9 @@ export default function ClassroomModals() {
     // ── monitoring → summary-detail 전환 ────────────────────────────────────
     // summaryItems은 StudyClassroom이 getMaterialDetail() 호출 시 이미 받아서
     // ModalData.monitoring에 저장해 두었다. 추가 네트워크 요청 없이 바로 오픈.
+    // 사용자가 "네, 요약본 볼래요"를 클릭한 시점에 localStorage에 자동 저장.
     const handleShowSummary = (conceptName: string, summaryItems: SummaryItem[]) => {
+        if (currentWeekId) saveSummary(roomId, currentWeekId, conceptName, summaryItems)
         open('summary-detail', {
             type:        'summary-detail',
             conceptName,
@@ -192,7 +200,7 @@ export default function ClassroomModals() {
                 <QuizPassModal
                     quiz={modalData.quiz}
                     onClose={close}
-                    onResult={(correct, conceptName, correctConcept, explanation) => {
+                    onResult={(correct, conceptName, correctConcept, explanation, rewindToSec) => {
                         if (correct) {
                             open('quiz-correct', { type: 'quiz-correct', conceptName })
                         } else {
@@ -201,6 +209,7 @@ export default function ClassroomModals() {
                                 conceptName,
                                 correctConcept,
                                 explanation,
+                                rewindToSec,
                             })
                         }
                     }}
@@ -221,6 +230,8 @@ export default function ClassroomModals() {
                     conceptName={modalData.conceptName}
                     correctConcept={modalData.correctConcept}
                     explanation={modalData.explanation}
+                    rewindToSec={modalData.rewindToSec}
+                    onRewind={onSeekPlayer}
                     onClose={close}
                 />
             )}

@@ -13,8 +13,9 @@ interface Props {
      * @param conceptName     the keyword this question tests (quiz.relatedKeyword)
      * @param correctConcept  the text of the correct option (from SubmitQuizResponse)
      * @param explanation     AI-generated explanation (from SubmitQuizResponse)
+     * @param rewindToSec     초 단위 되돌아갈 위치 (오답 시 영상 리와인드용)
      */
-    onResult?: (correct: boolean, conceptName: string, correctConcept: string, explanation: string) => void
+    onResult?: (correct: boolean, conceptName: string, correctConcept: string, explanation: string, rewindToSec?: number | null) => void
 }
 
 export default function QuizPassModal({ quiz, onClose, onResult }: Props) {
@@ -35,7 +36,7 @@ export default function QuizPassModal({ quiz, onClose, onResult }: Props) {
                 ?? response.correctAnswer
 
             if (onResult) {
-                onResult(response.isCorrect, quiz.relatedKeyword, correctText, response.aiExplanation)
+                onResult(response.isCorrect, quiz.relatedKeyword, correctText, response.aiExplanation, response.rewindToSec)
             } else {
                 onClose()
             }
