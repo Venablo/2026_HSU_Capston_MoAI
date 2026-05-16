@@ -148,7 +148,9 @@ public class QuizService {
      * 1) 문항 조회 → 정답 비교 → is_correct 판별
      * 2) LLM → AI 해설 생성
      * 3) QuizAttempt 저장
-     * 4) 오답 시 UserKeyword 약점 upsert
+     * 4) relatedKeyword 기반 UserKeyword 갱신
+     *    - 정답: 강점 승격 + 기존 약점 해소 (파이널 퀴즈/거꾸로 학습과 동일)
+     *    - 오답: 약점 누적 upsert
      * 5) 오답 시 rewindToSec 포함하여 응답
      */
     @Transactional
@@ -192,13 +194,21 @@ public class QuizService {
                 .build();
         quizAttemptRepository.save(attempt);
 
-        // 4. 오답 시 UserKeyword 약점 누적 (relatedKeyword 기반 upsert)
         Integer rewindToSec = null;
-        if (!isCorrect && question.getRelatedKeyword() != null) {
-            upsertWeaknessKeyword(user, quiz, question.getRelatedKeyword());
+        // 4. relatedKeyword 기반 UserKeyword 갱신
+        if (question.getRelatedKeyword() != null) {
+            if (isCorrect) {
+                // 정답: 파이널 퀴즈/거꾸로 학습과 동일하게 강점 승격(약점 보유 시 해소)
+                WeeklyCurriculum curriculum = quiz.getCurriculum();
+                LearningRoom room = curriculum.getRoom();
+                resolveAndPromoteKeywords(user, room, curriculum,
+                        List.of(question.getRelatedKeyword()));
+            } else {
+                upsertWeaknessKeyword(user, quiz, question.getRelatedKeyword());
 
-            // 5. 오답 시 Quiz.rewindToSec 조회하여 되감기 지점 반환
-            rewindToSec = quiz.getRewindToSec();
+                // 5. 오답 시 Quiz.rewindToSec 조회하여 되감기 지점 반환
+                rewindToSec = quiz.getRewindToSec();
+            }
         }
 
         String relatedVideoId = null;
