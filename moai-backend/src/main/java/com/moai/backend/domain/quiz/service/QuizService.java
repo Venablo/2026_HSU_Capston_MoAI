@@ -612,7 +612,7 @@ public class QuizService {
             lines.add("💡 보완: " + tip);
         }
 
-        return new LlmEssayGradingResult(score, gained, weak, String.join("\n", lines));
+        return new LlmEssayGradingResult(score, gained, weak, String.join("\n\n", lines));
     }
 
     private String compactLine(String value, int maxLength) {
@@ -938,11 +938,14 @@ public class QuizService {
 
                 역할: 학생이 방금 응답한 문항에 대해 핵심만 짚는 읽기 쉬운 해설을 제공합니다.
 
-                ■ 출력 형식: 한국어 존댓말. 흐르는 문장과 불릿을 혼합해 구성하되, 하나의 긴 글 뭉텅이가 되지 않도록 적절히 줄 바꿈과 불릿으로 시각적으로 분리할 것.
+                ■ 출력 형식: 한국어 존댓말. 흐르는 문장과 불릿(-)을 자유롭게 혼합해 구성. 여러 항목을 나열할 때는 불릿과 줄바꿈을 활용하고, 자연스럽게 이어지는 내용은 문장으로 작성해도 됨. 하나의 긴 문단 덩어리는 피할 것.
+                반드시 문단(텍스트 블록)과 불릿 목록 사이에는 빈 줄을 넣을 것 — 마크다운 렌더러에서 줄바꿈이 올바르게 표시됨.
                 예시 구조 (고정 형식 아님, 상황에 맞게 변형 가능):
                   정답/오답 여부와 핵심 이유를 1~2문장으로 자연스럽게 설명.
+
                   - 핵심 개념: 관련 키워드 의미나 올바른 내용
                   - 오답 분석: 왜 틀렸는지 (오답일 때만)
+
                   격려 한 줄.
 
                 ■ 필수 규칙

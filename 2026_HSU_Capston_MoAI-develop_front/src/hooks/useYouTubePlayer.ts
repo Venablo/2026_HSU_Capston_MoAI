@@ -49,6 +49,8 @@ interface YTPlayer {
     getPlaybackRate(): number
     /** 영상 일시정지 */
     pauseVideo(): void
+    /** 지정한 초 위치로 이동 */
+    seekTo(seconds: number, allowSeekAhead?: boolean): void
     /** 플레이어 인스턴스를 DOM에서 제거하고 메모리 해제 */
     destroy(): void
 }
@@ -121,6 +123,8 @@ export interface UseYouTubePlayerReturn {
     playerHostRef: RefObject<HTMLDivElement | null>
     /** 외부에서 영상을 일시정지할 때 사용 (모달 오픈 시 등) */
     pausePlayer: () => void
+    /** 외부에서 특정 시점으로 영상을 이동할 때 사용 */
+    seekPlayer: (sec: number) => void
 }
 
 /** 진행률 마일스톤 목록 (오름차순) */

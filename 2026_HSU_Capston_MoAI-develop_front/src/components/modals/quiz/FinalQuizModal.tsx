@@ -59,6 +59,7 @@ import {
     RadarChart, PolarGrid, PolarAngleAxis,
     Radar, ResponsiveContainer, Tooltip,
 } from 'recharts'
+import MarkdownContent from '../../MarkdownContent'
 
 // ── 레이더 차트 데이터 변환 ────────────────────────────────────────────────────
 function toRadarData(radarMap: Record<string, number>) {
@@ -414,7 +415,11 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                                             {q.score}/{q.maxScore}점
                                         </span>
                                     </div>
-                                    <p className="fq-report__q-comment">{q.aiComment}</p>
+                                    <MarkdownContent
+                                        content={q.aiComment}
+                                        compact
+                                        className="fq-report__q-comment"
+                                    />
                                     {(gainedKeywords.length > 0 || weakKeywords.length > 0) && (
                                         <div className="fq-report__q-kw-row">
                                             {gainedKeywords.map(kw => (

@@ -1,4 +1,5 @@
 import { Sparkles, FileText } from 'lucide-react'
+import MarkdownContent from '../../MarkdownContent'
 import Modal from '../common/Modal'
 
 /** A single principle item in the summary list (e.g. one ACID entry) */
@@ -45,7 +46,11 @@ export default function SummaryDetailModal({
                             <div className="modal-summary__letter">{item.letter}</div>
                             <div className="modal-summary__content">
                                 <div className="modal-summary__item-title">{item.title}</div>
-                                <p className="modal-summary__item-desc">{item.description}</p>
+                                <MarkdownContent
+                                    content={item.description}
+                                    compact
+                                    className="modal-summary__item-desc"
+                                />
                             </div>
                         </div>
                     ))}

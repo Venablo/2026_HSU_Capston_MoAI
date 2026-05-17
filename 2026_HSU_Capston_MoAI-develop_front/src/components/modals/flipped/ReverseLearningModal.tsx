@@ -32,6 +32,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Brain, Bot, Target, Loader2, Send, CheckCircle2 } from 'lucide-react'
+import MarkdownContent from '../../MarkdownContent'
 import Modal from '../common/Modal'
 import {
     startFlippedSession,
@@ -158,6 +159,24 @@ export default function ReverseLearningModal({
 
         let isCounterQuestion = false
 
+        const appendAiText = (content?: string) => {
+            const text = content?.trim()
+            if (!text) return
+            const separator = streamBufferRef.current.trim() ? '\n\n' : ''
+            streamBufferRef.current += `${separator}${text}`
+            const currentContent = streamBufferRef.current
+            setMessages(prev => {
+                const updated = [...prev]
+                updated[updated.length - 1] = {
+                    role: 'ai',
+                    content: currentContent,
+                    isCounterQuestion,
+                    isStreaming: true,
+                }
+                return updated
+            })
+        }
+
         sse.onmessage = (e) => {
             try {
                 const event: FlippedStreamEvent = JSON.parse(e.data)
@@ -189,28 +208,10 @@ export default function ReverseLearningModal({
                         return updated
                     })
                 } else if (event.type === 'next_keyword') {
-                    // Backend already streams the next prompt text; this event only marks progress.
+                    appendAiText(event.message ?? `다음 키워드: '${event.keyword}'\n이 용어에 대해 알고 계신 내용을 자유롭게 설명해 주시겠어요?`)
                 } else if (event.type === 'session_complete') {
                     setSessionComplete(true)
-                    if (!streamBufferRef.current.trim()) {
-                        sse.close()
-                        sseRef.current = null
-                        setMessages(prev => {
-                            const updated = [...prev]
-                            const last = updated[updated.length - 1]
-                            if (last?.role === 'ai' && last.isStreaming) {
-                                updated[updated.length - 1] = {
-                                    role: 'ai',
-                                    content: event.content,
-                                    isStreaming: false,
-                                }
-                            } else if (event.content) {
-                                updated.push({ role: 'ai', content: event.content })
-                            }
-                            return updated
-                        })
-                        setIsStreaming(false)
-                    }
+                    appendAiText(event.content)
                 } else if (event.type === 'done') {
                     sse.close()
                     sseRef.current = null
@@ -341,7 +342,15 @@ export default function ReverseLearningModal({
                                             💡 AI 역질문
                                         </div>
                                     )}
-                                    <p>{msg.content}</p>
+                                    {msg.role === 'ai' ? (
+                                        <MarkdownContent
+                                            content={msg.content}
+                                            compact
+                                            className="modal-reverse__msg-text"
+                                        />
+                                    ) : (
+                                        <p>{msg.content}</p>
+                                    )}
                                     {msg.isStreaming && (
                                         <span className="modal-reverse__cursor">▊</span>
                                     )}

@@ -1,4 +1,5 @@
 import { AlertCircle, ArrowRight, RotateCcw } from 'lucide-react'
+import MarkdownContent from '../../MarkdownContent'
 import Modal from '../common/Modal'
 
 export interface QuizIncorrectModalProps {
@@ -50,7 +51,11 @@ export default function QuizIncorrectModal({
                 <div className="modal-quiz-result__concept-box">
                     <div className="modal-quiz-result__concept-label">핵심 개념 정리</div>
                     <div className="modal-quiz-result__concept-name">{correctConcept}</div>
-                    <p className="modal-quiz-result__concept-desc">{explanation}</p>
+                    <MarkdownContent
+                        content={explanation}
+                        compact
+                        className="modal-quiz-result__concept-desc"
+                    />
                 </div>
 
                 {hasRewind ? (

@@ -177,11 +177,17 @@
 }
 
 .fq-report__q-comment {
+    --moai-markdown-font-size: 13px;
+    --moai-markdown-line-height: 1.6;
+    --moai-markdown-text: var(--color-text-secondary);
     font-size: 13px;
     color: var(--color-text-secondary);
     line-height: 1.6;
     margin-bottom: 6px;
-    white-space: pre-line;
+}
+
+.fq-report__q-comment .moai-markdown__table-wrap {
+    margin: 10px 0 12px;
 }
 
 .fq-report__q-kw-row {

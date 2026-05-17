@@ -139,23 +139,17 @@ public class FlippedLearningService {
      */
     private String generateFirstMessage(String keyword) {
         String systemPrompt = """
-                당신은 MoAI 학습 플랫폼의 거꾸로 학습(Flipped Learning) 튜터 AI입니다.
+                당신은 MoAI 학습 플랫폼의 거꾸로 학습 AI입니다.
 
-                역할: 학생이 첫 번째 키워드를 스스로 설명하도록 유도하는 세션 시작 안내를 작성합니다.
+                역할: 학생이 첫 번째 키워드를 스스로 설명하도록 유도하는 세션 시작 안내를 3문장 이내로 작성합니다.
 
-                ■ 출력 형식: 줄 바꿈을 활용한 텍스트 (마크다운/코드블록/JSON 금지)
-                예시 구조:
-                  환영 + 세션 목표 한 줄.
-
-                  첫 번째 키워드: [키워드명]
-                  아는 만큼 자유롭게 설명해 주세요!
-
-                ■ 규칙
-                - 따뜻하고 친근한 한국어 존댓말.
-                - 키워드를 별도 줄에 강조해서 보여줄 것.
-                - 전문용어는 "한글(영문)" 형태로 1회만 병기.
-                - 짧고 부담 없게 — 장황한 가이드 없이 핵심만.
-                - 정답 설명 금지. 제어 태그([COUNTER_QUESTION] 등) 금지.
+                규칙:
+                - 마크다운 문법(**볼드**, - 불릿 등) 절대 사용 금지. 화면에 기호가 그대로 노출됩니다.
+                - 줄 바꿈으로 환영 인사와 키워드 제시를 분리하세요.
+                - 키워드를 별도 줄에 명확하게 제시하세요.
+                - 정답이나 힌트를 절대 먼저 설명하지 마세요.
+                - 제어 태그([COUNTER_QUESTION] 등) 사용 금지.
+                - 따뜻하고 간결한 한국어 존댓말. 3문장 이내.
                 """;
 
         String userMessage = String.format(
@@ -326,7 +320,7 @@ public class FlippedLearningService {
                   "flippedResult": "pass", "partial", 또는 "fail" (60점 이상 pass / 30~59점 partial / 30점 미만 fail),
                   "gainedKeywords": ["학생이 정확히 이해한 키워드"],
                   "weakKeywords": ["학생이 틀렸거나 누락한 키워드"],
-                  "feedback": "종합 피드백 (한국어). correct_points 요약 + 틀린 내용 교정 + missing_points 보강 제안을 2~4문장으로 통합."
+                  "feedback": "구조화된 피드백 (한국어, 마크다운 허용). 아래 형식 사용. 각 항목 사이에 빈 줄(\\n\\n)을 넣을 것:\\n\\n✅ 잘한 점: correct_points 핵심 요약 (1~2문장)\\n\\n⚠️ 보완할 점: 틀린 내용 교정 (틀린 내용이 없으면 생략)\\n\\n💡 핵심 정리: missing_points 보강 제안 (1~2문장)"
                 }
 
                 ■ 필수 규칙:
@@ -443,6 +437,7 @@ public class FlippedLearningService {
     private void cleanupSessionState(String sessionId) {
         redisTemplate.delete(redisKey(sessionId, "keywordIndex"));
         redisTemplate.delete(redisKey(sessionId, "exchangeCount"));
+        redisTemplate.delete(redisKey(sessionId, "reQuestionMode"));
         redisTemplate.delete(redisKey(sessionId, "completed"));
     }
 
@@ -477,7 +472,8 @@ public class FlippedLearningService {
         // 세션 완료 후 추가 메시지 차단
         if ("true".equals(redisTemplate.opsForValue().get(redisKey(requestDto.getSessionId(), "completed")))) {
             try {
-                sendSseEvent(emitter, "session_complete", "모든 키워드를 다뤘습니다.");
+                sendSseEvent(emitter, "session_complete", "모든 키워드에 대한 확인이 완료되었습니다. 이제 최종 평가를 받을 수 있습니다.");
+                sendSseEvent(emitter, "done", "completed");
                 emitter.complete();
             } catch (Exception e) {
                 emitter.completeWithError(e);
@@ -495,7 +491,8 @@ public class FlippedLearningService {
                 User user, LearningRoom room, WeeklyCurriculum curriculum,
                 String sessionId, List<Map<String, Object>> contents,
                 List<String> keywords, int keywordIndex, long exchangeCount,
-                String systemPrompt
+                String systemPrompt,
+                boolean afterReQuestion  // 직전 AI 응답이 재질문이었는지 여부
         ) {}
 
         // ── 트랜잭션 1: 사용자 메시지 저장 (즉시 커밋 — SSE 실패와 무관하게 보존) ──
@@ -561,11 +558,74 @@ public class FlippedLearningService {
                 keywords = Collections.singletonList(saved.topic());
             }
 
-            String systemPrompt = buildStreamSystemPrompt(keywords, keywordIndex, (int) exchangeCount);
+            // 직전 AI 응답이 재질문이었는지 확인 (키워드당 1회 재질문 제한 관리)
+            String reQuestionKey = redisKey(sessionId, "reQuestionMode");
+            boolean afterReQuestion = "true".equals(redisTemplate.opsForValue().get(reQuestionKey));
+
+            String systemPrompt = buildStreamSystemPrompt(keywords, keywordIndex, (int) exchangeCount, afterReQuestion);
 
             return new StreamContext(saved.user(), saved.room(), saved.curriculum(),
-                    sessionId, contents, keywords, keywordIndex, exchangeCount, systemPrompt);
+                    sessionId, contents, keywords, keywordIndex, exchangeCount, systemPrompt, afterReQuestion);
         });
+
+        if (ctx.afterReQuestion()) {
+            try {
+                String baseResponse = "알겠습니다.";
+                String transitionMessage = transitionDisplayMessage(ctx.keywordIndex(), ctx.keywords());
+                String contentToSave = appendAssistantMessage(baseResponse, transitionMessage);
+
+                AiInteraction savedAssistant = tx.execute(status -> {
+                    AiInteraction assistantInteraction = AiInteraction.builder()
+                            .sessionId(ctx.sessionId())
+                            .user(ctx.user())
+                            .room(ctx.room())
+                            .curriculum(ctx.curriculum())
+                            .role("assistant")
+                            .content(contentToSave)
+                            .isCounterQuestion(false)
+                            .build();
+                    return aiInteractionRepository.save(assistantInteraction);
+                });
+
+                sendSseEvent(emitter, "token", baseResponse);
+                handleKeywordTransition(ctx.sessionId(), ctx.keywordIndex(), ctx.keywords(), emitter);
+                sendSseEvent(emitter, "done", savedAssistant.getId());
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("재질문 이후 강제 전환 처리 중 오류: {}", e.getMessage(), e);
+                emitter.completeWithError(e);
+            }
+            return;
+        }
+
+        if (isLowInformationAnswer(requestDto.getMessage())) {
+            try {
+                String currentKeyword = ctx.keywords().get(ctx.keywordIndex());
+                String question = "'" + currentKeyword + "'에 대해 본인의 언어로 설명해 주시겠어요?";
+
+                AiInteraction savedAssistant = tx.execute(status -> {
+                    AiInteraction assistantInteraction = AiInteraction.builder()
+                            .sessionId(ctx.sessionId())
+                            .user(ctx.user())
+                            .room(ctx.room())
+                            .curriculum(ctx.curriculum())
+                            .role("assistant")
+                            .content(question)
+                            .isCounterQuestion(true)
+                            .build();
+                    return aiInteractionRepository.save(assistantInteraction);
+                });
+
+                redisTemplate.opsForValue().set(redisKey(ctx.sessionId(), "reQuestionMode"), "true", SESSION_TTL);
+                sendSseEvent(emitter, "counter_question", question);
+                sendSseEvent(emitter, "done", savedAssistant.getId());
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("저정보 답변 재질문 처리 중 오류: {}", e.getMessage(), e);
+                emitter.completeWithError(e);
+            }
+            return;
+        }
 
         // ── 트랜잭션 없음: LLM 스트리밍 (DB 커넥션 미점유) ──
         Flux<String> tokenFlux = llmService.callStream(ctx.systemPrompt(), ctx.contents());
@@ -586,17 +646,46 @@ public class FlippedLearningService {
                 })
                 .doOnComplete(() -> {
                     try {
-                        // 버퍼에 남은 토큰 플러시
-                        String remaining = tokenBuffer.get().toString();
-                        if (!remaining.isBlank()) {
-                            String type = counterQuestionMode.get() ? "counter_question" : "token";
-                            sendSseEvent(emitter, type, remaining);
+                        String rawResponse = fullResponse.toString();
+                        String cleanResponse = nextKeywordDetected.get()
+                                ? cleanBeforeNextKeyword(rawResponse)
+                                : cleanTags(rawResponse);
+                        boolean isCounterQuestion = counterQuestionMode.get();
+                        String currentKeyword = ctx.keywords().get(ctx.keywordIndex());
+
+                        // ── 코드 레벨 강제 규칙 적용 ──
+                        // LLM이 태그 규칙을 이행하지 않은 경우에도 화면에 반드시 질문이 남도록 보정한다.
+                        // 프롬프트 지시만으로는 LLM이 규칙을 위반할 수 있으므로 반드시 코드로 보장한다.
+                        boolean forcedTransition = false;
+                        boolean saveAsCounterQuestion = isCounterQuestion;
+
+                        if (isCounterQuestion) {
+                            cleanResponse = ensureKeywordQuestion(cleanResponse, currentKeyword, requestDto.getMessage());
+                        } else if (!nextKeywordDetected.get()) {
+                            if (looksLikeQuestion(cleanResponse)) {
+                                saveAsCounterQuestion = true;
+                                cleanResponse = ensureKeywordQuestion(cleanResponse, currentKeyword, requestDto.getMessage());
+                                log.warn("태그 없는 질문 응답 감지 → 재질문으로 처리");
+                            } else {
+                                forcedTransition = true;
+                                log.warn("태그 없는 비질문 응답 감지 → 다음 키워드 질문으로 강제 전환");
+                            }
                         }
 
-                        String cleanResponse = cleanTags(fullResponse.toString());
-                        boolean isCounterQuestion = counterQuestionMode.get();
+                        boolean shouldTransition = !saveAsCounterQuestion
+                                && (nextKeywordDetected.get() || forcedTransition
+                                    || ctx.exchangeCount() >= MAX_EXCHANGES_PER_KEYWORD);
+
+                        String transitionMessage = shouldTransition
+                                ? transitionDisplayMessage(ctx.keywordIndex(), ctx.keywords())
+                                : "";
+                        String contentToSave = shouldTransition
+                                ? appendAssistantMessage(cleanResponse, transitionMessage)
+                                : cleanResponse;
 
                         // ── 트랜잭션 3: AI 응답 저장 ──
+                        final boolean finalSaveAsCounterQuestion = saveAsCounterQuestion;
+                        final String finalContentToSave = contentToSave;
                         AiInteraction savedAssistant = tx.execute(status -> {
                             AiInteraction assistantInteraction = AiInteraction.builder()
                                     .sessionId(ctx.sessionId())
@@ -604,15 +693,25 @@ public class FlippedLearningService {
                                     .room(ctx.room())
                                     .curriculum(ctx.curriculum())
                                     .role("assistant")
-                                    .content(cleanResponse)
-                                    .isCounterQuestion(isCounterQuestion)
+                                    .content(finalContentToSave)
+                                    .isCounterQuestion(finalSaveAsCounterQuestion)
                                     .build();
                             return aiInteractionRepository.save(assistantInteraction);
                         });
 
-                        // 키워드 전환/완료는 LLM 태그가 아니라 서버의 교환 횟수 기준으로 확정한다.
-                        // 각 키워드는 학생 답변 1회 이후 다음 키워드로 넘어가며, 마지막 키워드는 즉시 완료 처리한다.
-                        if (ctx.exchangeCount() >= MIN_EXCHANGES_PER_KEYWORD) {
+                        // 재질문 모드 관리: 정상 재질문(한도 내)인 경우에만 reQuestionMode를 설정한다.
+                        if (saveAsCounterQuestion) {
+                            redisTemplate.opsForValue().set(
+                                    redisKey(ctx.sessionId(), "reQuestionMode"), "true", SESSION_TTL);
+                        }
+
+                        if (saveAsCounterQuestion) {
+                            sendSseEvent(emitter, "counter_question", cleanResponse);
+                        } else if (!cleanResponse.isBlank()) {
+                            sendSseEvent(emitter, "token", cleanResponse);
+                        }
+
+                        if (shouldTransition) {
                             handleKeywordTransition(ctx.sessionId(), ctx.keywordIndex(),
                                     ctx.keywords(), emitter);
                         }
@@ -632,65 +731,30 @@ public class FlippedLearningService {
     }
 
     /**
-     * 토큰 버퍼를 분석하여 태그를 감지하고 적절한 SSE 이벤트를 전송한다.
+     * 토큰 버퍼를 분석하여 태그만 감지한다.
      *
      * 태그 처리 규칙:
-     * - [COUNTER_QUESTION]: 즉시 모드 전환, 이후 토큰은 counter_question 타입으로 전송
-     * - [NEXT_KEYWORD]: 교환 횟수 < 2이면 무시, 아니면 키워드 전환 플래그 설정
+     * - [COUNTER_QUESTION]: 재질문 모드 플래그 설정
+     * - [NEXT_KEYWORD]: 다음 키워드 전환 플래그 설정
+     * 실제 SSE 전송은 응답 완료 시점에 서버 보정 규칙을 적용한 뒤 한 번만 수행한다.
      */
     private void processTokenBuffer(String buffered, AtomicReference<StringBuilder> tokenBuffer,
                                      AtomicBoolean counterQuestionMode,
                                      AtomicBoolean nextKeywordDetected,
                                      int exchangeCount, SseEmitter emitter) {
-        // 태그가 완성되지 않았을 수 있으므로 '[' 이전까지만 전송
-        int tagStart = buffered.lastIndexOf('[');
-
-        // '[' 없으면 전체 전송
-        if (tagStart < 0) {
-            if (!buffered.isEmpty()) {
-                String type = counterQuestionMode.get() ? "counter_question" : "token";
-                sendSseEvent(emitter, type, buffered);
-                tokenBuffer.set(new StringBuilder());
-            }
+        // 응답은 완료 시점에 서버 규칙으로 확정해서 보낸다. 여기서는 태그 감지만 수행한다.
+        if (counterQuestionMode.get() || nextKeywordDetected.get()) {
             return;
-        }
-
-        // '[' 이전 텍스트가 있으면 전송
-        if (tagStart > 0) {
-            String beforeTag = buffered.substring(0, tagStart);
-            String type = counterQuestionMode.get() ? "counter_question" : "token";
-            sendSseEvent(emitter, type, beforeTag);
-            tokenBuffer.set(new StringBuilder(buffered.substring(tagStart)));
-            buffered = tokenBuffer.get().toString();
         }
 
         // 완성된 태그 처리
         if (buffered.contains(TAG_COUNTER_QUESTION)) {
             counterQuestionMode.set(true);
-            // 태그 이후 텍스트 추출
-            String afterTag = buffered.substring(
-                    buffered.indexOf(TAG_COUNTER_QUESTION) + TAG_COUNTER_QUESTION.length());
-            if (!afterTag.isBlank()) {
-                sendSseEvent(emitter, "counter_question", afterTag);
-            }
             tokenBuffer.set(new StringBuilder());
         } else if (buffered.contains(TAG_NEXT_KEYWORD)) {
-            // 같은 응답에서 역질문이 감지된 경우 키워드 전환 무시 — 학생이 역질문에 답한 뒤 다음 교환에서 처리
-            if (counterQuestionMode.get()) {
-                log.info("COUNTER_QUESTION과 NEXT_KEYWORD 동시 감지 — NEXT_KEYWORD 무시");
-            } else if (exchangeCount >= MIN_EXCHANGES_PER_KEYWORD) {
-                nextKeywordDetected.set(true);
-            }
-            // 태그 이후 텍스트 추출하여 전송
-            String afterTag = buffered.substring(
-                    buffered.indexOf(TAG_NEXT_KEYWORD) + TAG_NEXT_KEYWORD.length());
-            if (!afterTag.isBlank()) {
-                String type = counterQuestionMode.get() ? "counter_question" : "token";
-                sendSseEvent(emitter, type, afterTag);
-            }
+            nextKeywordDetected.set(true);
             tokenBuffer.set(new StringBuilder());
         }
-        // ']'가 아직 없으면 버퍼에 유지 (태그가 아직 완성 중)
     }
 
     /**
@@ -704,21 +768,27 @@ public class FlippedLearningService {
         String keywordIndexKey = redisKey(sessionId, "keywordIndex");
         String exchangeCountKey = redisKey(sessionId, "exchangeCount");
 
+        // 키워드 전환 시 재질문 관련 상태 초기화
+        redisTemplate.delete(redisKey(sessionId, "reQuestionMode"));
+
         if (nextIndex >= keywords.size()) {
             // 모든 키워드 완료 — Redis에 완료 플래그 기록하여 이후 메시지 차단
             redisTemplate.opsForValue().set(redisKey(sessionId, "completed"), "true", SESSION_TTL);
-            sendSseEvent(emitter, "session_complete", "모든 키워드를 다뤘습니다!");
+            sendSseEvent(emitter, "session_complete", transitionDisplayMessage(currentIndex, keywords));
         } else {
             // 다음 키워드로 전환: Redis 인덱스 증가, 교환 횟수 리셋
             redisTemplate.opsForValue().set(keywordIndexKey, String.valueOf(nextIndex), SESSION_TTL);
             redisTemplate.opsForValue().set(exchangeCountKey, "0", SESSION_TTL);
 
-            // next_keyword 이벤트: JSON 형태로 키워드 정보 전송
+            // next_keyword 이벤트: 키워드 정보 + 학생에게 표시할 안내 문구 함께 전송
+            String nextKeyword = keywords.get(nextIndex);
+            String nextKeywordMessage = nextKeywordQuestion(nextKeyword);
             try {
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("type", "next_keyword");
-                payload.put("keyword", keywords.get(nextIndex));
+                payload.put("keyword", nextKeyword);
                 payload.put("keywordIndex", nextIndex);
+                payload.put("message", nextKeywordMessage);
                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(payload)));
             } catch (IOException e) {
                 log.error("next_keyword SSE 전송 실패: {}", e.getMessage());
@@ -726,54 +796,194 @@ public class FlippedLearningService {
         }
     }
 
+    private String transitionDisplayMessage(int currentIndex, List<String> keywords) {
+        int nextIndex = currentIndex + 1;
+        if (nextIndex >= keywords.size()) {
+            return "모든 키워드에 대한 확인이 완료되었습니다. 이제 최종 평가를 받을 수 있습니다.";
+        }
+        return nextKeywordQuestion(keywords.get(nextIndex));
+    }
+
+    private String nextKeywordQuestion(String keyword) {
+        return "다음 키워드: '" + keyword + "'\n이 용어에 대해 알고 계신 내용을 자유롭게 설명해 주시겠어요?";
+    }
+
+    private String appendAssistantMessage(String base, String next) {
+        String left = base == null ? "" : cleanTags(base).trim();
+        String right = next == null ? "" : next.trim();
+        if (left.isBlank()) return right;
+        if (right.isBlank()) return left;
+        if (left.contains(right)) return left;
+        return left + "\n\n" + right;
+    }
+
+    private String cleanBeforeNextKeyword(String response) {
+        if (response == null) return "";
+        int nextTagIndex = response.indexOf(TAG_NEXT_KEYWORD);
+        String visiblePart = nextTagIndex >= 0 ? response.substring(0, nextTagIndex) : response;
+        return cleanTags(visiblePart);
+    }
+
+    private String ensureKeywordQuestion(String response, String keyword, String studentAnswer) {
+        String clean = cleanTags(response).trim();
+        String target = (keyword == null || keyword.isBlank()) ? "현재 키워드" : keyword.trim();
+        boolean lowInformation = isLowInformationAnswer(studentAnswer);
+        String fallback = lowInformation
+                ? "'" + target + "'에 대해 본인의 언어로 설명해 주시겠어요?"
+                : "'" + target + "'에서 방금 설명이 부족하거나 애매했던 핵심 역할, 특징, 예시 중 한 부분을 더 구체적으로 설명해 주시겠어요?";
+
+        if (clean.isBlank()) return fallback;
+        if (!looksLikeQuestion(clean)
+                || isGenericReQuestion(clean)
+                || (!lowInformation && isGenericWholeKeywordQuestion(clean, target))) {
+            return fallback;
+        }
+        if (clean.contains(target)) return clean;
+        return "'" + target + "'에서 " + clean;
+    }
+
+    private boolean isGenericReQuestion(String text) {
+        if (text == null) return true;
+        String normalized = cleanTags(text).replaceAll("\\s+", "");
+        return normalized.equals("다시설명해주세요?")
+                || normalized.equals("다시설명해주시겠어요?")
+                || normalized.equals("설명해주시겠어요?")
+                || normalized.equals("본인의언어로설명해주시겠어요?")
+                || normalized.equals("본인의언어로다시설명해주시겠어요?")
+                || normalized.contains("다시설명");
+    }
+
+    private boolean isGenericWholeKeywordQuestion(String text, String keyword) {
+        if (text == null || keyword == null || keyword.isBlank()) return false;
+        String normalized = cleanTags(text).replaceAll("\\s+", "");
+        String target = keyword.replaceAll("\\s+", "");
+        if (!normalized.contains(target)) return false;
+
+        boolean hasAspect =
+                normalized.contains("부분")
+                || normalized.contains("측면")
+                || normalized.contains("역할")
+                || normalized.contains("특징")
+                || normalized.contains("예시")
+                || normalized.contains("조건")
+                || normalized.contains("구조")
+                || normalized.contains("차이")
+                || normalized.contains("이유")
+                || normalized.contains("근거")
+                || normalized.contains("정의")
+                || normalized.contains("활용")
+                || normalized.contains("사용")
+                || normalized.contains("의미")
+                || normalized.contains("관계")
+                || normalized.contains("기능")
+                || normalized.contains("원리")
+                || normalized.contains("방식")
+                || normalized.contains("핵심");
+
+        return !hasAspect
+                && (normalized.contains(target + "에대해")
+                    || normalized.contains(target + "을")
+                    || normalized.contains(target + "를"))
+                && normalized.contains("설명");
+    }
+
+    private boolean isLowInformationAnswer(String message) {
+        if (message == null) return true;
+        String normalized = message.trim().replaceAll("\\s+", "");
+        if (normalized.isBlank()) return true;
+        if (normalized.length() <= 1) return true;
+        if (normalized.matches("^[ㄱ-ㅎㅏ-ㅣ]+$")) return true;
+        if (normalized.matches("^[a-zA-Z]$")) return true;
+        String lower = normalized.toLowerCase();
+        return lower.equals("몰라")
+                || lower.equals("모름")
+                || lower.contains("모르겠")
+                || lower.equals("없음")
+                || lower.equals("모릅니다");
+    }
+
+    private boolean looksLikeQuestion(String text) {
+        if (text == null) return false;
+        String normalized = cleanTags(text).trim();
+        if (normalized.isBlank()) return false;
+        return normalized.contains("?")
+                || (normalized.endsWith("요")
+                    && (normalized.contains("설명") || normalized.contains("말해") || normalized.contains("알려")));
+    }
+
     /**
      * 시스템 프롬프트를 구성한다.
-     * 키워드 목록, 현재 진행 키워드, 교환 횟수 정보를 포함하여
-     * LLM이 적절한 시점에 태그를 사용하도록 안내한다.
+     * 키워드 목록, 현재 진행 키워드, 교환 횟수, 재질문 여부를 포함하여
+     * LLM이 부족한 답변에 1회 재질문하고 마크다운으로 가독성 있게 응답하도록 안내한다.
      */
-    private String buildStreamSystemPrompt(List<String> keywords, int keywordIndex, int exchangeCount) {
+    private String buildStreamSystemPrompt(List<String> keywords, int keywordIndex,
+                                            int exchangeCount, boolean afterReQuestion) {
         String keywordList = String.join(", ", keywords);
         String currentKeyword = keywords.get(keywordIndex);
 
+        String reQuestionSection;
+        if (afterReQuestion) {
+            reQuestionSection =
+                "\n[이번 턴 필수 지시 — 절대 위반 불가]\n"
+                + "재질문 이후 학생의 재답변을 받았습니다. 이 키워드 평가를 즉시 종료합니다.\n"
+                + "① 응답은 '알겠습니다.' 또는 '확인했습니다.' 딱 한 문장만 작성\n"
+                + "② 긍정 평가 문구('잘 하셨어요', '맞아요') 사용 금지\n"
+                + "③ 키워드 정의·설명·개념 언급 절대 금지\n"
+                + "④ [COUNTER_QUESTION] 태그 사용 절대 금지\n"
+                + "⑤ 메타 발언 금지 ('가이드라인에 따라', '다음 키워드로 넘어갑니다' 등)\n"
+                + "⑥ 응답 맨 끝에 [NEXT_KEYWORD] 반드시 붙일 것\n";
+        } else {
+            reQuestionSection =
+                "\n[평가 기준 — 반드시 현재 키워드 '" + currentKeyword + "'에 대한 답변만 평가할 것]\n"
+                + "이전 대화 기록에 등장한 다른 키워드를 현재 재질문에 사용하지 마세요.\n\n"
+                + "학생 답변을 다음 두 가지로만 분류하세요:\n\n"
+                + "▶ 정상 진행 → [NEXT_KEYWORD] 사용:\n"
+                + "  학생이 '" + currentKeyword + "'의 의미·역할·특징을 본인 말로 설명한 경우\n"
+                + "  응답 형식: 1~2문장 중립 확인 + [NEXT_KEYWORD]\n\n"
+                + "▶ 재질문 → [COUNTER_QUESTION] 사용 (이 키워드에서 최대 1회):\n"
+                + "  조건 A — 의미 없는 단어/문자 ('ㄱ', 'ㅇ', '모르겠어요') 또는 무관한 내용:\n"
+                + "    정확한 출력 형식: [COUNTER_QUESTION]'" + currentKeyword + "'에 대해 본인의 언어로 설명해 주시겠어요?\n"
+                + "  조건 B — 설명은 했지만 틀렸거나, 부족하거나, 애매한 경우:\n"
+                + "    반드시 '" + currentKeyword + "'와 부족한 측면 1개를 함께 써서 질문하세요.\n"
+                + "    부족한 측면은 핵심 역할, 특징, 예시, 사용 조건, 차이, 관계, 근거 중 실제 학생 답변에 맞는 하나를 고르세요.\n"
+                + "    정확한 출력 형식: [COUNTER_QUESTION]'" + currentKeyword + "'에서 [부족한 측면] 부분을 더 구체적으로 설명해 주시겠어요?\n"
+                + "    금지 출력: [COUNTER_QUESTION]다시 설명해 주시겠어요?\n"
+                + "    금지 출력: [COUNTER_QUESTION]'" + currentKeyword + "'에 대해 다시 설명해 주시겠어요?\n"
+                + "  ※ 재질문 텍스트에 키워드 정의·예시·힌트 절대 포함 금지\n"
+                + "  ※ [COUNTER_QUESTION] 태그 없이 재설명을 요청하는 것 절대 금지 ('다시 설명해 주시겠어요?' 등을 태그 없이 출력 금지)\n\n"
+                + "▶ 반드시 재질문해야 하는 입력:\n"
+                + "  단일 자모 (ㄱ, ㅇ, ㄷ, ㄴ, ㅁ 등) / '모르겠어요' / 주제와 무관한 문장\n"
+                + "  이런 입력에 긍정 맞장구 후 [NEXT_KEYWORD] 사용 절대 금지\n";
+        }
+
         return String.format("""
-                당신은 MoAI 학습 플랫폼의 거꾸로 학습(Flipped Learning) AI 튜터입니다.
-                학생이 키워드를 하나씩 설명하면, 평가나 교정 없이 짧게 호응하고 바로 다음 키워드로 넘어갑니다.
+                당신은 MoAI 거꾸로 학습 AI입니다. 학생의 설명을 평가합니다.
 
-                ## 전체 키워드 목록
-                [%s]
+                [절대 금지 — 어떤 경우에도 위반 불가]
+                1. 키워드 개념을 설명·정의·요약하는 것
+                   예: "주어는 ~입니다", "활용이란 ~", "어간이 변하는 현상을 뜻하는"
+                   [COUNTER_QUESTION] 텍스트 안에도 절대 금지
+                2. [COUNTER_QUESTION] 태그 없이 재설명 요청 (태그 없는 '다시 설명해 주시겠어요?' 출력 금지)
+                3. 마크다운 문법 (**볼드**, - 불릿, | 표 등)
+                4. 3문장 초과 응답
+                5. 불필요한 인사말·격려 ("감사합니다", "열심히 하세요")
+                6. 메타 발언 ("가이드라인에 따라", "시스템상", "다음 키워드로 넘어갑니다")
+                7. 한 번에 여러 질문
+                8. 이전 키워드명을 현재 재질문에 사용하는 것 (현재 키워드: %s 만 사용)
 
-                ## 현재 진행 상태
-                - 현재 키워드: '%s' (인덱스 %d/%d)
-                - 현재 교환 횟수: %d회
+                [전체 키워드 목록]
+                %s
 
-                ## 응답 방식
-                학생의 설명을 받으면:
-                1. 완전히 중립적인 인식 표현 1문장만. 예시: "네, 들었습니다.", "알겠습니다.", "설명해 주셨네요."
-                   ※ "잘", "훌륭", "완벽", "정확", "좋은", "깔끔", "멋진" 같은 긍정 평가 어휘 절대 금지.
-                   ※ 답변 내용에 대한 어떠한 평가·칭찬·교정도 금지.
-                2. 바로 [NEXT_KEYWORD] 태그로 다음 키워드 요청
-
-                다음 키워드를 요청할 때는 줄 바꿈을 활용해 키워드를 눈에 띄게 제시할 것.
-                예시:
-                  네, 들었습니다.
-
-                  다음 키워드: [키워드명]
-                  이 개념도 아는 만큼 자유롭게 설명해 주세요. [NEXT_KEYWORD]
-
-                ## 태그 사용 규칙
-                1. 학생 답변을 받으면 항상 [NEXT_KEYWORD]로 다음 키워드로 전환하세요.
-                2. [COUNTER_QUESTION] 태그는 사용하지 마세요.
-                3. 마지막 키워드에서 [NEXT_KEYWORD]를 쓸 때는 짧은 마무리 인사를 함께 쓰세요.
-                4. 태그 자체를 학생에게 보여주지 마세요.
-
-                ## 금지 사항
-                - 답변의 옳고 그름·수준 평가 금지 (잘했다/못했다/훌륭하다 등 일체 금지).
-                - 올바른 내용으로 교정하거나 보충 설명하는 것 금지.
-                - 역질문([COUNTER_QUESTION]) 금지.
-                - 장황한 응답 금지 — 중립 인식 1문장 + 다음 키워드 요청만.
+                [현재 진행 상태]
+                현재 키워드: %s (인덱스 %d/%d) / 교환 횟수: %d회
+                %s
+                [태그 규칙]
+                - [COUNTER_QUESTION]: 재질문 텍스트 바로 앞에만. 이 응답에서 [NEXT_KEYWORD] 동시 사용 금지.
+                - [NEXT_KEYWORD]: 이 키워드 평가 완료 시 응답 맨 끝에만. 태그 뒤에 텍스트 없음.
                 """,
+                currentKeyword,
                 keywordList, currentKeyword, keywordIndex + 1, keywords.size(),
-                exchangeCount, currentKeyword
+                exchangeCount, reQuestionSection
         );
     }
 

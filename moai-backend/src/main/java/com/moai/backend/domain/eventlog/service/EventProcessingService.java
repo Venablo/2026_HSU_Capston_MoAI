@@ -211,8 +211,9 @@ public class EventProcessingService {
                 ? (curriculum.getKeywords() != null ? curriculum.getKeywords() : Collections.emptyList())
                 : extractAndFilterKeywords(transcriptText, curriculum);
 
-        // 4. LLM 4지선다 퀴즈 1문제 생성 (필터링된 키워드 + 자막 기반)
-        LlmQuizResult quizResult = generateQuiz(filteredKeywords, transcriptText, curriculum.getTopic());
+        // 4. LLM 4지선다 퀴즈 1문제 생성 — 여러 키워드 중 첫 번째 하나에 대해서만 출제
+        String targetKeyword = filteredKeywords.isEmpty() ? curriculum.getTopic() : filteredKeywords.get(0);
+        LlmQuizResult quizResult = generateQuiz(targetKeyword, transcriptText, curriculum.getTopic());
 
         // 5. Quiz + QuizQuestion 저장
         Quiz quiz = Quiz.builder()
@@ -388,7 +389,7 @@ public class EventProcessingService {
                       "icon_letter": "A",
                       "color": "#5b4ccc",
                       "definition": "한 문장 정의",
-                      "detail": "2~3문장 상세 설명",
+                      "detail": "2~4가지 포인트를 설명. 여러 항목이 나열되는 경우 불릿(-) 권장. 단일 설명은 문장으로 작성 가능. 줄바꿈으로 항목 구분.",
                       "analogy": "실생활 비유",
                       "exam_tip": "시험 포인트",
                       "checkpoint_question": "자가 점검 질문",
@@ -414,6 +415,7 @@ public class EventProcessingService {
                 3. quick_check 3개 이상, common_mistakes 3개 이상, memory_hooks 3개 이상, next_actions 3개 이상.
                 4. 모든 설명은 해당 학습 주차 수준에 맞게 작성, 전문 용어는 한글(영문) 병기.
                 5. analogy는 반드시 실생활 또는 일상 상황에서 가져올 것.
+                6. 가독성: 여러 항목을 나열할 때는 불릿(-)과 줄바꿈 활용 권장. 단일 문장으로 자연스럽게 이어지는 내용은 문장 형식도 허용. 불릿과 문장이 한 필드 안에 섞여도 됨.
                 """;
 
         LlmRequestDto summaryRequest = LlmRequestDto.builder()
@@ -442,11 +444,11 @@ public class EventProcessingService {
                 if (kp.getDefinition() != null) desc.append(kp.getDefinition()).append("\n\n");
                 if (kp.getDetail() != null) desc.append(kp.getDetail()).append("\n\n");
                 if (kp.getAnalogy() != null) desc.append("💡 비유: ").append(kp.getAnalogy()).append("\n\n");
-                if (kp.getExamTip() != null) desc.append("📝 시험 포인트: ").append(kp.getExamTip()).append("\n");
+                if (kp.getExamTip() != null) desc.append("📝 시험 포인트: ").append(kp.getExamTip()).append("\n\n");
                 if (kp.getCheckpointQuestion() != null)
-                    desc.append("❓ 자가 점검: ").append(kp.getCheckpointQuestion()).append("\n");
+                    desc.append("❓ 자가 점검: ").append(kp.getCheckpointQuestion()).append("\n\n");
                 if (kp.getMemoryHook() != null)
-                    desc.append("🔖 암기 장치: ").append(kp.getMemoryHook()).append("\n");
+                    desc.append("🔖 암기 장치: ").append(kp.getMemoryHook()).append("\n\n");
                 items.add(new SummaryItem(label, kp.getConcept() != null ? kp.getConcept() : "핵심 개념", desc.toString().trim()));
                 idx++;
             }
@@ -457,7 +459,9 @@ public class EventProcessingService {
                 && raw.getComparisonTable().getRows() != null
                 && !raw.getComparisonTable().getRows().isEmpty()) {
             StringBuilder sb = new StringBuilder();
-            sb.append(String.join(" | ", raw.getComparisonTable().getHeaders())).append("\n");
+            List<String> headers = raw.getComparisonTable().getHeaders();
+            sb.append(String.join(" | ", headers)).append("\n");
+            sb.append(headers.stream().map(h -> "---").collect(Collectors.joining(" | "))).append("\n");
             for (List<String> row : raw.getComparisonTable().getRows()) {
                 sb.append(String.join(" | ", row)).append("\n");
             }
@@ -475,27 +479,23 @@ public class EventProcessingService {
     }
 
     /**
-     * 필터링된 키워드, 자막 텍스트, 주차 주제를 기반으로 LLM에 4지선다 퀴즈 1문제 생성을 요청한다.
+     * 단일 targetKeyword와 자막을 기반으로 LLM에 4지선다 퀴즈 1문제 생성을 요청한다.
+     * related_keyword는 LLM 반환값을 무시하고 서버에서 targetKeyword로 고정한다.
      */
-    private LlmQuizResult generateQuiz(List<String> keywords, String transcriptText, String topic) {
-        String keywordList = keywords.isEmpty() ? topic : String.join(", ", keywords);
+    private LlmQuizResult generateQuiz(String targetKeyword, String transcriptText, String topic) {
         String context = transcriptText.isBlank()
-                ? "커리큘럼 주제: " + topic + "\n키워드: " + keywordList
-                : "커리큘럼 주제: " + topic + "\n키워드: " + keywordList + "\n\n자막 텍스트:\n" + transcriptText;
+                ? "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword
+                : "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword + "\n\n자막 텍스트:\n" + transcriptText;
 
-        String systemPrompt = """
+        String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 돌발 퀴즈 출제 전문가 AI입니다.
 
                 학습자가 영상 구간을 스킵하거나 2배속으로 빠르게 넘긴 직후, 해당 구간의 핵심 개념을 놓치지 않았는지 즉시 확인하는 4지선다 문제를 만듭니다.
 
                 ■ 출력 형식: 순수 JSON (코드블록 없이)
                 {
-                  "quiz_type": "multiple_choice",
-                  "trigger_message": "트리거 메시지",
                   "questions": [
                     {
-                      "order": 1,
-                      "question_type": "multiple",
                       "question": "4지선다 문항",
                       "options": [
                         {"label":"A","text":"보기1"},
@@ -504,26 +504,19 @@ public class EventProcessingService {
                         {"label":"D","text":"보기4"}
                       ],
                       "answer": "A/B/C/D",
-                      "explanation": "정답 해설과 오답 포인트",
-                      "related_concept": "관련 핵심 개념",
-                      "related_keyword": "관련 키워드",
-                      "follow_up_tip": "심화 학습 팁",
-                      "trap_reason": "학습자가 헷갈릴 수 있는 이유"
+                      "explanation": "정답 해설과 오답 포인트"
                     }
-                  ],
-                  "mini_review": ["복습 포인트1"],
-                  "follow_up_missions": ["바로 해볼 행동1"],
-                  "related_keywords": ["키워드1"]
+                  ]
                 }
 
                 ■ 필수 규칙:
-                1. 모든 문항은 4지선다 객관식. 참/거짓형 금지.
-                2. options는 항상 4개, label은 A/B/C/D.
-                3. 문제는 스킵한 구간의 핵심 내용을 정확히 반영.
-                4. explanation은 왜 정답이고 왜 다른 보기가 오답인지 설명.
-                5. follow_up_tip은 구체적인 학습 행동 제안.
-                6. 전문 용어는 한글(영문) 병기.
-                """;
+                1. 문제는 반드시 대상 키워드 '%s' 하나에 집중해서 출제. 다른 개념을 중심으로 만들지 마세요.
+                2. 모든 문항은 4지선다 객관식. 참/거짓형 금지.
+                3. options는 항상 정확히 4개, label은 A/B/C/D.
+                4. explanation은 왜 정답이고 왜 다른 보기가 오답인지 구체적으로 설명.
+                5. 전문 용어는 한글(영문) 병기.
+                6. 자막 텍스트가 있으면 해당 구간 내용을 반영. 없으면 '%s' 개념 자체로 출제.
+                """, targetKeyword, targetKeyword);
 
         LlmRequestDto quizRequest = LlmRequestDto.builder()
                 .systemPrompt(systemPrompt)
@@ -531,10 +524,11 @@ public class EventProcessingService {
                 .build();
 
         LlmPopupQuizResponse raw = llmService.callJson(quizRequest, LlmPopupQuizResponse.class);
-        return mapPopupQuizToResult(raw, keywords, topic);
+        // related_keyword는 커리큘럼 키워드 목록 외 값이 오는 경우를 방지하기 위해 서버에서 고정
+        return mapPopupQuizToResult(raw, targetKeyword);
     }
 
-    private LlmQuizResult mapPopupQuizToResult(LlmPopupQuizResponse raw, List<String> keywords, String topic) {
+    private LlmQuizResult mapPopupQuizToResult(LlmPopupQuizResponse raw, String targetKeyword) {
         LlmPopupQuizResponse.Question first = raw != null && raw.getQuestions() != null && !raw.getQuestions().isEmpty()
                 ? raw.getQuestions().get(0)
                 : null;
@@ -563,11 +557,8 @@ public class EventProcessingService {
         }
 
         String answer = first.getAnswer() != null ? first.getAnswer().trim().toUpperCase() : "A";
-        String relatedKeyword = first.getRelatedKeyword() != null && !first.getRelatedKeyword().isBlank()
-                ? first.getRelatedKeyword()
-                : (keywords.isEmpty() ? topic : keywords.get(0));
-
-        return new LlmQuizResult(first.getQuestion(), options, answer, relatedKeyword);
+        // LLM 반환값 무시 — 항상 서버에서 선택한 커리큘럼 키워드로 고정
+        return new LlmQuizResult(first.getQuestion(), options, answer, targetKeyword);
     }
 
     /**

@@ -63,6 +63,9 @@
 }
 
 .classroom__lesson-desc {
+    --moai-markdown-font-size: 14px;
+    --moai-markdown-line-height: 1.65;
+    --moai-markdown-text: var(--color-text-secondary);
     font-size: 14px;
     color: var(--color-text-secondary);
     margin-bottom: 20px;
@@ -1258,9 +1261,16 @@
 }
 
 .modal-summary__item-desc {
+    --moai-markdown-font-size: 13px;
+    --moai-markdown-line-height: 1.6;
+    --moai-markdown-text: var(--color-text-secondary);
     font-size: 13px;
     color: var(--color-text-secondary);
     line-height: 1.6;
+}
+
+.modal-summary__item-desc .moai-markdown__table-wrap {
+    margin: 10px 0 12px;
 }
 
 .modal-summary__btn-row {
@@ -1680,6 +1690,25 @@
     border-bottom-left-radius: 3px;
 }
 
+.partner-widget__chat-bubble--ai {
+    background: var(--color-purple-50);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-purple-100);
+    border-bottom-left-radius: 3px;
+}
+
+.partner-widget__chat-ai-text {
+    --moai-markdown-font-size: 11px;
+    --moai-markdown-line-height: 1.5;
+    --moai-markdown-text: var(--color-text-primary);
+    --moai-markdown-table-min-width: 320px;
+    margin: 0;
+}
+
+.partner-widget__chat-ai-text .moai-markdown__table-wrap {
+    margin: 8px 0 10px;
+}
+
 .partner-widget__chat-time {
     font-size: 9px;
     opacity: 0.65;
@@ -1889,6 +1918,17 @@
 }
 
 .modal-reverse__msg p { margin: 0; }
+
+.modal-reverse__msg-text {
+    --moai-markdown-font-size: 13px;
+    --moai-markdown-line-height: 1.6;
+    --moai-markdown-text: var(--color-text-primary);
+    margin: 0;
+}
+
+.modal-reverse__msg-text .moai-markdown__table-wrap {
+    margin: 10px 0 12px;
+}
 
 .modal-reverse__cursor {
     display: inline-block;
@@ -2512,9 +2552,17 @@
 }
 
 .modal-quiz-result__concept-desc {
+    --moai-markdown-font-size: 13px;
+    --moai-markdown-line-height: 1.7;
+    --moai-markdown-text: var(--color-text-secondary);
     font-size: 13px;
     color: var(--color-text-secondary);
     line-height: 1.7;
+    margin: 0;
+}
+
+.modal-quiz-result__concept-desc .moai-markdown__table-wrap {
+    margin: 12px 0 14px;
 }
 
 /* ── Keyword accordion toggle ── */
@@ -2748,10 +2796,17 @@
 }
 
 .classroom__kw-detail-desc {
+    --moai-markdown-font-size: 13px;
+    --moai-markdown-line-height: 1.65;
+    --moai-markdown-text: var(--color-text-secondary);
     font-size: 13px;
     color: var(--color-text-secondary);
     line-height: 1.65;
     margin: 0;
+}
+
+.classroom__kw-detail-desc .moai-markdown__table-wrap {
+    margin: 10px 0 12px;
 }
 
 /* ── Quiz item click-to-expand ── */
@@ -2904,11 +2959,18 @@
 }
 
 .classroom__quiz-detail-explain-text {
+    --moai-markdown-font-size: 12px;
+    --moai-markdown-line-height: 1.65;
+    --moai-markdown-text: var(--color-purple-800);
+    --moai-markdown-strong: var(--color-purple-700);
     font-size: 12px;
     color: var(--color-purple-800);
     line-height: 1.65;
     margin: 0;
-    white-space: pre-line;
+}
+
+.classroom__quiz-detail-explain-text .moai-markdown__table-wrap {
+    margin: 10px 0 12px;
 }
 
 /* ── Locked-week toast notification ── */

@@ -18,9 +18,11 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -102,26 +104,61 @@ public class YoutubeApiService {
         Long viewCount   = parseViewCount(item.path("statistics").path("viewCount").asText(null));
         boolean hasCaptions = "true".equalsIgnoreCase(item.path("contentDetails").path("caption").asText("false"));
         String description = truncate(item.path("snippet").path("description").asText(""), 300);
-        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description));
+        String audioLang = audioLanguage(item.path("snippet"));
+        return Optional.of(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description, audioLang));
     }
 
+    /** duration 없이 검색. closedCaption 우선, 결과 부족 시 any로 폴백. */
     public List<VideoMeta> searchVideos(String query, int maxResults) {
+        return searchVideos(query, maxResults, null);
+    }
+
+    /**
+     * YouTube API 파라미터로 걸 수 있는 것은 모두 API 레벨에서 필터링한다.
+     * - videoCaption=closedCaption 우선 → 결과 2개 미만이면 any로 폴백 (한국 채널 중 자막 미업로드 채널 포함)
+     * - videoDuration: "long"(>20분) / "medium"(4~20분) 지정 가능. null이면 YouTube 기본(전체)
+     * - regionCode=KR, relevanceLanguage=ko, videoEmbeddable, videoSyndicated, safeSearch → 모두 API 하드 필터
+     *
+     * API로 걸 수 없는 것(defaultAudioLanguage, 제목 내 CJK/정크 키워드 등)은 호출 측에서 처리한다.
+     */
+    public List<VideoMeta> searchVideos(String query, int maxResults, String videoDuration) {
         if (!isEnabled() || query == null || query.isBlank()) return Collections.emptyList();
 
         int size = Math.max(1, Math.min(maxResults, 10));
-        JsonNode root = fetchWithFallback(key -> b -> b.path("/search")
-                .queryParam("part", "snippet")
-                .queryParam("q", query)
-                .queryParam("type", "video")
-                .queryParam("videoEmbeddable", "true")
-                .queryParam("videoSyndicated", "true")
-                .queryParam("videoCaption", "closedCaption")
-                .queryParam("maxResults", size)
-                .queryParam("relevanceLanguage", "ko")
-                .queryParam("regionCode", "KR")
-                .queryParam("safeSearch", "moderate")
-                .queryParam("key", key)
-                .build());
+
+        // 1차: closedCaption — 자막 업로드 채널 = 대체로 정제된 교육 콘텐츠
+        List<VideoMeta> primary = doSearchAndVerify(query, size, videoDuration, "closedCaption");
+        if (primary.size() >= 2) return primary;
+
+        // 결과 부족 시 videoCaption 조건 제거해 재검색
+        List<VideoMeta> fallback = doSearchAndVerify(query, size, videoDuration, "any");
+        if (primary.isEmpty()) return fallback;
+
+        Set<String> seen = new HashSet<>();
+        primary.forEach(v -> seen.add(v.videoId()));
+        List<VideoMeta> combined = new ArrayList<>(primary);
+        fallback.stream().filter(v -> seen.add(v.videoId())).forEach(combined::add);
+        return combined;
+    }
+
+    private List<VideoMeta> doSearchAndVerify(String query, int size, String videoDuration, String videoCaption) {
+        JsonNode root = fetchWithFallback(key -> b -> {
+            UriBuilder ub = b.path("/search")
+                    .queryParam("part", "snippet")
+                    .queryParam("q", query)
+                    .queryParam("type", "video")
+                    .queryParam("videoEmbeddable", "true")
+                    .queryParam("videoSyndicated", "true")
+                    .queryParam("videoCaption", videoCaption)
+                    .queryParam("maxResults", size)
+                    .queryParam("relevanceLanguage", "ko")
+                    .queryParam("regionCode", "KR")
+                    .queryParam("safeSearch", "moderate");
+            if (videoDuration != null && !videoDuration.isBlank()) {
+                ub = ub.queryParam("videoDuration", videoDuration);
+            }
+            return ub.queryParam("key", key).build();
+        });
         if (root == null) return Collections.emptyList();
 
         JsonNode items = root.path("items");
@@ -154,7 +191,8 @@ public class YoutubeApiService {
             Long viewCount   = parseViewCount(v.path("statistics").path("viewCount").asText(null));
             boolean hasCaptions = "true".equalsIgnoreCase(v.path("contentDetails").path("caption").asText("false"));
             String description = truncate(v.path("snippet").path("description").asText(""), 300);
-            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description));
+            String audioLang = audioLanguage(v.path("snippet"));
+            results.add(new VideoMeta(id, title, "https://www.youtube.com/watch?v=" + id, true, durationSec, viewCount, hasCaptions, description, audioLang));
         }
         return results;
     }
@@ -213,6 +251,14 @@ public class YoutubeApiService {
         return null;
     }
 
+    /** snippet 노드에서 실제 오디오/콘텐츠 언어를 추출한다. defaultAudioLanguage → defaultLanguage 순으로 시도. */
+    private static String audioLanguage(JsonNode snippet) {
+        String audioLang = snippet.path("defaultAudioLanguage").asText(null);
+        if (audioLang != null && !audioLang.isBlank()) return audioLang.toLowerCase();
+        String defLang = snippet.path("defaultLanguage").asText(null);
+        return (defLang != null && !defLang.isBlank()) ? defLang.toLowerCase() : null;
+    }
+
     private static String truncate(String s) {
         if (s == null) return "";
         return s.length() > 300 ? s.substring(0, 300) + "..." : s;
@@ -224,5 +270,6 @@ public class YoutubeApiService {
     }
 
     public record VideoMeta(String videoId, String title, String url, boolean embeddable,
-                            Long durationSec, Long viewCount, boolean hasCaptions, String description) {}
+                            Long durationSec, Long viewCount, boolean hasCaptions, String description,
+                            String defaultAudioLanguage) {}
 }

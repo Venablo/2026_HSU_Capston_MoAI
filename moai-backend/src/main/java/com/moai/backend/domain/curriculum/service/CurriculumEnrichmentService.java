@@ -37,10 +37,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -62,6 +64,22 @@ public class CurriculumEnrichmentService {
     private final QuizQuestionRepository quizQuestionRepository;
     private final NotificationService notificationService;
     private final SubtitleRetryQueue subtitleRetryQueue;
+
+    private static final Pattern BAD_VIDEO_PATTERN = Pattern.compile(
+            "기출|문제|문제풀이|풀이|해설|모의고사|예상문제|암기법|벼락치기|합격후기|shorts|쇼츠",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern META_VIDEO_PATTERN = Pattern.compile(
+            "공부법|학습법|독학|로드맵|커리큘럼 추천|채널 추천|시험 정보|응시자격|합격 전략|빠르게 요약|초단기|한방 정리|오리엔테이션",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern CONCEPT_VIDEO_PATTERN = Pattern.compile(
+            "강의|개념|이론|원리|기초|입문|정리|문법|소프트웨어 설계|객체지향|데이터베이스|정규화|프로그래밍 언어|운영체제|네트워크|보안",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final int LLM_VIDEO_CANDIDATE_LIMIT = 5;
+    private static final int WEEK_VIDEO_MAX_SELECTION = 2;
+    private static final int WEAKNESS_VIDEO_MAX_SELECTION = 1;
 
     /**
      * 재시도 큐에서 @Async/@Transactional 프록시를 거쳐 자기 자신을 호출하기 위한 self 참조.
@@ -219,73 +237,421 @@ public class CurriculumEnrichmentService {
         if (!youtubeApiService.isEnabled()) return List.of();
 
         String subject = nullSafe(context.subject()).trim();
-        String topic = curriculum.getTopic() != null
-                ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim()
-                : "";
+        String topic = curriculumTopic(curriculum);
         String fullBase = (subject + " " + topic).replaceAll("\\s+", " ").trim();
         String searchQuery = nullSafe(context.youtubeSearchQuery());
+        List<String> baseQueries = subjectTopicQueries(subject, topic, fullBase);
 
+        List<YoutubeApiService.VideoMeta> allCandidates = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+
+        // 1차: videoDuration=long(>20분) — 체계적인 전체 강의 영상 우선 탐색 (YouTube API 하드 필터)
+        for (String baseQuery : baseQueries) {
+            if (baseQuery.isBlank() || allCandidates.size() >= 12) break;
+            youtubeApiService.searchVideos(baseQuery + " 강의", 5, "long").stream()
+                    .filter(v -> seen.add(v.videoId()))
+                    .forEach(allCandidates::add);
+        }
+
+        // 2차: medium/기타 영상 보충 (videoDuration 미지정 → YouTube 기본값, closedCaption 우선 + any 폴백은 내부 처리)
         List<String> queries = new ArrayList<>();
         if (!searchQuery.isBlank()) queries.add(searchQuery);
-        if (!fullBase.isBlank()) {
-            queries.add(fullBase + " 개념 강의");
+        for (String baseQuery : baseQueries) {
+            queries.add(baseQuery + " 개념 강의");
+            queries.add(baseQuery);
+        }
+        for (String query : queries) {
+            if (query.isBlank() || allCandidates.size() >= 12) break;
+            youtubeApiService.searchVideos(query, 6).stream()
+                    .filter(v -> seen.add(v.videoId()))
+                    .forEach(allCandidates::add);
+        }
+
+        List<YoutubeApiService.VideoMeta> filtered = filterVideoCandidates(curriculum, context, allCandidates);
+        if (filtered.size() < allCandidates.size()) {
+            log.info("[{}주차] 유튜브 후보 필터링 — 원본 {}개 → 적합 {}개",
+                    curriculum.getWeekNumber(), allCandidates.size(), filtered.size());
+        }
+        return filtered;
+    }
+
+    private List<String> subjectTopicQueries(String subject, String topic, String fullBase) {
+        List<String> queries = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (fullBase != null && !fullBase.isBlank() && seen.add(fullBase)) {
             queries.add(fullBase);
         }
 
-        List<YoutubeApiService.VideoMeta> allCandidates = new ArrayList<>();
-        for (String query : queries) {
-            if (query.isBlank()) continue;
-            var results = youtubeApiService.searchVideos(query, 6);
-            allCandidates.addAll(results);
-            if (!results.isEmpty() && allCandidates.size() >= 10) break;
+        for (String alias : subjectSearchAliases(subject)) {
+            String query = (alias + " " + nullSafe(topic)).replaceAll("\\s+", " ").trim();
+            if (!query.isBlank() && seen.add(query)) {
+                queries.add(query);
+            }
         }
-        return allCandidates;
+        return queries;
+    }
+
+    private List<String> subjectSearchAliases(String subject) {
+        String normalizedSubject = normalizeForMatch(subject);
+        if (containsAny(normalizedSubject, Set.of("프랑스어", "불어", "french", "francais", "français"))) {
+            return List.of("프랑스어", "불어", "프랑스어 문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("영어", "english"))) {
+            return List.of("영어", "영문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("일본어", "일어", "japanese"))) {
+            return List.of("일본어", "일문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("중국어", "chinese", "mandarin"))) {
+            return List.of("중국어", "중문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("러시아어", "russian"))) {
+            return List.of("러시아어", "러시아어 문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("독일어", "german", "deutsch"))) {
+            return List.of("독일어", "독문법");
+        }
+        if (containsAny(normalizedSubject, Set.of("스페인어", "spanish", "espanol", "español"))) {
+            return List.of("스페인어", "스페인어 문법");
+        }
+        return List.of();
+    }
+
+    private List<YoutubeApiService.VideoMeta> filterVideoCandidates(WeeklyCurriculum curriculum,
+                                                                     WeekEnrichmentContext context,
+                                                                     List<YoutubeApiService.VideoMeta> candidates) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+        return candidates.stream()
+                .filter(video -> isAcceptableVideoCandidate(curriculum, context, video))
+                .toList();
+    }
+
+    private boolean isAcceptableVideoCandidate(WeeklyCurriculum curriculum,
+                                               WeekEnrichmentContext context,
+                                               YoutubeApiService.VideoMeta video) {
+        return isAcceptableVideoCandidate(context.subject(), curriculumTopic(curriculum), context.keyConcepts(), video);
+    }
+
+    private boolean isAcceptableVideoCandidate(String subject,
+                                               String targetTopic,
+                                               List<String> keyConcepts,
+                                               YoutubeApiService.VideoMeta video) {
+        if (video == null || video.videoId() == null || video.videoId().isBlank()) return false;
+
+        String title = nullSafe(video.title());
+        String description = nullSafe(video.description());
+        String combined = normalizeForMatch(title + " " + description);
+        if (BAD_VIDEO_PATTERN.matcher(combined).find()) return false;
+        if (META_VIDEO_PATTERN.matcher(combined).find()) return false;
+        if (containsNonKoreanCjk(title)) return false;
+
+        long duration = video.durationSec() != null ? video.durationSec() : 0;
+        if (duration > 0 && duration < 300) return false;
+        if (duration >= 10800) return false;
+
+        LanguageSubjectProfile languageProfile = languageSubjectProfile(subject);
+        if (languageProfile != null) {
+            if (containsAny(combined, languageProfile.conflictAliases())) return false;
+            if (!containsAny(combined, languageProfile.evidenceTokens())) return false;
+        }
+
+        return hasTopicEvidence(combined, targetTopic, keyConcepts);
+    }
+
+    private boolean hasTopicEvidence(String combinedText, String topic, List<String> keyConcepts) {
+        List<String> tokens = new ArrayList<>();
+        tokens.addAll(matchTokens(topic));
+        if (keyConcepts != null) {
+            keyConcepts.forEach(concept -> tokens.addAll(matchTokens(concept)));
+        }
+        if (tokens.isEmpty()) return true;
+        return tokens.stream().anyMatch(combinedText::contains);
+    }
+
+    private List<String> matchTokens(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        Set<String> stopwords = Set.of(
+                "개념", "강의", "이론", "원리", "기초", "입문", "정리", "활용", "학습",
+                "실전", "비교", "심화", "종합", "주차", "이번", "그리고", "및"
+        );
+        String normalized = normalizeForMatch(text).replaceAll("[^가-힣a-z0-9]+", " ");
+        return Pattern.compile("\\s+").splitAsStream(normalized)
+                .map(String::trim)
+                .filter(token -> token.length() >= 2)
+                .filter(token -> !stopwords.contains(token))
+                .distinct()
+                .toList();
+    }
+
+    private int subjectTopicScore(WeeklyCurriculum curriculum,
+                                  WeekEnrichmentContext context,
+                                  YoutubeApiService.VideoMeta video) {
+        return subjectTopicScore(context.subject(), curriculumTopic(curriculum), context.keyConcepts(), video);
+    }
+
+    private int subjectTopicScore(String subject,
+                                  String targetTopic,
+                                  List<String> keyConcepts,
+                                  YoutubeApiService.VideoMeta video) {
+        String title = nullSafe(video.title());
+        String description = nullSafe(video.description());
+        String combined = normalizeForMatch(title + " " + description);
+        String normalizedSubject = normalizeForMatch(subject);
+
+        int score = 0;
+        if (!normalizedSubject.isBlank() && combined.contains(normalizedSubject)) score += 15;
+        for (String token : matchTokens(targetTopic)) {
+            if (combined.contains(token)) score += 8;
+        }
+        if (keyConcepts != null) {
+            for (String concept : keyConcepts) {
+                for (String token : matchTokens(concept)) {
+                    if (combined.contains(token)) score += 4;
+                }
+            }
+        }
+
+        LanguageSubjectProfile profile = languageSubjectProfile(subject);
+        if (profile != null && containsAny(combined, profile.evidenceTokens())) {
+            score += 25;
+        }
+        return score;
+    }
+
+    private int scoreVideoCandidate(String subject,
+                                    String targetTopic,
+                                    List<String> keyConcepts,
+                                    YoutubeApiService.VideoMeta video,
+                                    Set<String> excludedVideoIds) {
+        if (video == null || video.videoId() == null || video.videoId().isBlank()) return Integer.MIN_VALUE;
+        if (excludedVideoIds != null && excludedVideoIds.contains(video.videoId())) return Integer.MIN_VALUE;
+        if (!isAcceptableVideoCandidate(subject, targetTopic, keyConcepts, video)) return Integer.MIN_VALUE;
+
+        int score = 0;
+        String audioLang = video.defaultAudioLanguage();
+        if (audioLang != null && audioLang.startsWith("ko")) {
+            score += 25;
+        } else if (audioLang != null && audioLang.startsWith("en")) {
+            score += 5;
+        } else if (audioLang != null) {
+            score -= 20;
+        }
+        if (video.hasCaptions()) score += 10;
+
+        long duration = video.durationSec() != null ? video.durationSec() : 0;
+        if (duration >= 1200 && duration <= 7200) {
+            score += 15; // 20~120분: 체계적 강의
+        } else if (duration >= 300) {
+            score += 5;  // 5~20분: 개념 요약
+        }
+
+        String combined = nullSafe(video.title()) + " " + nullSafe(video.description());
+        if (CONCEPT_VIDEO_PATTERN.matcher(combined).find()) score += 10;
+
+        score += subjectTopicScore(subject, targetTopic, keyConcepts, video);
+        return score;
+    }
+
+    private List<YoutubeApiService.VideoMeta> shortlistCandidatesForLlm(String subject,
+                                                                         String targetTopic,
+                                                                         List<String> keyConcepts,
+                                                                         List<YoutubeApiService.VideoMeta> candidates,
+                                                                         Set<String> excludedVideoIds,
+                                                                         int limit) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+
+        Map<String, ScoredVideo> scoredById = new LinkedHashMap<>();
+        for (YoutubeApiService.VideoMeta video : candidates) {
+            int score = scoreVideoCandidate(subject, targetTopic, keyConcepts, video, excludedVideoIds);
+            if (score == Integer.MIN_VALUE) continue;
+            scoredById.putIfAbsent(video.videoId(), new ScoredVideo(video, score));
+        }
+
+        return scoredById.values().stream()
+                .sorted(Comparator.comparingInt(ScoredVideo::score).reversed())
+                .limit(Math.max(1, limit))
+                .map(ScoredVideo::video)
+                .toList();
+    }
+
+    private ScoredVideo bestScoredVideo(String subject,
+                                        String targetTopic,
+                                        List<String> keyConcepts,
+                                        List<YoutubeApiService.VideoMeta> candidates,
+                                        Set<String> excludedVideoIds) {
+        if (candidates == null || candidates.isEmpty()) return null;
+        return candidates.stream()
+                .map(video -> new ScoredVideo(video, scoreVideoCandidate(subject, targetTopic, keyConcepts, video, excludedVideoIds)))
+                .filter(scored -> scored.score() >= 25)
+                .max(Comparator.comparingInt(ScoredVideo::score))
+                .orElse(null);
+    }
+
+    private record ScoredVideo(YoutubeApiService.VideoMeta video, int score) {}
+
+    private String normalizeForMatch(String value) {
+        return nullSafe(value).toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private boolean containsAny(String text, Set<String> tokens) {
+        if (text == null || text.isBlank() || tokens == null || tokens.isEmpty()) return false;
+        return tokens.stream().map(this::normalizeForMatch).anyMatch(text::contains);
+    }
+
+    private record LanguageSubjectProfile(Set<String> evidenceTokens, Set<String> conflictAliases) {}
+
+    private LanguageSubjectProfile languageSubjectProfile(String subject) {
+        String normalizedSubject = normalizeForMatch(subject);
+        if (normalizedSubject.isBlank()) return null;
+
+        if (containsAny(normalizedSubject, Set.of("프랑스어", "불어", "french", "francais", "français"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("프랑스어", "불어", "불문법", "프랑스 문법", "french", "francais", "français",
+                            "qui", "que", "dont", "où", "lequel", "laquelle", "auquel", "duquel"),
+                    languageConflictAliases("french")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("영어", "english"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("영어", "영문법", "english", "grammar", "who", "which", "that", "whom", "whose"),
+                    languageConflictAliases("english")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("일본어", "일어", "japanese"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("일본어", "일문법", "japanese", "jlpt"),
+                    languageConflictAliases("japanese")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("중국어", "chinese", "mandarin"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("중국어", "중문법", "chinese", "mandarin", "hsk"),
+                    languageConflictAliases("chinese")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("러시아어", "russian"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("러시아어", "러문법", "russian"),
+                    languageConflictAliases("russian")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("독일어", "german", "deutsch"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("독일어", "독문법", "german", "deutsch"),
+                    languageConflictAliases("german")
+            );
+        }
+        if (containsAny(normalizedSubject, Set.of("스페인어", "spanish", "espanol", "español"))) {
+            return new LanguageSubjectProfile(
+                    Set.of("스페인어", "서문법", "spanish", "espanol", "español"),
+                    languageConflictAliases("spanish")
+            );
+        }
+        return null;
+    }
+
+    private Set<String> languageConflictAliases(String ownLanguage) {
+        Map<String, Set<String>> aliases = Map.of(
+                "french", Set.of("영어", "영문법", "english", "일본어", "일문법", "japanese", "중국어", "중문법", "chinese", "러시아어", "russian", "독일어", "german", "스페인어", "spanish"),
+                "english", Set.of("프랑스어", "불어", "불문법", "french", "일본어", "일문법", "japanese", "중국어", "중문법", "chinese", "러시아어", "russian", "독일어", "german", "스페인어", "spanish"),
+                "japanese", Set.of("프랑스어", "불어", "french", "영어", "영문법", "english", "중국어", "중문법", "chinese", "러시아어", "russian", "독일어", "german", "스페인어", "spanish"),
+                "chinese", Set.of("프랑스어", "불어", "french", "영어", "영문법", "english", "일본어", "일문법", "japanese", "러시아어", "russian", "독일어", "german", "스페인어", "spanish"),
+                "russian", Set.of("프랑스어", "불어", "french", "영어", "영문법", "english", "일본어", "일문법", "japanese", "중국어", "중문법", "chinese", "독일어", "german", "스페인어", "spanish"),
+                "german", Set.of("프랑스어", "불어", "french", "영어", "영문법", "english", "일본어", "일문법", "japanese", "중국어", "중문법", "chinese", "러시아어", "russian", "스페인어", "spanish"),
+                "spanish", Set.of("프랑스어", "불어", "french", "영어", "영문법", "english", "일본어", "일문법", "japanese", "중국어", "중문법", "chinese", "러시아어", "russian", "독일어", "german")
+        );
+        return aliases.getOrDefault(ownLanguage, Set.of());
     }
 
     /**
-     * LLM에게 후보 영상들의 학습 목표 커버리지를 평가받아, 1~2개 videoId 목록을 반환한다.
+     * 로컬 점수 상위 5개 후보만 LLM에 넘겨 주차 주제용 영상 1개 또는 2개를 고른다.
      * 한 영상으로 모든 핵심 개념을 커버하기 어렵다면 두 번째 보완 영상을 함께 고르게 한다.
      * LLM 호출 실패 시 빈 리스트를 반환하고 기존 scoring 방식으로 폴백된다.
      */
     private List<String> llmSelectVideoIds(WeeklyCurriculum curriculum, WeekEnrichmentContext context,
                                            List<YoutubeApiService.VideoMeta> candidates) {
         if (candidates == null || candidates.isEmpty()) return List.of();
-        if (!youtubeApiService.isEnabled()) return List.of();
+        String subject = context.subject();
+        String topic = curriculumTopic(curriculum);
+        List<YoutubeApiService.VideoMeta> shortlist = shortlistCandidatesForLlm(
+                subject, topic, context.keyConcepts(), candidates, null, LLM_VIDEO_CANDIDATE_LIMIT);
+        if (shortlist.isEmpty()) return List.of();
 
-        StringBuilder sb = new StringBuilder();
+        return requestLlmVideoSelection(
+                (int) curriculum.getWeekNumber(),
+                "주차 주제 영상",
+                subject,
+                topic,
+                joinLines(context.learningObjectives()),
+                context.keyConcepts(),
+                shortlist,
+                WEEK_VIDEO_MAX_SELECTION
+        );
+    }
+
+    private List<String> requestLlmVideoSelection(int weekNumber,
+                                                  String selectionType,
+                                                  String subject,
+                                                  String targetTopic,
+                                                  String learningContext,
+                                                  List<String> keyConcepts,
+                                                  List<YoutubeApiService.VideoMeta> candidates,
+                                                  int maxSelection) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+
+        StringBuilder candidateText = new StringBuilder();
         for (YoutubeApiService.VideoMeta v : candidates) {
-            sb.append("- videoId: ").append(v.videoId())
-              .append(" | 제목: ").append(v.title() != null ? v.title() : "")
-              .append(" | 설명: ").append(v.description() != null ? v.description() : "")
-              .append("\n");
+            String langInfo = v.defaultAudioLanguage() != null ? v.defaultAudioLanguage() : "미확인";
+            String durationInfo = v.durationSec() != null ? v.durationSec() + "초" : "미확인";
+            candidateText.append("- videoId: ").append(v.videoId())
+                    .append(" | 언어: ").append(langInfo)
+                    .append(" | 자막: ").append(v.hasCaptions() ? "있음" : "미확인/없음")
+                    .append(" | 길이: ").append(durationInfo)
+                    .append(" | 제목: ").append(nullSafe(v.title()))
+                    .append(" | 설명: ").append(nullSafe(v.description()))
+                    .append("\n");
         }
+
+        String countRule = maxSelection == WEAKNESS_VIDEO_MAX_SELECTION
+                ? "약점 키워드 보충 영상은 반드시 1개만 선택한다. 적합한 영상이 전혀 없을 때만 빈 배열을 반환한다."
+                : "주차 주제 영상은 기본적으로 1개만 선택한다. 한 영상으로 학습실 주제와 주차 핵심 개념 전체를 커버하기 어렵다고 판단될 때만 2개까지 선택한다.";
 
         String systemPrompt = """
                 당신은 MoAI 학습 플랫폼의 유튜브 영상 적합도 평가 AI입니다.
 
-                아래 주차 학습 정보를 기준으로 후보 영상 중 1개 또는 2개를 선택하세요.
+                시스템이 YouTube API 결과를 먼저 점수화해 최대 5개 후보만 추렸습니다.
+                이 후보 중 현재 학습 맥락에 가장 잘 맞는 이론·개념 학습 영상을 최종 선택하세요.
 
                 ■ 선택 기준
-                1. 학습 목표(learningObjectives)와 핵심 개념(keyConcepts)을 얼마나 넓고 정확하게 커버하는가
-                2. 한 영상으로 핵심 개념 대부분을 커버하면 1개만 선택한다
-                3. 한 영상만으로 실행 컨텍스트, 엔진, 메모리처럼 서로 다른 핵심 개념을 충분히 커버하기 어렵다면 보완 영상 1개를 추가한다
-                4. 두 영상을 고를 때는 첫 번째를 주력 영상, 두 번째를 보완 영상으로 둔다
-                5. 개념·이론 중심의 강의 영상인가 (문제풀이·시험대비·단순 요약 영상은 낮은 점수)
+                1. 학습실 주제(과목)와 현재 목표 주제의 관련성이 높아야 한다.
+                2. 개념·이론을 설명하는 강의형 영상이어야 한다.
+                3. 문제풀이, 기출, 시험 전략, 공부법, 독학법, 로드맵, 채널 추천, 쇼츠, 브이로그는 제외한다.
+                4. 과목이 언어 학습이면 대상 언어가 반드시 일치해야 한다.
+                5. 제목·설명이 현재 주제와 명백히 무관한 콘텐츠는 제외한다.
+                6. 반드시 후보 목록에 있는 videoId만 반환한다.
+                7. %s
 
                 ■ 출력 형식: 순수 JSON (코드블록 금지)
                 {"rankings": [{"videoId": "영상ID", "score": 0~10, "reason": "한 줄 이유"}]}
-                - 최대 2개까지만 포함, score 내림차순 정렬
+                - score 내림차순 정렬
                 - 적합도 5점 이상인 영상만 포함
                 - 적합한 영상이 없으면 빈 배열: {"rankings": []}
-                """;
+                """.formatted(countRule);
 
         String userMessage = String.format(
-                "주차 주제: %s\n학습 목표:\n%s\n핵심 개념: %s\n\n영상 후보:\n%s",
-                curriculum.getTopic(),
-                joinLines(context.learningObjectives()),
-                joinCsv(context.keyConcepts()),
-                sb.toString()
+                "선택 목적: %s\n학습실 주제(과목): %s\n현재 목표 주제: %s\n학습 목표/맥락:\n%s\n핵심 개념/약점 키워드: %s\n\n영상 후보(로컬 점수 상위 %d개 이하):\n%s",
+                selectionType,
+                nullSafe(subject),
+                nullSafe(targetTopic),
+                nullSafe(learningContext),
+                joinCsv(keyConcepts),
+                LLM_VIDEO_CANDIDATE_LIMIT,
+                candidateText
         );
+
+        Set<String> candidateIds = candidates.stream()
+                .map(YoutubeApiService.VideoMeta::videoId)
+                .collect(Collectors.toSet());
 
         try {
             LlmRequestDto request = LlmRequestDto.builder()
@@ -294,21 +660,26 @@ public class CurriculumEnrichmentService {
                     .build();
             LlmVideoRankResponse response = llmService.callJson(request, LlmVideoRankResponse.class);
             if (response == null || response.getRankings() == null || response.getRankings().isEmpty()) {
-                log.info("[{}주차] LLM 영상 적합도 평가 — 적합한 후보 없음, 기존 scoring 방식 폴백",
-                        curriculum.getWeekNumber());
+                log.info("[{}주차] LLM 영상 선택({}) — 적합한 후보 없음, scoring 폴백",
+                        weekNumber, selectionType);
                 return List.of();
             }
-            log.info("[{}주차] LLM 영상 적합도 평가 완료 — {}개 후보 중 {}개 적합",
-                    curriculum.getWeekNumber(), candidates.size(), response.getRankings().size());
-            return response.getRankings().stream()
+
+            List<String> selectedIds = response.getRankings().stream()
+                    .filter(item -> item.getScore() >= 5)
                     .map(LlmVideoRankResponse.RankingItem::getVideoId)
                     .filter(id -> id != null && !id.isBlank())
+                    .filter(candidateIds::contains)
                     .distinct()
-                    .limit(2)
+                    .limit(Math.max(1, maxSelection))
                     .toList();
+
+            log.info("[{}주차] LLM 영상 선택({}) 완료 — 후보 {}개 중 {}개 선택: {}",
+                    weekNumber, selectionType, candidates.size(), selectedIds.size(), String.join(", ", selectedIds));
+            return selectedIds;
         } catch (Exception e) {
-            log.warn("[{}주차] LLM 영상 적합도 평가 실패 — 기존 scoring 방식 폴백: {}",
-                    curriculum.getWeekNumber(), e.getMessage());
+            log.warn("[{}주차] LLM 영상 선택({}) 실패 — scoring 폴백: {}",
+                    weekNumber, selectionType, e.getMessage());
             return List.of();
         }
     }
@@ -430,62 +801,17 @@ public class CurriculumEnrichmentService {
         if (allCandidates == null || allCandidates.isEmpty()) return null;
 
         String subject = nullSafe(context.subject()).trim();
-        String topic = curriculum.getTopic() != null
-                ? curriculum.getTopic().replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "").trim()
-                : "";
+        ScoredVideo best = bestScoredVideo(subject, curriculumTopic(curriculum), context.keyConcepts(),
+                allCandidates, excludedVideoIds);
 
-        Pattern problemPattern = Pattern.compile("기출|문제|문제풀이|풀이|해설|모의고사|예상문제|암기법|벼락치기|합격후기|공부법|shorts|쇼츠", Pattern.CASE_INSENSITIVE);
-        Pattern metaPattern = Pattern.compile("시험 정보|응시자격|공부법|합격 전략|빠르게 요약|초단기|한방 정리|오리엔테이션", Pattern.CASE_INSENSITIVE);
-        Pattern conceptPattern = Pattern.compile("강의|개념|이론|원리|기초|입문|정리|소프트웨어 설계|객체지향|데이터베이스|정규화|프로그래밍 언어|운영체제|네트워크|보안", Pattern.CASE_INSENSITIVE);
-
-        YoutubeApiService.VideoMeta bestVideo = null;
-        int bestScore = -9999;
-
-        for (YoutubeApiService.VideoMeta video : allCandidates) {
-            if (excludedVideoIds != null && excludedVideoIds.contains(video.videoId())) continue;
-
-            String title = video.title() != null ? video.title() : "";
-            if (problemPattern.matcher(title).find()) continue;
-            if (metaPattern.matcher(title).find()) continue;
-
-            int score = 0;
-            if (video.hasCaptions()) score += 10; // 수동 자막 보너스
-
-            long duration = video.durationSec() != null ? video.durationSec() : 0;
-            if (duration >= 1200 && duration <= 7200) {
-                score += 15;
-            } else if (duration >= 600) {
-                score += 5;
-            } else if (duration < 180) {
-                score -= 15;
-            }
-
-            if (conceptPattern.matcher(title).find()) score += 10;
-
-            String titleLower = title.toLowerCase();
-            if (!subject.isBlank() && titleLower.contains(subject.toLowerCase())) score += 5;
-
-            for (String part : topic.split("[\\s,]+")) {
-                if (part.length() >= 2 && titleLower.contains(part.toLowerCase())) score += 5;
-            }
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestVideo = video;
-            }
+        if (best != null) {
+            log.info("[{}주차] 유튜브 매칭 성공: {} (score: {})",
+                    curriculum.getWeekNumber(), best.video().title(), best.score());
+            return best.video();
         }
 
-        if (bestVideo != null && bestScore >= 0) {
-            log.info("[{}주차] 유튜브 매칭 성공: {} (score: {})", curriculum.getWeekNumber(), bestVideo.title(), bestScore);
-            return bestVideo;
-        }
-
-        // 조건 매칭 실패 시 폴백 — 후보 풀의 첫 영상 (제외된 것은 건너뛴다)
-        log.info("[{}주차] 엄격한 매칭 실패, 폴백으로 첫번째 검색 결과 사용", curriculum.getWeekNumber());
-        return allCandidates.stream()
-                .filter(v -> excludedVideoIds == null || !excludedVideoIds.contains(v.videoId()))
-                .findFirst()
-                .orElse(null);
+        log.info("[{}주차] 엄격한 유튜브 매칭 실패 — 부정확한 영상 추천을 생략", curriculum.getWeekNumber());
+        return null;
     }
 
     // --- Step B: 자막 청크 저장 + 재시도 로직 ---
@@ -821,6 +1147,13 @@ public class CurriculumEnrichmentService {
         return String.format("%.1fMB", bytes / (1024.0 * 1024.0));
     }
 
+    private String curriculumTopic(WeeklyCurriculum curriculum) {
+        if (curriculum == null || curriculum.getTopic() == null) return "";
+        return curriculum.getTopic()
+                .replaceAll("(?i)^week\\s*\\d+\\s*[:\\-]\\s*", "")
+                .trim();
+    }
+
     private String nullSafe(String s) {
         return s != null ? s : "";
     }
@@ -935,7 +1268,7 @@ public class CurriculumEnrichmentService {
         boolean hasWeaknessVideo = hasWeaknessResource(curriculum, "youtube");
         List<CurriculumResource> weaknessVideos = hasWeaknessVideo
                 ? List.of()
-                : findVideosForWeaknessKeywords(weaknessKeywords, subject);
+                : findVideosForWeaknessKeywords(curriculum, weaknessKeywords, subject);
         if (!hasWeaknessVideo && !weaknessVideos.isEmpty()) {
             List<CurriculumResource> resources = new ArrayList<>(
                     curriculum.getResources() != null ? curriculum.getResources() : List.of());
@@ -960,36 +1293,92 @@ public class CurriculumEnrichmentService {
                 curriculum.getWeekNumber(), weaknessKeywords.size(), weaknessVideos.size());
     }
 
-    private List<CurriculumResource> findVideosForWeaknessKeywords(List<String> keywords, String subject) {
+    private List<CurriculumResource> findVideosForWeaknessKeywords(WeeklyCurriculum curriculum,
+                                                                    List<String> keywords,
+                                                                    String subject) {
         if (!youtubeApiService.isEnabled()) return List.of();
 
-        // videoId 기준으로 중복 제거하며 탐색 — 한 영상이 여러 키워드를 커버하면 한 번만 추가
+        List<String> cleanKeywords = cleanKeywordList(keywords);
+        if (cleanKeywords.isEmpty()) return List.of();
+        String targetTopic = String.join(", ", cleanKeywords);
+
+        // videoId 기준으로 중복 제거한 뒤, 로컬 점수 상위 5개만 LLM 최종 선택에 넘긴다.
         Map<String, YoutubeApiService.VideoMeta> byVideoId = new LinkedHashMap<>();
-
-        for (String keyword : keywords) {
-            String query = nullSafe(subject).isBlank()
-                    ? keyword + " 개념 강의"
-                    : subject + " " + keyword + " 개념 강의";
-            List<YoutubeApiService.VideoMeta> results = youtubeApiService.searchVideos(query, 5);
-            if (results.isEmpty()) {
-                results = youtubeApiService.searchVideos(keyword + " 강의", 3);
+        for (String keyword : cleanKeywords) {
+            List<String> queries = new ArrayList<>();
+            if (!nullSafe(subject).isBlank()) {
+                queries.add(subject + " " + keyword + " 개념 강의");
+                queries.add(subject + " " + keyword + " 이론 강의");
             }
+            queries.add(keyword + " 개념 강의");
+            queries.add(keyword + " 강의");
 
-            YoutubeApiService.VideoMeta best = results.stream()
-                    .filter(YoutubeApiService.VideoMeta::hasCaptions)
-                    .findFirst()
-                    .orElse(results.isEmpty() ? null : results.get(0));
-
-            if (best != null) {
-                byVideoId.putIfAbsent(best.videoId(), best);
+            for (String query : queries) {
+                if (byVideoId.size() >= 12) break;
+                youtubeApiService.searchVideos(query, 5).stream()
+                        .filter(v -> v.videoId() != null && !v.videoId().isBlank())
+                        .filter(v -> isAcceptableVideoCandidate(subject, targetTopic, cleanKeywords, v))
+                        .forEach(v -> byVideoId.putIfAbsent(v.videoId(), v));
             }
         }
 
-        return byVideoId.values().stream()
-                .map(v -> new CurriculumResource(
-                        "youtube", v.videoId(), v.title(), null, null,
-                        v.durationSec(), v.viewCount(), "weakness"))
-                .toList();
+        List<YoutubeApiService.VideoMeta> candidates = new ArrayList<>(byVideoId.values());
+        List<YoutubeApiService.VideoMeta> shortlist = shortlistCandidatesForLlm(
+                subject, targetTopic, cleanKeywords, candidates, null, LLM_VIDEO_CANDIDATE_LIMIT);
+        if (shortlist.isEmpty()) {
+            log.info("[{}주차] 약점 키워드 영상 후보 없음 — keywords={}",
+                    curriculum.getWeekNumber(), cleanKeywords);
+            return List.of();
+        }
+
+        List<String> selectedIds = requestLlmVideoSelection(
+                (int) curriculum.getWeekNumber(),
+                "약점 키워드 보충 영상",
+                subject,
+                targetTopic,
+                "약점 키워드 개념 보충: " + targetTopic,
+                cleanKeywords,
+                shortlist,
+                WEAKNESS_VIDEO_MAX_SELECTION
+        );
+
+        Map<String, YoutubeApiService.VideoMeta> candidateMap = candidates.stream()
+                .collect(Collectors.toMap(
+                        YoutubeApiService.VideoMeta::videoId,
+                        video -> video,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+
+        YoutubeApiService.VideoMeta selected = selectedIds.stream()
+                .map(candidateMap::get)
+                .filter(video -> video != null)
+                .findFirst()
+                .orElseGet(() -> {
+                    ScoredVideo fallback = bestScoredVideo(subject, targetTopic, cleanKeywords, candidates, null);
+                    return fallback != null ? fallback.video() : null;
+                });
+
+        if (selected == null) {
+            log.info("[{}주차] 약점 키워드 영상 선택 실패 — 부정확한 영상 추천을 생략", curriculum.getWeekNumber());
+            return List.of();
+        }
+
+        log.info("[{}주차] 약점 키워드 영상 선택 — videoId={}, title={}",
+                curriculum.getWeekNumber(), selected.videoId(), selected.title());
+        return List.of(new CurriculumResource(
+                "youtube", selected.videoId(), selected.title(), null, null,
+                selected.durationSec(), selected.viewCount(), "weakness"));
+    }
+
+    private boolean containsNonKoreanCjk(String text) {
+        if (text == null) return false;
+        // 일본어 히라가나/가타카나는 즉시 거부
+        if (text.chars().anyMatch(c -> (c >= 0x3040 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF))) return true;
+        // CJK 통합 한자가 많고 한글(Hangul)이 없으면 중국어로 판단
+        long cjkCount = text.chars().filter(c -> c >= 0x4E00 && c <= 0x9FFF).count();
+        long koreanCount = text.chars().filter(c -> (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF)).count();
+        return cjkCount > 3 && koreanCount == 0;
     }
 
     private void generateAndUploadWeaknessMaterial(WeeklyCurriculum curriculum,

@@ -36,6 +36,7 @@ import '../../../styles/FinalQuizModal.css'
 import { useClassroomModal } from '../../../context/ClassroomModalContext'
 import type { WeekMatchState } from '../../../context/ClassroomModalContext'
 import ClassroomModals from '../../../components/modals/common/ClassroomModals'
+import MarkdownContent from '../../../components/MarkdownContent'
 import StudyMatchDropdown from '../../../components/StudyMatchDropdown'
 import { useTheme } from '../../../context/ThemeContext'
 import { useYouTubePlayer } from '../../../hooks/useYouTubePlayer'
@@ -203,7 +204,7 @@ function StudyClassroomContent() {
     const [quizDetailLoading, setQuizDetailLoading] = useState<string | null>(null)
 
     // 스터디 파트너 채팅 UI 상태
-    interface ChatMsg { id: number; role: 'me' | 'partner'; text: string; time: string }
+    interface ChatMsg { id: number; role: 'me' | 'partner' | 'ai'; text: string; time: string }
     const [chatOpen,     setChatOpen]     = useState(false)
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
     const [chatInput,    setChatInput]    = useState('')
@@ -952,7 +953,9 @@ function StudyClassroomContent() {
             .then(msgs => {
                 setChatMessages(msgs.map((m: ChatMessage) => ({
                     id:   Number(m.messageId) || Date.now() + Math.random(),
-                    role: m.senderNickname === nicknameRef.current ? 'me' : 'partner',
+                    role: m.senderType === 'ai'
+                        ? 'ai'
+                        : m.senderNickname === nicknameRef.current ? 'me' : 'partner',
                     text: m.content,
                     time: new Date(m.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
                 })))
@@ -963,7 +966,9 @@ function StudyClassroomContent() {
         const client = connectGroupChat(groupId, (msg) => {
             setChatMessages(prev => [...prev, {
                 id:   Number(msg.messageId) || Date.now(),
-                role: msg.senderNickname === nicknameRef.current ? 'me' : 'partner',
+                role: msg.senderType === 'ai'
+                    ? 'ai'
+                    : msg.senderNickname === nicknameRef.current ? 'me' : 'partner',
                 text: msg.content,
                 time: new Date(msg.sentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             }])
@@ -1023,6 +1028,7 @@ function StudyClassroomContent() {
     // progress: 서버 값과 로컬 영상 기여도(최대 40) 중 높은 값을 표시
     const progress = Math.max(Number(weekData?.completionRate) || 0, videoProgress)
     const safeResources = weekData?.resources ?? []
+    const safeUserKeywords = userKeywords ?? { strengths: [], weaknesses: [] }
     const safeKeywords = weekData?.keywords ?? []
     const canStartMetacog = Boolean(weekData && activeVideoId && progress >= 40)
     const canStartFinalQuiz = Boolean(weekData && metacogComplete && progress >= 70)
@@ -1235,9 +1241,11 @@ function StudyClassroomContent() {
                     <h1 className="classroom__lesson-title">
                         {weekLoading ? '...' : weekData?.topic ?? weekError ?? ''}
                     </h1>
-                    <p className="classroom__lesson-desc">
-                        {weekData?.description ?? ''}
-                    </p>
+                    <MarkdownContent
+                        content={weekData?.description ?? ''}
+                        compact
+                        className="classroom__lesson-desc"
+                    />
 
                     {/* ── YouTube IFrame 플레이어 ── */}
                     <div className="classroom__video">
@@ -1434,9 +1442,11 @@ function StudyClassroomContent() {
                                                                 <div className="classroom__kw-detail-label">
                                                                     Week {weekData?.weekNumber} · {weekData?.topic}
                                                                 </div>
-                                                                <p className="classroom__kw-detail-desc">
-                                                                    {weekData?.description || '이번 주차의 핵심 학습 개념입니다.'}
-                                                                </p>
+                                                                <MarkdownContent
+                                                                    content={weekData?.description || '이번 주차의 핵심 학습 개념입니다.'}
+                                                                    compact
+                                                                    className="classroom__kw-detail-desc"
+                                                                />
                                                             </div>
                                                         )}
                                                     </div>
@@ -1559,7 +1569,11 @@ function StudyClassroomContent() {
                                                             {detail.aiExplanation && (
                                                                 <div className="classroom__quiz-detail-explain">
                                                                     <span className="classroom__quiz-detail-explain-label">AI 해설</span>
-                                                                    <p className="classroom__quiz-detail-explain-text">{detail.aiExplanation}</p>
+                                                                    <MarkdownContent
+                                                                        content={detail.aiExplanation}
+                                                                        compact
+                                                                        className="classroom__quiz-detail-explain-text"
+                                                                    />
                                                                 </div>
                                                             )}
                                                         </>
@@ -1621,7 +1635,7 @@ function StudyClassroomContent() {
                     </div>
                     <div className="classroom__aside-scroll">
                         {/* 강점 / 약점 키워드 카드 — 데이터가 있거나 로딩 중일 때만 표시 */}
-                        {(keywordsLoading || (userKeywords && (userKeywords.strengths.length > 0 || userKeywords.weaknesses.length > 0))) && (
+                        {(keywordsLoading || safeUserKeywords.strengths.length > 0 || safeUserKeywords.weaknesses.length > 0) && (
                         <div className="kw-card">
                             <div className="kw-card__title">
                                 <Zap size={13} strokeWidth={1.5} className="kw-card__icon" />
@@ -1633,11 +1647,11 @@ function StudyClassroomContent() {
                                 </div>
                             ) : (
                                 <>
-                                    {userKeywords.strengths.length > 0 && (
+                                    {safeUserKeywords.strengths.length > 0 && (
                                         <div className="kw-card__section">
                                             <div className="kw-card__section-label kw-card__section-label--strength">강점</div>
                                             <div className="kw-card__tags">
-                                                {userKeywords.strengths.map(s => (
+                                                {safeUserKeywords.strengths.map(s => (
                                                     <span
                                                         key={s.keyword}
                                                         className="kw-tag kw-tag--strength"
@@ -1648,11 +1662,11 @@ function StudyClassroomContent() {
                                             </div>
                                         </div>
                                     )}
-                                    {userKeywords.weaknesses.length > 0 && (
+                                    {safeUserKeywords.weaknesses.length > 0 && (
                                         <div className="kw-card__section">
                                             <div className="kw-card__section-label kw-card__section-label--weakness">약점</div>
                                             <div className="kw-card__tags">
-                                                {userKeywords.weaknesses.map(w => (
+                                                {safeUserKeywords.weaknesses.map(w => (
                                                     <span
                                                         key={w.keyword}
                                                         className={`kw-tag kw-tag--weakness${w.isResolved ? ' kw-tag--resolved' : ''}`}
@@ -1895,8 +1909,22 @@ function StudyClassroomContent() {
                                                                 key={msg.id}
                                                                 className={`partner-widget__chat-bubble-wrap ${msg.role === 'me' ? 'partner-widget__chat-bubble-wrap--me' : 'partner-widget__chat-bubble-wrap--partner'}`}
                                                             >
-                                                                <div className={`partner-widget__chat-bubble ${msg.role === 'me' ? 'partner-widget__chat-bubble--me' : 'partner-widget__chat-bubble--partner'}`}>
-                                                                    <span>{msg.text}</span>
+                                                                <div className={`partner-widget__chat-bubble ${
+                                                                    msg.role === 'me'
+                                                                        ? 'partner-widget__chat-bubble--me'
+                                                                        : msg.role === 'ai'
+                                                                            ? 'partner-widget__chat-bubble--ai'
+                                                                            : 'partner-widget__chat-bubble--partner'
+                                                                }`}>
+                                                                    {msg.role === 'ai' ? (
+                                                                        <MarkdownContent
+                                                                            content={msg.text}
+                                                                            compact
+                                                                            className="partner-widget__chat-ai-text"
+                                                                        />
+                                                                    ) : (
+                                                                        <span>{msg.text}</span>
+                                                                    )}
                                                                     <span className="partner-widget__chat-time">{msg.time}</span>
                                                                 </div>
                                                             </div>
