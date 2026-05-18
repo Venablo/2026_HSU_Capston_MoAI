@@ -156,8 +156,10 @@ export function useYouTubePlayer({
     const pauseStartedAtRef = useRef<number | null>(null)
 
     // 고배속(>= 2x) 구간 추적: 배속 시작 시각과 해당 시점의 영상 위치
-    const speedStartedAtRef = useRef<number | null>(null)
-    const speedStartSecRef  = useRef<number>(0)
+    const speedStartedAtRef  = useRef<number | null>(null)
+    const speedStartSecRef   = useRef<number>(0)
+    // 현재 2배속 세션에서 이미 이벤트를 발송했는지 — 중복 발송 방지
+    const speedEventFiredRef = useRef<boolean>(false)
 
     // 탭 이탈 횟수 누적 카운터
     const tabDepartureCountRef = useRef<number>(0)
@@ -219,19 +221,28 @@ export function useYouTubePlayer({
 
                 // ── 고배속(2x 이상) 감지 ──────────────────────────────────
                 const rate = player.getPlaybackRate()
-                if (rate >= SPEED_THRESHOLD && speedStartedAtRef.current === null) {
-                    speedStartedAtRef.current = Date.now()
-                    speedStartSecRef.current  = current
-                } else if (rate < SPEED_THRESHOLD && speedStartedAtRef.current !== null) {
-                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
-                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
-                        onPatternRef.current('video_speed_up', {
-                            video_id:        videoId,
-                            speed_start_sec: speedStartSecRef.current,
-                            duration_sec,
-                        })
+                if (rate >= SPEED_THRESHOLD) {
+                    if (speedStartedAtRef.current === null) {
+                        // 2배속 구간 시작
+                        speedStartedAtRef.current  = Date.now()
+                        speedStartSecRef.current   = current
+                        speedEventFiredRef.current = false
+                    } else if (!speedEventFiredRef.current) {
+                        // 5초 이상 유지 → 재생 중에 즉시 이벤트 발송
+                        const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                        if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                            onPatternRef.current('video_speed_up', {
+                                video_id:        videoId,
+                                speed_start_sec: speedStartSecRef.current,
+                                duration_sec,
+                            })
+                            speedEventFiredRef.current = true
+                        }
                     }
-                    speedStartedAtRef.current = null
+                } else if (speedStartedAtRef.current !== null) {
+                    // 배속이 2x 미만으로 복귀 → 구간 종료 (이미 발송했으면 스킵)
+                    speedStartedAtRef.current  = null
+                    speedEventFiredRef.current = false
                 }
 
                 // ── 진행률 마일스톤 감지 ───────────────────────────────────
@@ -256,17 +267,20 @@ export function useYouTubePlayer({
             } else if (state === 2) {
                 // ── 일시정지 중(paused): 장시간 일시정지 감지 ───────────────
 
-                // 2배속 구간 중 일시정지 → 해당 구간 이벤트 발송 (최소 5초 이상 유지 시)
+                // 2배속 구간 중 일시정지 → 미발송 상태면 조건 충족 시 발송
                 if (speedStartedAtRef.current !== null) {
-                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
-                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
-                        onPatternRef.current('video_speed_up', {
-                            video_id:        videoId,
-                            speed_start_sec: speedStartSecRef.current,
-                            duration_sec,
-                        })
+                    if (!speedEventFiredRef.current) {
+                        const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                        if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                            onPatternRef.current('video_speed_up', {
+                                video_id:        videoId,
+                                speed_start_sec: speedStartSecRef.current,
+                                duration_sec,
+                            })
+                        }
                     }
-                    speedStartedAtRef.current = null
+                    speedStartedAtRef.current  = null
+                    speedEventFiredRef.current = false
                 }
 
                 if (pauseStartedAtRef.current === null) {
@@ -308,8 +322,9 @@ export function useYouTubePlayer({
         }
         lastTimeRef.current = 0
         pauseStartedAtRef.current = null
-        speedStartedAtRef.current = null
-        speedStartSecRef.current = 0
+        speedStartedAtRef.current  = null
+        speedStartSecRef.current   = 0
+        speedEventFiredRef.current = false
         tabDepartureCountRef.current = 0
         durationRef.current = 0
         reportedMilestonesRef.current = new Set()
@@ -355,6 +370,21 @@ export function useYouTubePlayer({
                         if (event.data === 0) {
                             stopPolling()
                             videoEndedRef.current = true
+                            // 영상 종료 시점에 2배속 구간이 열려 있고 미발송이면 이벤트 발송
+                            if (speedStartedAtRef.current !== null) {
+                                if (!speedEventFiredRef.current) {
+                                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                                        onPatternRef.current('video_speed_up', {
+                                            video_id:        videoId,
+                                            speed_start_sec: speedStartSecRef.current,
+                                            duration_sec,
+                                        })
+                                    }
+                                }
+                                speedStartedAtRef.current  = null
+                                speedEventFiredRef.current = false
+                            }
                             // 영상 종료 → 100% 마일스톤
                             if (onProgressRef.current && !reportedMilestonesRef.current.has(100)) {
                                 reportedMilestonesRef.current.add(100)
