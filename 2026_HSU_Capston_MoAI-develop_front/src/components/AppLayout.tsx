@@ -16,6 +16,14 @@ function AppLayoutContent() {
     const location = useLocation()
     const navigate = useNavigate()
 
+    // 뷰포트 크기가 768px 경계를 넘을 때 collapsed 상태 동기화 (split-screen 대응)
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 767px)')
+        const handler = (e: MediaQueryListEvent) => setCollapsed(e.matches)
+        mq.addEventListener('change', handler)
+        return () => mq.removeEventListener('change', handler)
+    }, [])
+
     const [pendingMatch, setPendingMatch] = useState<StudyMatchResponse | null>(null)
     const [connecting,   setConnecting]   = useState(false)
 

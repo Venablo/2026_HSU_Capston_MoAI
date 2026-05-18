@@ -7,7 +7,7 @@
  *   POST /api/auth/login  (apiService.login)
  *
  * 인증 흐름:
- *   1. 사용자가 아이디(login_id) + 비밀번호(password) 입력 후 "학습 계속하기" 클릭
+ *   1. 사용자가 아이디(login_id) + 비밀번호(password) 입력 후 "로그인" 클릭
  *   2. 백엔드 POST /api/auth/login 호출
  *   3. 응답 success: true  → saveAuth() 로 토큰 저장 → 성공 토스트 → /main 이동
  *      응답 success: false → unwrap() 이 Error throw  → 실패 토스트 + 인라인 에러 표시
@@ -93,7 +93,7 @@ export default function LoginPage() {
             // ── 성공 토스트 + 화면 전환 ──────────────────────────────────────
             // ✅ 화면 전환은 API success: true 확인 후에만 실행됨
             // (실패 시 unwrap() 이 throw 하므로 이 라인에 도달하지 않는다)
-            showToast('success', `환영합니다, ${result.nickname}님! 학습을 이어갑니다.`)
+            showToast('success', `환영합니다, ${result.nickname}님!`)
             setTimeout(() => navigate('/main'), 800)
 
         } catch (e: unknown) {
@@ -153,9 +153,8 @@ export default function LoginPage() {
                 {/* ── 우측 폼 패널 ── */}
                 <div className="login__right">
                     <div className="login__form-wrap animate-fade-in">
-                        {/* 타이틀 — Figma: "다시 만나서 반가워요" / "계속 학습을 이어가세요." */}
-                        <div className="login__form-title">다시 만나서 반가워요</div>
-                        <div className="login__form-sub">계속 학습을 이어가세요.</div>
+                        <div className="login__form-title">로그인</div>
+                        <div className="login__form-sub">아이디와 비밀번호를 입력하세요.</div>
 
                         <div className="login__fields">
                             {/* 아이디 — 백엔드 필드명: login_id */}
@@ -200,13 +199,13 @@ export default function LoginPage() {
                         {/* 인라인 필드 에러 — 토스트와 병행 표시 */}
                         {fieldError && <p className="login__error">{fieldError}</p>}
 
-                        {/* 학습 계속하기 — 백엔드 POST /api/auth/login 호출 */}
+                        {/* 로그인 — 백엔드 POST /api/auth/login 호출 */}
                         <button
                             className="login__btn-primary"
                             onClick={handleLogin}
                             disabled={loading}
                         >
-                            {loading ? '로그인 중...' : '학습 계속하기'}
+                            {loading ? '로그인 중...' : '로그인'}
                         </button>
 
                         {/* 회원가입 — /register 이동 (API 호출 없음) */}

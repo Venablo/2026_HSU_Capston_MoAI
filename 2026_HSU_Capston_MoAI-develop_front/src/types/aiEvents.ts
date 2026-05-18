@@ -22,7 +22,7 @@ export interface MetaEvaluationResponse {
 /**
  * Partner data shown in StudyMatchingModal.
  *
- * Mapped from StudySuggestion (api.ts) inside aiSummaryService.fetchStudyMatch:
+ * Mapped from StudySuggestion (api.ts) in AppLayout SSE handler:
  *   matchScore * 100           → matchRate
  *   partner.nickname           → partnerName
  *   partner.strengthKeyword    → partnerStrengths[0]
