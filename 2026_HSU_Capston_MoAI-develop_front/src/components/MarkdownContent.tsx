@@ -30,13 +30,38 @@ const markdownContentCss = `
 .moai-markdown > :last-child {
     margin-bottom: 0;
 }
-.moai-markdown h1,
-.moai-markdown h2,
-.moai-markdown h3,
-.moai-markdown h4 {
+.moai-markdown h1 {
+    font-size: 1.7em;
+    font-weight: 800;
+    color: var(--moai-markdown-heading, var(--color-text-primary, #111827));
+    line-height: 1.3;
+    margin: 1em 0 0.45em;
+}
+.moai-markdown h2 {
+    font-size: 1.4em;
+    font-weight: 700;
     color: var(--moai-markdown-heading, var(--color-text-primary, #111827));
     line-height: 1.35;
+    margin: 0.9em 0 0.4em;
 }
+.moai-markdown h3 {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: #b45309;
+    line-height: 1.35;
+    margin: 0.8em 0 0.35em;
+}
+.moai-markdown h4 {
+    font-size: 1.08em;
+    font-weight: 700;
+    color: #0f766e;
+    line-height: 1.35;
+    margin: 0.7em 0 0.3em;
+}
+.dark .moai-markdown h1 { color: #f9fafb; }
+.dark .moai-markdown h2 { color: #f9fafb; }
+.dark .moai-markdown h3 { color: #fbbf24; }
+.dark .moai-markdown h4 { color: #4ade80; }
 .moai-markdown p,
 .moai-markdown li {
     color: inherit;
@@ -63,6 +88,9 @@ const markdownContentCss = `
 }
 .moai-markdown li + li {
     margin-top: 6px;
+}
+.moai-markdown li > p {
+    margin: 0;
 }
 .moai-markdown strong {
     color: var(--moai-markdown-strong, #5b4bdb);
@@ -169,6 +197,13 @@ const markdownContentCss = `
     --moai-markdown-table-cell-padding: 10px 12px;
     --moai-markdown-table-head-size: 12px;
 }
+.moai-markdown--compact p {
+    margin: 0 0 4px;
+}
+.moai-markdown--compact ul,
+.moai-markdown--compact ol {
+    margin: 4px 0 8px;
+}
 .dark .moai-markdown__table-wrap {
     border-color: rgba(167, 139, 250, 0.24);
     background: linear-gradient(180deg, rgba(31,35,54,0.98), rgba(24,28,45,0.96)), #181c2d;
@@ -266,6 +301,34 @@ function normalizeInlineBreaks(value: string): string {
     return value.replace(/<br\s*\/?>/gi, '\n')
 }
 
+function collapseBlankLines(content: string): string {
+    // Collapse ALL blank lines except those immediately before/after heading lines.
+    // This converts loose lists to tight, removes inter-paragraph gaps from LLM output,
+    // while preserving visual separation around # headings.
+    const isHeading = (line: string) => /^#{1,4} /.test(line)
+
+    const lines = content.split(/\r?\n/)
+    const out: string[] = []
+    let i = 0
+    while (i < lines.length) {
+        if (lines[i].trim() === '') {
+            let j = i
+            while (j < lines.length && lines[j].trim() === '') j++
+            const prevLine = out.length > 0 ? out[out.length - 1] : ''
+            const nextLine = j < lines.length ? lines[j] : ''
+            // Keep exactly one blank line only if adjacent to a heading
+            if (isHeading(prevLine) || isHeading(nextLine)) {
+                out.push('')
+            }
+            i = j
+            continue
+        }
+        out.push(lines[i])
+        i++
+    }
+    return out.join('\n')
+}
+
 function splitLooseStrongText(value: string): MarkdownNode[] {
     const parts: MarkdownNode[] = []
     const pattern = /\*\*([^*\n]+?)\*\*/g
@@ -317,7 +380,7 @@ export default function MarkdownContent({
     paper = false,
     compact = false,
 }: MarkdownContentProps) {
-    const blocks = useMemo(() => splitMarkdownTables(content), [content])
+    const blocks = useMemo(() => splitMarkdownTables(collapseBlankLines(content)), [content])
     const classes = [
         'moai-markdown',
         paper ? 'moai-markdown--paper' : '',

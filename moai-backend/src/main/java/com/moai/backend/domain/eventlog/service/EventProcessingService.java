@@ -150,7 +150,7 @@ public class EventProcessingService {
         }
 
         // 4. LLM 요약 자료 생성 (필터링된 키워드 기반)
-        LlmSummaryResult summary = generateSummary(filteredKeywords, transcriptText);
+        LlmSummaryResult summary = generateSummary(filteredKeywords, transcriptText, room);
 
         // 5. CustomMaterial 저장
         String videoSegment = formatVideoSegment(segmentLabelSec);
@@ -213,7 +213,7 @@ public class EventProcessingService {
 
         // 4. LLM 4지선다 퀴즈 1문제 생성 — 여러 키워드 중 첫 번째 하나에 대해서만 출제
         String targetKeyword = filteredKeywords.isEmpty() ? curriculum.getTopic() : filteredKeywords.get(0);
-        LlmQuizResult quizResult = generateQuiz(targetKeyword, transcriptText, curriculum.getTopic());
+        LlmQuizResult quizResult = generateQuiz(targetKeyword, transcriptText, curriculum.getTopic(), room);
 
         // 5. Quiz + QuizQuestion 저장
         Quiz quiz = Quiz.builder()
@@ -370,11 +370,15 @@ public class EventProcessingService {
     /**
      * 필터링된 키워드와 자막 텍스트를 기반으로 LLM에 요약 자료 생성을 요청한다.
      */
-    private LlmSummaryResult generateSummary(List<String> keywords, String transcriptText) {
+    private LlmSummaryResult generateSummary(List<String> keywords, String transcriptText, LearningRoom room) {
         String keywordList = String.join(", ", keywords);
+        String subjectContext = (room != null)
+                ? String.format("\n학습 주제: %s (수준: %s)\n모든 설명은 반드시 '%s' 학습 맥락에서 작성하세요.", room.getSubject(), room.getLevel(), room.getSubject())
+                : "";
 
         String systemPrompt = """
                 당신은 MoAI 학습 플랫폼의 AI 실시간 학습 도우미입니다.
+                """ + subjectContext + """
 
                 학습자가 영상 시청 중 특정 구간을 반복 되감기하거나 오래 일시정지한 것이 감지되었습니다.
                 해당 구간의 핵심 개념을 학습자가 빠르게 이해할 수 있도록 풍부한 요약본을 생성하세요.
@@ -441,14 +445,14 @@ public class EventProcessingService {
                         ? kp.getIconLetter()
                         : String.valueOf((char) ('A' + idx));
                 StringBuilder desc = new StringBuilder();
-                if (kp.getDefinition() != null) desc.append(kp.getDefinition()).append("\n\n");
-                if (kp.getDetail() != null) desc.append(kp.getDetail()).append("\n\n");
-                if (kp.getAnalogy() != null) desc.append("💡 비유: ").append(kp.getAnalogy()).append("\n\n");
-                if (kp.getExamTip() != null) desc.append("📝 시험 포인트: ").append(kp.getExamTip()).append("\n\n");
+                if (kp.getDefinition() != null) desc.append(kp.getDefinition().stripTrailing()).append("\n");
+                if (kp.getDetail() != null) desc.append(kp.getDetail().stripTrailing()).append("\n");
+                if (kp.getAnalogy() != null) desc.append("💡 비유: ").append(kp.getAnalogy().stripTrailing()).append("\n");
+                if (kp.getExamTip() != null) desc.append("📝 시험 포인트: ").append(kp.getExamTip().stripTrailing()).append("\n");
                 if (kp.getCheckpointQuestion() != null)
-                    desc.append("❓ 자가 점검: ").append(kp.getCheckpointQuestion()).append("\n\n");
+                    desc.append("❓ 자가 점검: ").append(kp.getCheckpointQuestion().stripTrailing()).append("\n");
                 if (kp.getMemoryHook() != null)
-                    desc.append("🔖 암기 장치: ").append(kp.getMemoryHook()).append("\n\n");
+                    desc.append("🔖 암기 장치: ").append(kp.getMemoryHook().stripTrailing()).append("\n");
                 items.add(new SummaryItem(label, kp.getConcept() != null ? kp.getConcept() : "핵심 개념", desc.toString().trim()));
                 idx++;
             }
@@ -482,15 +486,18 @@ public class EventProcessingService {
      * 단일 targetKeyword와 자막을 기반으로 LLM에 4지선다 퀴즈 1문제 생성을 요청한다.
      * related_keyword는 LLM 반환값을 무시하고 서버에서 targetKeyword로 고정한다.
      */
-    private LlmQuizResult generateQuiz(String targetKeyword, String transcriptText, String topic) {
+    private LlmQuizResult generateQuiz(String targetKeyword, String transcriptText, String topic, LearningRoom room) {
+        String subjectLine = (room != null) ? "학습 주제: " + room.getSubject() + " (수준: " + room.getLevel() + ")\n" : "";
         String context = transcriptText.isBlank()
-                ? "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword
-                : "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword + "\n\n자막 텍스트:\n" + transcriptText;
+                ? subjectLine + "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword
+                : subjectLine + "커리큘럼 주제: " + topic + "\n대상 키워드: " + targetKeyword + "\n\n자막 텍스트:\n" + transcriptText;
 
+        String roomSubject = (room != null) ? room.getSubject() : topic;
         String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 돌발 퀴즈 출제 전문가 AI입니다.
 
-                학습자가 영상 구간을 스킵하거나 2배속으로 빠르게 넘긴 직후, 해당 구간의 핵심 개념을 놓치지 않았는지 즉시 확인하는 4지선다 문제를 만듭니다.
+                학습 주제 '%s' 강의에서 학습자가 영상 구간을 스킵하거나 2배속으로 빠르게 넘긴 직후, 해당 구간의 핵심 개념을 놓치지 않았는지 즉시 확인하는 4지선다 문제를 만듭니다.
+                반드시 '%s' 학습 맥락에서 출제하세요. 다른 과목이나 분야의 내용으로 출제하지 마세요.
 
                 ■ 출력 형식: 순수 JSON (코드블록 없이)
                 {
@@ -516,7 +523,7 @@ public class EventProcessingService {
                 4. explanation은 왜 정답이고 왜 다른 보기가 오답인지 구체적으로 설명.
                 5. 전문 용어는 한글(영문) 병기.
                 6. 자막 텍스트가 있으면 해당 구간 내용을 반영. 없으면 '%s' 개념 자체로 출제.
-                """, targetKeyword, targetKeyword);
+                """, roomSubject, roomSubject, targetKeyword, targetKeyword);
 
         LlmRequestDto quizRequest = LlmRequestDto.builder()
                 .systemPrompt(systemPrompt)

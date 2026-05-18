@@ -45,9 +45,11 @@ import type { EndFlippedResponse } from '../../../types/api'
 interface ClassroomModalsProps {
     /** 퀴즈 오답 시 영상을 특정 초로 이동시키는 콜백 */
     onSeekPlayer?: (sec: number) => void
+    /** 돌발퀴즈·파이널퀴즈 완료 시 호출 — 키워드/퀴즈내역 즉시 갱신 */
+    onAnyQuizComplete?: () => void
 }
 
-export default function ClassroomModals({ onSeekPlayer }: ClassroomModalsProps) {
+export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete }: ClassroomModalsProps) {
     const {
         modal, modalData, open, close,
         setMetacogComplete, setPartnerInfo, partnerInfo,
@@ -201,6 +203,7 @@ export default function ClassroomModals({ onSeekPlayer }: ClassroomModalsProps) 
                     quiz={modalData.quiz}
                     onClose={close}
                     onResult={(correct, conceptName, correctConcept, explanation, rewindToSec) => {
+                        onAnyQuizComplete?.()
                         if (correct) {
                             open('quiz-correct', { type: 'quiz-correct', conceptName })
                         } else {
@@ -284,7 +287,7 @@ export default function ClassroomModals({ onSeekPlayer }: ClassroomModalsProps) 
                     roomId={modalData.roomId}
                     weekId={modalData.weekId}
                     onClose={close}
-                    onComplete={() => setQuizSubmitted(true)}
+                    onComplete={() => { setQuizSubmitted(true); onAnyQuizComplete?.() }}
                     reviewMode={modalData.reviewMode}
                 />
             )}

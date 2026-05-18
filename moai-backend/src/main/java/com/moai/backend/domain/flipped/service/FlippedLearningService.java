@@ -101,7 +101,7 @@ public class FlippedLearningService {
 
         // 첫 번째 키워드만 대상으로 안내 문구 생성
         String firstKeyword = keywords.get(0);
-        String firstMessage = generateFirstMessage(firstKeyword);
+        String firstMessage = generateFirstMessage(firstKeyword, room.getSubject(), room.getLevel());
 
         AiInteraction interaction = AiInteraction.builder()
                 .sessionId(sessionId)
@@ -137,9 +137,11 @@ public class FlippedLearningService {
     /**
      * LLM을 호출하여 첫 번째 키워드에 대한 안내 문구를 생성한다.
      */
-    private String generateFirstMessage(String keyword) {
-        String systemPrompt = """
+    private String generateFirstMessage(String keyword, String subject, String level) {
+        String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 거꾸로 학습 AI입니다.
+
+                학습 주제: %s (수준: %s)
 
                 역할: 학생이 첫 번째 키워드를 스스로 설명하도록 유도하는 세션 시작 안내를 3문장 이내로 작성합니다.
 
@@ -147,10 +149,11 @@ public class FlippedLearningService {
                 - 마크다운 문법(**볼드**, - 불릿 등) 절대 사용 금지. 화면에 기호가 그대로 노출됩니다.
                 - 줄 바꿈으로 환영 인사와 키워드 제시를 분리하세요.
                 - 키워드를 별도 줄에 명확하게 제시하세요.
+                - 키워드나 핵심 개념을 언급할 때는 반드시 작은따옴표('')로 감싸세요. 예: '접속사'에 대해 설명해 주시겠어요?
                 - 정답이나 힌트를 절대 먼저 설명하지 마세요.
                 - 제어 태그([COUNTER_QUESTION] 등) 사용 금지.
                 - 따뜻하고 간결한 한국어 존댓말. 3문장 이내.
-                """;
+                """, subject, level);
 
         String userMessage = String.format(
                 "첫 번째 키워드: '%s'\n\n위 키워드로 학생이 설명을 시작하도록 유도하는 첫 안내 문구를 작성하세요.",
@@ -228,7 +231,7 @@ public class FlippedLearningService {
         WeeklyCurriculum curriculum = history.get(0).getCurriculum();
 
         // 2. LLM 최종 평가 호출 — 대화 내용 기반 score/keywords/feedback/result 생성
-        LlmFlippedEvaluationResult evaluation = evaluateSession(history, curriculum);
+        LlmFlippedEvaluationResult evaluation = evaluateSession(history, curriculum, room);
 
         // 커리큘럼 키워드 목록과 교집합 필터 — LLM이 목록 외 키워드를 반환하는 경우 방어
         List<String> curriculumKeywords = curriculum.getKeywords();
@@ -285,7 +288,8 @@ public class FlippedLearningService {
      * JSON 형태로 score, gainedKeywords, weakKeywords, feedback, flippedResult를 반환받는다.
      */
     private LlmFlippedEvaluationResult evaluateSession(List<AiInteraction> history,
-                                                        WeeklyCurriculum curriculum) {
+                                                        WeeklyCurriculum curriculum,
+                                                        LearningRoom room) {
         String conversationText = history.stream()
                 .map(h -> String.format("[%s]: %s", h.getRole(), h.getContent()))
                 .collect(Collectors.joining("\n"));
@@ -294,33 +298,49 @@ public class FlippedLearningService {
                 ? String.join(", ", curriculum.getKeywords())
                 : curriculum.getTopic();
 
+        String subjectInfo = (room != null)
+                ? String.format("학습 주제: %s (수준: %s)\n", room.getSubject(), room.getLevel())
+                : "";
+
         String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 거꾸로 학습 메타인지 평가 전문가 AI입니다.
 
-                학생과 AI 튜터의 전체 대화 기록을 종합해 학생의 이해도를 평가합니다.
+                %s학생과 AI 튜터의 전체 대화 기록을 종합해 학생의 이해도를 평가합니다.
 
-                ■ 분석 항목 (내부 분석용 — JSON 출력에 포함하지 않음):
-                1. correct_points: 학생이 정확하게 설명한 포인트 (정의, 원리, 예시, 실전 적용)
-                2. incorrect_points: 주제와 무관하거나 완전히 틀린 내용
-                3. missing_points: 핵심 개념 중 학생이 언급하지 않은 부분
+                ■ 각 키워드별 채점 (내부 분석용 — JSON 출력에 포함하지 않음):
+                각 키워드에 대해 학생이 말한 내용의 정확성과 풍부성을 종합하여 0~100점으로 채점한다.
 
-                ■ 점수 산정 원칙 (매우 중요):
-                - 점수는 0에서 시작하여 correct_points에 한해서만 가산한다.
-                - 틀린 내용(incorrect_points)과 누락된 내용(missing_points)은 점수에 영향을 주지 않는다 (감점도 없고, 가점도 없다).
-                - 참여 자체, 노력, 시도에 대한 기본 점수는 절대 부여하지 않는다.
-                - 빈 답변이거나 '모르겠다' 수준 → 반드시 0점.
-                - 완전히 틀렸거나 주제와 관련 없는 답변 → 반드시 0점.
-                - 핵심 키워드 중 일부를 정확히 설명한 경우에만 해당 비율만큼 점수를 준다.
-                  예) 키워드 5개 중 2개를 깊이 있게 설명 → 40점 내외 (2/5 비율).
-                - 부분 점수를 세밀하게 반영하여 1점 단위로 정확하게 산정한다.
+                · 정확성: 말한 내용이 실제로 맞는가
+                  - 완전히 틀리거나 주제와 무관하면 0점
+                  - 막연하게만 언급하면 낮은 점수 (예: "접속할 때 쓰는 말" → 20점대)
+                  - 핵심을 정확히 설명하면 높은 점수
+
+                · 풍부성: 설명이 얼마나 구체적이고 충분한가 (기준을 너무 높게 잡지 않을 것)
+                  - 짧더라도 핵심을 잘 짚은 설명이면 충분히 가점
+                  - 긴 설명을 요구하지 않는다
+
+                채점 기준 예시 (접속사의 경우):
+                  - "접속할 때 쓰는 말" → 20점 (막연한 언급, 정확성 부족)
+                  - "단어나 문장을 연결해주는 말" → 45점 (방향은 맞지만 짧고 단순)
+                  - "and, but처럼 단어나 절을 이어주는 품사" → 70점 (정확하고 구체적)
+                  - "단어·구·절을 논리적으로 연결하며 대등·종속 관계를 나타내는 품사" → 90점
+
+                ■ gainedKeywords / weakKeywords 분류:
+                - gainedKeywords: 키워드 점수 60점 이상
+                - weakKeywords: 60점 미만 (설명 없음, 틀림, 막연한 언급 포함)
+
+                ■ 전체 score 산정:
+                - score = 모든 키워드 점수의 단순 평균 (소수점 버림, 0~100 정수)
+                - 예) 키워드 5개, 각각 70/45/20/0/0점 → score = 27점
+                - 참여·노력·시도에 대한 점수 가산 절대 금지
 
                 ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
                 {
-                  "score": 0~100 (정수),
+                  "score": 0~100 (정수, 키워드 점수 평균),
                   "flippedResult": "pass", "partial", 또는 "fail" (60점 이상 pass / 30~59점 partial / 30점 미만 fail),
-                  "gainedKeywords": ["학생이 정확히 이해한 키워드"],
-                  "weakKeywords": ["학생이 틀렸거나 누락한 키워드"],
-                  "feedback": "구조화된 피드백 (한국어, 마크다운 허용). 아래 형식 사용. 각 항목 사이에 빈 줄(\\n\\n)을 넣을 것:\\n\\n✅ 잘한 점: correct_points 핵심 요약 (1~2문장)\\n\\n⚠️ 보완할 점: 틀린 내용 교정 (틀린 내용이 없으면 생략)\\n\\n💡 핵심 정리: missing_points 보강 제안 (1~2문장)"
+                  "gainedKeywords": ["점수 60점 이상인 키워드만"],
+                  "weakKeywords": ["점수 60점 미만인 키워드 전부"],
+                  "feedback": "구조화된 피드백 (한국어, 마크다운 허용). 각 항목 사이에 빈 줄(\\n\\n)을 넣을 것:\\n\\n✅ 잘한 점: 정확하게 설명한 내용 핵심 요약 (1~2문장)\\n\\n⚠️ 보완할 점: 틀린 내용 교정 (없으면 생략)\\n\\n💡 핵심 정리: 부족하거나 누락된 내용 보강 제안 (1~2문장)"
                 }
 
                 ■ 필수 규칙:
@@ -328,7 +348,7 @@ public class FlippedLearningService {
                 2. feedback에 격려 문구를 넣어도 되지만, 격려가 score에 영향을 줘서는 안 된다.
                 3. gainedKeywords와 weakKeywords에는 반드시 아래 목록에 있는 키워드만 사용. 임의 생성/변경 금지, 목록 원문 그대로 반환.
                 4. 대상 키워드 목록: [%s]
-                """, keywordList);
+                """, subjectInfo, keywordList);
 
         String userMessage = String.format(
                 "주차 키워드: [%s]\n\n대화 내용:\n%s",
@@ -562,7 +582,7 @@ public class FlippedLearningService {
             String reQuestionKey = redisKey(sessionId, "reQuestionMode");
             boolean afterReQuestion = "true".equals(redisTemplate.opsForValue().get(reQuestionKey));
 
-            String systemPrompt = buildStreamSystemPrompt(keywords, keywordIndex, (int) exchangeCount, afterReQuestion);
+            String systemPrompt = buildStreamSystemPrompt(keywords, keywordIndex, (int) exchangeCount, afterReQuestion, saved.room().getSubject(), saved.room().getLevel());
 
             return new StreamContext(saved.user(), saved.room(), saved.curriculum(),
                     sessionId, contents, keywords, keywordIndex, exchangeCount, systemPrompt, afterReQuestion);
@@ -917,7 +937,8 @@ public class FlippedLearningService {
      * LLM이 부족한 답변에 1회 재질문하고 마크다운으로 가독성 있게 응답하도록 안내한다.
      */
     private String buildStreamSystemPrompt(List<String> keywords, int keywordIndex,
-                                            int exchangeCount, boolean afterReQuestion) {
+                                            int exchangeCount, boolean afterReQuestion,
+                                            String subject, String level) {
         String keywordList = String.join(", ", keywords);
         String currentKeyword = keywords.get(keywordIndex);
 
@@ -941,9 +962,14 @@ public class FlippedLearningService {
                 + "  학생이 '" + currentKeyword + "'의 의미·역할·특징을 본인 말로 설명한 경우\n"
                 + "  응답 형식: 1~2문장 중립 확인 + [NEXT_KEYWORD]\n\n"
                 + "▶ 재질문 → [COUNTER_QUESTION] 사용 (이 키워드에서 최대 1회):\n"
-                + "  조건 A — 의미 없는 단어/문자 ('ㄱ', 'ㅇ', '모르겠어요') 또는 무관한 내용:\n"
+                + "  조건 A — 다음 중 하나라도 해당하면 반드시 재질문:\n"
+                + "    · 의미 없는 단어/문자 ('ㄱ', 'ㅇ', '모르겠어요')\n"
+                + "    · 주제와 무관한 내용\n"
+                + "    · 키워드 이름에서 연상되는 단어만 나열하고 실제 개념을 설명하지 않은 경우\n"
+                + "      예: '잘 활용하는 언어' (활용형 키워드에 대해), '연결할 때 쓰는 말' (접속사에 대해)\n"
+                + "      → 이처럼 키워드의 의미·역할·특징을 실제로 설명하지 않은 경우는 조건 A 적용\n"
                 + "    정확한 출력 형식: [COUNTER_QUESTION]'" + currentKeyword + "'에 대해 본인의 언어로 설명해 주시겠어요?\n"
-                + "  조건 B — 설명은 했지만 틀렸거나, 부족하거나, 애매한 경우:\n"
+                + "  조건 B — 설명은 했지만 틀렸거나, 핵심이 부족하거나, 애매한 경우:\n"
                 + "    반드시 '" + currentKeyword + "'와 부족한 측면 1개를 함께 써서 질문하세요.\n"
                 + "    부족한 측면은 핵심 역할, 특징, 예시, 사용 조건, 차이, 관계, 근거 중 실제 학생 답변에 맞는 하나를 고르세요.\n"
                 + "    정확한 출력 형식: [COUNTER_QUESTION]'" + currentKeyword + "'에서 [부족한 측면] 부분을 더 구체적으로 설명해 주시겠어요?\n"
@@ -951,13 +977,16 @@ public class FlippedLearningService {
                 + "    금지 출력: [COUNTER_QUESTION]'" + currentKeyword + "'에 대해 다시 설명해 주시겠어요?\n"
                 + "  ※ 재질문 텍스트에 키워드 정의·예시·힌트 절대 포함 금지\n"
                 + "  ※ [COUNTER_QUESTION] 태그 없이 재설명을 요청하는 것 절대 금지 ('다시 설명해 주시겠어요?' 등을 태그 없이 출력 금지)\n\n"
-                + "▶ 반드시 재질문해야 하는 입력:\n"
+                + "▶ 반드시 재질문해야 하는 입력 (이 경우 [NEXT_KEYWORD] 절대 금지):\n"
                 + "  단일 자모 (ㄱ, ㅇ, ㄷ, ㄴ, ㅁ 등) / '모르겠어요' / 주제와 무관한 문장\n"
-                + "  이런 입력에 긍정 맞장구 후 [NEXT_KEYWORD] 사용 절대 금지\n";
+                + "  키워드 이름에서 연상되는 단어만 있고 개념 설명이 없는 경우\n";
         }
 
         return String.format("""
                 당신은 MoAI 거꾸로 학습 AI입니다. 학생의 설명을 평가합니다.
+
+                [학습 맥락]
+                학습 주제: %s (수준: %s)
 
                 [절대 금지 — 어떤 경우에도 위반 불가]
                 1. 키워드 개념을 설명·정의·요약하는 것
@@ -971,6 +1000,12 @@ public class FlippedLearningService {
                 7. 한 번에 여러 질문
                 8. 이전 키워드명을 현재 재질문에 사용하는 것 (현재 키워드: %s 만 사용)
 
+                [필수 — 따옴표 규칙]
+                질문에서 키워드나 핵심 개념을 언급할 때는 반드시 작은따옴표('')로 감싸세요.
+                올바른 예: '%s'에 대해 본인의 언어로 설명해 주시겠어요?
+                올바른 예: '%s'에서 핵심 역할 부분을 더 구체적으로 설명해 주시겠어요?
+                잘못된 예: %s에 대해 설명해 주시겠어요?
+
                 [전체 키워드 목록]
                 %s
 
@@ -981,7 +1016,9 @@ public class FlippedLearningService {
                 - [COUNTER_QUESTION]: 재질문 텍스트 바로 앞에만. 이 응답에서 [NEXT_KEYWORD] 동시 사용 금지.
                 - [NEXT_KEYWORD]: 이 키워드 평가 완료 시 응답 맨 끝에만. 태그 뒤에 텍스트 없음.
                 """,
+                subject, level,
                 currentKeyword,
+                currentKeyword, currentKeyword, currentKeyword,
                 keywordList, currentKeyword, keywordIndex + 1, keywords.size(),
                 exchangeCount, reQuestionSection
         );

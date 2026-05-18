@@ -262,15 +262,21 @@ public class QuizService {
 
     private FinalQuizResponseDto generateFinalQuiz(WeeklyCurriculum curriculum) {
         List<String> keywords = curriculumKeywordsOrTopic(curriculum);
+        LearningRoom room = curriculum.getRoom();
+        String subject = (room != null) ? room.getSubject() : curriculum.getTopic();
+        String level = (room != null) ? room.getLevel() : "";
 
         String userMessage = String.format(
-                "{\"curriculum_topic\":%s,\"week_number\":%d,\"key_concepts\":[%s]}",
-                quoteJson(curriculum.getTopic()), (int) curriculum.getWeekNumber(),
+                "{\"subject\":%s,\"curriculum_topic\":%s,\"week_number\":%d,\"key_concepts\":[%s]}",
+                quoteJson(subject), quoteJson(curriculum.getTopic()), (int) curriculum.getWeekNumber(),
                 keywords.stream().map(this::quoteJson).collect(java.util.stream.Collectors.joining(","))
         );
 
-        String systemPrompt = """
+        String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 주차 마무리 퀴즈 출제 AI입니다.
+
+                학습 주제: %s (수준: %s)
+                반드시 '%s' 학습 맥락에서 문제를 출제하세요. 다른 과목이나 분야의 내용으로 출제하지 마세요.
 
                 주차 학습 완료 후 이해도를 종합 검증하는 서술형 5문항 퀴즈 세트를 생성하세요.
 
@@ -304,7 +310,7 @@ public class QuizService {
                 6. difficulty를 골고루 분배 (하1 + 중2 + 상2 권장)
                 7. related_keyword는 반드시 입력된 key_concepts 목록 안에서 선택
                 8. max_length는 300~500 사이 정수
-                """;
+                """, subject, level, subject);
 
         LlmRequestDto llmRequest = LlmRequestDto.builder()
                 .systemPrompt(systemPrompt)
@@ -444,7 +450,7 @@ public class QuizService {
 
                 // LLM 서술형 채점 (커리큘럼 키워드 제약)
                 LlmEssayGradingResult grading = gradeEssayQuestion(
-                        question, answerItem.getAnswer(), curriculumKeywords);
+                        question, answerItem.getAnswer(), curriculumKeywords, room);
 
                 boolean isCorrect = grading.getScore() >= 12;
 
@@ -525,19 +531,25 @@ public class QuizService {
     }
 
     private LlmEssayGradingResult gradeEssayQuestion(QuizQuestion question, String studentAnswer,
-                                                      List<String> curriculumKeywords) {
+                                                      List<String> curriculumKeywords, LearningRoom room) {
         String keywordsStr = String.join(", ", curriculumKeywords);
+        String subject = (room != null) ? room.getSubject() : "";
+        String level = (room != null) ? room.getLevel() : "";
 
         String userMessage = String.format(
-                "{\"question\":%s,\"related_keyword\":%s,\"max_score\":20,\"student_answer\":%s,\"curriculum_keywords\":[%s]}",
+                "{\"subject\":%s,\"question\":%s,\"related_keyword\":%s,\"max_score\":20,\"student_answer\":%s,\"curriculum_keywords\":[%s]}",
+                quoteJson(subject),
                 quoteJson(question.getQuestion()),
                 quoteJson(question.getRelatedKeyword()),
                 quoteJson(studentAnswer),
                 curriculumKeywords.stream().map(this::quoteJson).collect(java.util.stream.Collectors.joining(","))
         );
 
-        String systemPrompt = """
+        String systemPrompt = String.format("""
                 당신은 MoAI 학습 플랫폼의 AI 채점 전문가입니다.
+
+                학습 주제: %s (수준: %s)
+                반드시 '%s' 학습 맥락에서 채점하세요.
 
                 학습자의 서술형 답변을 분석하여 간결한 채점 결과와 피드백을 제공하세요.
 
@@ -570,7 +582,7 @@ public class QuizService {
                 6. 문항별 해설은 반드시 3줄 화면 형식(점수 / 핵심 / 보완)에 맞춘다.
                    최종 해설은 줄바꿈으로 줄을 나눈다.
                    각 피드백 필드는 한 문장만 작성하고 문단형 설명은 금지한다.
-                """.formatted(keywordsStr);
+                """, subject, level, subject, keywordsStr);
 
         LlmRequestDto request = LlmRequestDto.builder()
                 .systemPrompt(systemPrompt)

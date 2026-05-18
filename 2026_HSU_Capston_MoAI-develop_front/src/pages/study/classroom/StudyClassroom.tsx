@@ -195,6 +195,9 @@ function StudyClassroomContent() {
     const [userKeywords,    setUserKeywords]    = useState<CurriculumKeywordsResponse | null>(null)
     const [keywordsLoading, setKeywordsLoading] = useState(false)
 
+    // 퀴즈 완료 트리거 — 돌발퀴즈·파이널퀴즈 완료 시 키워드·퀴즈내역 즉시 갱신
+    const [quizCompletedCount, setQuizCompletedCount] = useState(0)
+
     // 아코디언 / 더 보기 UI 상태
     const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
     const [quizCorrectOpen,   setQuizCorrectOpen]   = useState(true)
@@ -484,19 +487,19 @@ function StudyClassroomContent() {
     }, [roomId, weekData?.weekId])
 
     useEffect(() => {
-        if (tab !== 'videos' || !roomId || !weekData || videos !== null) return
+        if (tab !== 'videos' || !roomId || !weekData || weekLoading || videos !== null) return
         loadVideosForWeek()
-    }, [tab, roomId, weekData, videos, loadVideosForWeek])
+    }, [tab, roomId, weekData, weekLoading, videos, loadVideosForWeek])
 
     // ── 퀴즈 탭: 첫 클릭 시 lazy-load ────────────────────────────────────────
     useEffect(() => {
-        if (tab !== 'quiz' || !roomId || !weekData || quizAttempts !== null) return
+        if (tab !== 'quiz' || !roomId || !weekData || weekLoading || quizAttempts !== null) return
         setQuizLoading(true)
         getQuizAttempts(roomId, weekData.weekId)
             .then(setQuizAttempts)
             .catch(() => setQuizAttempts([]))
             .finally(() => setQuizLoading(false))
-    }, [tab, roomId, weekData, quizAttempts])
+    }, [tab, roomId, weekData, weekLoading, quizAttempts])
 
     useEffect(() => {
         if (!roomId || !weekData || weekLoading) return
@@ -626,7 +629,15 @@ function StudyClassroomContent() {
                 completionRate: Math.max(Number(detail.completionRate) || 0, 100),
             }, { syncMetacog: false }))
             .catch(() => {})
+        // 파이널 퀴즈 완료 → 퀴즈 내역 갱신
+        setQuizAttempts(null)
     }, [quizSubmitted, roomId, weekData?.weekId, weekData?.weekNumber, applyWeekDetail])
+
+    // ── 퀴즈 완료(돌발·파이널) 시 퀴즈 내역 즉시 갱신 ─────────────────────
+    useEffect(() => {
+        if (quizCompletedCount === 0) return
+        setQuizAttempts(null)
+    }, [quizCompletedCount])
 
     // ── 주차 전환 시 해당 주차의 저장된 요약 로드 ───────────────────────────
     useEffect(() => {
@@ -645,7 +656,7 @@ function StudyClassroomContent() {
             .catch(() => { if (!cancelled) setUserKeywords(null) })
             .finally(() => { if (!cancelled) setKeywordsLoading(false) })
         return () => { cancelled = true }
-    }, [roomId, weekData?.weekId, metacogComplete, quizSubmitted])
+    }, [roomId, weekData?.weekId, metacogComplete, quizSubmitted, quizCompletedCount])
 
     // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
     const handlePatternDetected = useCallback(async (
@@ -1941,7 +1952,10 @@ function StudyClassroomContent() {
             </div>
 
             {/* ── 모달 ── */}
-            <ClassroomModals onSeekPlayer={sec => seekPlayerRef.current(sec)} />
+            <ClassroomModals
+                onSeekPlayer={sec => seekPlayerRef.current(sec)}
+                onAnyQuizComplete={() => setQuizCompletedCount(prev => prev + 1)}
+            />
 
             {/* ── 잠긴 주차 토스트 알림 ── */}
             {lockedToast && (
