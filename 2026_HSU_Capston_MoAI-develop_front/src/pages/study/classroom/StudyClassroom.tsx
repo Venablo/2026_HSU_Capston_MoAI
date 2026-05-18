@@ -159,8 +159,16 @@ function StudyClassroomContent() {
     // curriculumId가 URL에 있으면 해당 주차를 우선 선택 (매칭 수락 후 이동 시 주입됨)
     const targetCurriculumId = searchParams.get('curriculumId') ?? null
 
-    const [rightCollapsed, setRightCollapsed] = useState(false)
+    const [rightCollapsed, setRightCollapsed] = useState(() => window.innerWidth <= 900)
     const [tab, setTab] = useState<TabKey>('docs')
+
+    // 900px 이하에서 우측 aside 자동 접힘 동기화
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 900px)')
+        const handler = (e: MediaQueryListEvent) => setRightCollapsed(e.matches)
+        mq.addEventListener('change', handler)
+        return () => mq.removeEventListener('change', handler)
+    }, [])
 
     // 주차 데이터
     const [weekData,    setWeekData]    = useState<CurriculumWeekDetail | null>(null)
@@ -194,9 +202,6 @@ function StudyClassroomContent() {
 
     // 영상 진행률 로컬 추적 — 서버 응답에 상관없이 즉각 반영
     const [videoProgress, setVideoProgress] = useState(0)
-
-    // 키워드 상세 확장 상태
-    const [expandedKeyword, setExpandedKeyword] = useState<string | null>(null)
 
     // 퀴즈 내역 상세 확장 + 캐시
     const [expandedQuizId,    setExpandedQuizId]    = useState<string | null>(null)
@@ -423,7 +428,6 @@ function StudyClassroomContent() {
         setMetacogComplete(false)
         setQuizSubmitted(false)
         setVideoProgress(0)
-        setExpandedKeyword(null)
         setExpandedQuizId(null)
         setQuizDetailCache({})
         getCurriculumWeek(roomId, weekId)
@@ -1399,7 +1403,7 @@ function StudyClassroomContent() {
                         </div>
                     )}
 
-                    {/* 탭: AI 핵심 요약 (주차 keywords) — 클릭 시 상세 확장 */}
+                    {/* 탭: AI 핵심 요약 (주차 keywords) */}
                     {tab === 'summary' && (
                         <div className="classroom__summary">
                             <div className="classroom__summary-heading sc-summary-heading-row">
@@ -1407,7 +1411,7 @@ function StudyClassroomContent() {
                                 핵심 키워드
                                 {safeKeywords.length > 0 && (
                                     <span className="sc-summary-count">
-                                        총 {safeKeywords.length}개 · 클릭하면 상세 보기
+                                        총 {safeKeywords.length}개
                                     </span>
                                 )}
                             </div>
@@ -1420,38 +1424,14 @@ function StudyClassroomContent() {
                                     const hasMore = safeKeywords.length > PREVIEW
                                     return (
                                         <>
-                                            {shown.map((kw, i) => {
-                                                const isOpen = expandedKeyword === kw
-                                                return (
-                                                    <div key={i} className={`classroom__kw-item${isOpen ? ' classroom__kw-item--open' : ''}`}>
-                                                        <button
-                                                            className="classroom__kw-row"
-                                                            onClick={() => setExpandedKeyword(isOpen ? null : kw)}
-                                                        >
-                                                            <div className="classroom__kw-dot" />
-                                                            <span className="classroom__kw-text">{kw}</span>
-                                                            <ChevronRight
-                                                                size={13}
-                                                                strokeWidth={2}
-                                                                className="classroom__kw-chevron"
-                                                                style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}
-                                                            />
-                                                        </button>
-                                                        {isOpen && (
-                                                            <div className="classroom__kw-detail">
-                                                                <div className="classroom__kw-detail-label">
-                                                                    Week {weekData?.weekNumber} · {weekData?.topic}
-                                                                </div>
-                                                                <MarkdownContent
-                                                                    content={weekData?.description || '이번 주차의 핵심 학습 개념입니다.'}
-                                                                    compact
-                                                                    className="classroom__kw-detail-desc"
-                                                                />
-                                                            </div>
-                                                        )}
+                                            {shown.map((kw, i) => (
+                                                <div key={i} className="classroom__kw-item">
+                                                    <div className="classroom__kw-row">
+                                                        <div className="classroom__kw-dot" />
+                                                        <span className="classroom__kw-text">{kw}</span>
                                                     </div>
-                                                )
-                                            })}
+                                                </div>
+                                            ))}
                                             {hasMore && (
                                                 <button
                                                     className="classroom__accordion-toggle"
@@ -1673,7 +1653,7 @@ function StudyClassroomContent() {
                                                     >
                                                         {w.keyword}
                                                         {w.weaknessCount > 1 && (
-                                                            <span className="kw-tag__count">×{w.weaknessCount}</span>
+                                                            <span className="kw-tag__count-badge">{w.weaknessCount}</span>
                                                         )}
                                                     </span>
                                                 ))}

@@ -1,4 +1,4 @@
-import { Sparkles, FileText } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import MarkdownContent from '../../MarkdownContent'
 import Modal from '../common/Modal'
 
@@ -18,15 +18,12 @@ export interface SummaryDetailModalProps {
     /** Array of principle items to render as a list */
     summaryItems: SummaryItem[]
     onClose: () => void
-    /** Optional — called when the user requests a PDF download */
-    onDownloadPDF?: () => void
 }
 
 export default function SummaryDetailModal({
     conceptName,
     summaryItems,
     onClose,
-    onDownloadPDF,
 }: SummaryDetailModalProps) {
     return (
         <Modal onClose={onClose} wide>
@@ -57,14 +54,6 @@ export default function SummaryDetailModal({
                 </div>
 
                 <div className="modal-summary__btn-row">
-                    <button
-                        className="btn-ghost"
-                        style={{ flex: 1, padding: '12px', fontSize: '14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                        onClick={onDownloadPDF}
-                    >
-                        <FileText size={14} strokeWidth={2} />
-                        PDF 다운로드
-                    </button>
                     <button
                         className="btn-primary"
                         style={{ flex: 1, padding: '12px', fontSize: '14px' }}

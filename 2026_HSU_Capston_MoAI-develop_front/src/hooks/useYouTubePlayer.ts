@@ -92,6 +92,8 @@ const POLL_INTERVAL_MS = 1_000
 const LONG_PAUSE_THRESHOLD_SEC = 180
 /** 고배속 감지 임계값: 이 배속 이상이면 video_speed_up 이벤트 추적 시작 */
 const SPEED_THRESHOLD = 2.0
+/** 2배속 최소 유지 시간(초): 이 시간 이상 유지해야 video_speed_up 이벤트 발송 */
+const SPEED_MIN_DURATION_SEC = 5
 
 // ── 훅 인터페이스 ─────────────────────────────────────────────────────────────
 export interface UseYouTubePlayerOptions {
@@ -163,6 +165,9 @@ export function useYouTubePlayer({
     // 영상 종료 여부 — 종료 후 패턴 감지 억제에 사용
     const videoEndedRef = useRef<boolean>(false)
 
+    // seekPlayer 호출 후 되감기/스킵 오탐 억제 — Date.now() ms 기준 만료 시각
+    const seekSuppressUntilRef = useRef<number>(0)
+
     // onPatternDetected는 외부 props라 render마다 참조가 바뀔 수 있다.
     // ref로 감싸서 오래된 클로저(stale closure) 문제를 방지한다.
     const onPatternRef = useRef(onPatternDetected)
@@ -195,13 +200,15 @@ export function useYouTubePlayer({
                 // ── 재생 중(playing): 위치 변화로 되감기 및 스킵 감지 ─────────
                 const delta = current - lastTimeRef.current
 
-                if (delta < -REWIND_THRESHOLD_SEC) {
+                const now = Date.now()
+                if (delta < -REWIND_THRESHOLD_SEC && now >= seekSuppressUntilRef.current) {
                     // 현재 위치 < 이전 위치 - 5초 → 되감기(rewind) 감지
+                    // seekPlayer 호출 직후 2초는 억제 (퀴즈 오답 되감기 오탐 방지)
                     onPatternRef.current('video_rewind', {
                         video_id:          videoId,
                         rewind_target_sec: current,
                     })
-                } else if (delta > SKIP_THRESHOLD_SEC) {
+                } else if (delta > SKIP_THRESHOLD_SEC && now >= seekSuppressUntilRef.current) {
                     // 현재 위치 > 이전 위치 + 30초 → 스킵(skip) 감지
                     onPatternRef.current('video_skip', {
                         video_id:      videoId,
@@ -216,11 +223,14 @@ export function useYouTubePlayer({
                     speedStartedAtRef.current = Date.now()
                     speedStartSecRef.current  = current
                 } else if (rate < SPEED_THRESHOLD && speedStartedAtRef.current !== null) {
-                    onPatternRef.current('video_speed_up', {
-                        video_id:        videoId,
-                        speed_start_sec: speedStartSecRef.current,
-                        duration_sec:    (Date.now() - speedStartedAtRef.current) / 1000,
-                    })
+                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                        onPatternRef.current('video_speed_up', {
+                            video_id:        videoId,
+                            speed_start_sec: speedStartSecRef.current,
+                            duration_sec,
+                        })
+                    }
                     speedStartedAtRef.current = null
                 }
 
@@ -246,13 +256,16 @@ export function useYouTubePlayer({
             } else if (state === 2) {
                 // ── 일시정지 중(paused): 장시간 일시정지 감지 ───────────────
 
-                // 2배속 구간 중 일시정지 → 해당 구간 이벤트 발송
+                // 2배속 구간 중 일시정지 → 해당 구간 이벤트 발송 (최소 5초 이상 유지 시)
                 if (speedStartedAtRef.current !== null) {
-                    onPatternRef.current('video_speed_up', {
-                        video_id:        videoId,
-                        speed_start_sec: speedStartSecRef.current,
-                        duration_sec:    (Date.now() - speedStartedAtRef.current) / 1000,
-                    })
+                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                        onPatternRef.current('video_speed_up', {
+                            video_id:        videoId,
+                            speed_start_sec: speedStartSecRef.current,
+                            duration_sec,
+                        })
+                    }
                     speedStartedAtRef.current = null
                 }
 
@@ -416,6 +429,7 @@ export function useYouTubePlayer({
     }, [])
 
     const seekPlayer = useCallback((sec: number) => {
+        seekSuppressUntilRef.current = Date.now() + 2000
         playerRef.current?.seekTo(sec, true)
     }, [])
 
