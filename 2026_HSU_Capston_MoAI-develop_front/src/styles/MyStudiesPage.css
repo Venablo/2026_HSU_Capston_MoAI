@@ -20,8 +20,8 @@
 .my-studies__filter-btn {
     padding: 8px 20px;
     border-radius: 99px;
-    border: 1.5px solid #e5e7eb;
-    background: #ffffff;
+    border: 1.5px solid var(--color-border-ui);
+    background: var(--color-surface);
     color: var(--color-text-secondary);
     font-size: 13px;
     font-weight: 600;
@@ -53,7 +53,7 @@
 }
 
 .study-card {
-    background: #ffffff;
+    background: var(--color-surface);
     border-radius: var(--radius-xl);
     padding: 24px;
     border: 1px solid var(--color-border);
@@ -136,7 +136,7 @@
     height: 30px;
     border: 1px solid #fee2e2;
     border-radius: 8px;
-    background: #ffffff;
+    background: var(--color-surface);
     color: #dc2626;
     display: inline-flex;
     align-items: center;
@@ -179,7 +179,7 @@
 
 .study-card__bar-track {
     height: 6px;
-    background: #f3f4f6;
+    background: var(--color-subtle);
     border-radius: 99px;
     margin-bottom: 12px;
 }
@@ -207,7 +207,7 @@
 
 /* Add new study card */
 .study-card--add {
-    background: #ffffff;
+    background: var(--color-surface);
     border-radius: var(--radius-xl);
     padding: 24px;
     border: 2px dashed #ddd6fe;
@@ -332,7 +332,7 @@
     left: 0;
     right: 0;
     z-index: 200;
-    background: var(--color-surface, #fff);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -398,11 +398,12 @@
     top: 100%;
     right: 0;
     z-index: 200;
-    background: var(--color-surface, #fff);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     width: 320px;
+    max-width: calc(100vw - 16px);
     max-height: 400px;
     overflow-y: auto;
     margin-top: 6px;
@@ -487,7 +488,7 @@
     top: 100%;
     right: 0;
     z-index: 200;
-    background: var(--color-surface, #fff);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);

@@ -8,7 +8,11 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark')
+    const [darkMode, setDarkMode] = useState(() => {
+        const saved = localStorage.getItem('theme')
+        if (saved) return saved === 'dark'
+        return window.matchMedia('(prefers-color-scheme: dark)').matches
+    })
 
     useEffect(() => {
         if (darkMode) {
