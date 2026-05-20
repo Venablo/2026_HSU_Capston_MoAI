@@ -832,11 +832,12 @@ public class QuizService {
                 .distinct()
                 .toList();
 
+        final short currentWeekNumber = curriculum.getWeekNumber();
         weeklyCurriculumRepository.findByRoomIdAndWeekNumber(room.getId(), nextWeekNumber)
                 .ifPresent(nextCurriculum ->
                         curriculumEnrichmentService.enrichWithWeaknessKeywords(
                                 nextCurriculum.getId(), keywordNames,
-                                room.getSubject(), room.getLevel()
+                                room.getSubject(), room.getLevel(), currentWeekNumber
                         )
                 );
     }

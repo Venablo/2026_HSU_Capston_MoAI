@@ -1383,45 +1383,64 @@ function StudyClassroomContent() {
                             videos === null ? null :
                             recommendedList.length === 0
                                 ? <TabEmpty message="AI 추천 영상 생성 중이거나 아직 연결된 영상이 없습니다. 잠시 뒤 자동으로 다시 확인합니다." />
-                                : recommendedList.map((v, i) => (
-                                    <a
-                                        key={i}
-                                        href={`https://www.youtube.com/watch?v=${v.videoId}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="sc-video-link"
-                                    >
-                                        <div className="classroom__video-card">
-                                            <div className="classroom__video-thumb">
-                                                <img
-                                                    src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                                                    alt={v.title}
-                                                    className="sc-video-img"
-                                                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                                />
-                                                <div className="classroom__video-thumb-icon sc-video-overlay-icon">
-                                                    <PlayCircle size={28} strokeWidth={1.5} />
-                                                </div>
-                                                {v.durationSec > 0 && (
-                                                    <div className="classroom__video-thumb-duration">
-                                                        {formatDuration(v.durationSec)}
+                                : (() => {
+                                    const normalVideos = recommendedList.filter(v => v.tag !== 'weakness')
+                                    const weaknessVideos = recommendedList.filter(v => v.tag === 'weakness')
+                                    const renderCard = (v: typeof recommendedList[0], i: number) => (
+                                        <a
+                                            key={`${v.videoId}-${i}`}
+                                            href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="sc-video-link"
+                                        >
+                                            <div className="classroom__video-card">
+                                                <div className="classroom__video-thumb">
+                                                    <img
+                                                        src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                                                        alt={v.title}
+                                                        className="sc-video-img"
+                                                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                                    />
+                                                    <div className="classroom__video-thumb-icon sc-video-overlay-icon">
+                                                        <PlayCircle size={28} strokeWidth={1.5} />
                                                     </div>
-                                                )}
-                                                {v.videoId === activeVideoId && (
-                                                    <div className="sc-video-now-playing">
-                                                        재생 중
+                                                    {v.durationSec > 0 && (
+                                                        <div className="classroom__video-thumb-duration">
+                                                            {formatDuration(v.durationSec)}
+                                                        </div>
+                                                    )}
+                                                    {v.videoId === activeVideoId && (
+                                                        <div className="sc-video-now-playing">
+                                                            재생 중
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="classroom__video-meta">
+                                                    <div className="classroom__video-title">{v.title}</div>
+                                                    <div className="classroom__video-channel">
+                                                        {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
                                                     </div>
-                                                )}
-                                            </div>
-                                            <div className="classroom__video-meta">
-                                                <div className="classroom__video-title">{v.title}</div>
-                                                <div className="classroom__video-channel">
-                                                    {v.viewCount != null ? `조회수 ${v.viewCount.toLocaleString()}회` : 'YouTube'}
                                                 </div>
                                             </div>
-                                        </div>
-                                    </a>
-                                ))
+                                        </a>
+                                    )
+                                    return (
+                                        <>
+                                            {normalVideos.map((v, i) => renderCard(v, i))}
+                                            {weaknessVideos.length > 0 && (
+                                                <>
+                                                    <div className="sc-video-weakness-divider">
+                                                        <span className="sc-video-weakness-divider__line" />
+                                                        <span className="sc-video-weakness-divider__label">약점 보충 영상</span>
+                                                        <span className="sc-video-weakness-divider__line" />
+                                                    </div>
+                                                    {weaknessVideos.map((v, i) => renderCard(v, normalVideos.length + i))}
+                                                </>
+                                            )}
+                                        </>
+                                    )
+                                })()
                             }
                         </div>
                     )}

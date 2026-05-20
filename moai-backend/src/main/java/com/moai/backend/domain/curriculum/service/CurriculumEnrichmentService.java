@@ -1253,7 +1253,7 @@ public class CurriculumEnrichmentService {
     @Async("curriculumTaskExecutor")
     @Transactional
     public void enrichWithWeaknessKeywords(String curriculumId, List<String> weaknessKeywords,
-                                            String subject, String level) {
+                                            String subject, String level, short originalWeekNumber) {
         if (weaknessKeywords == null || weaknessKeywords.isEmpty()) return;
 
         WeeklyCurriculum curriculum = weeklyCurriculumRepository.findById(curriculumId).orElse(null);
@@ -1262,7 +1262,8 @@ public class CurriculumEnrichmentService {
             return;
         }
 
-        log.info("[{}주차] 약점 키워드 보충 enrichment 시작 — keywords: {}", curriculum.getWeekNumber(), weaknessKeywords);
+        log.info("[{}주차→{}주차 약점 보충] enrichment 시작 — keywords: {}",
+                originalWeekNumber, curriculum.getWeekNumber(), weaknessKeywords);
 
         // Step W-A: 약점 키워드별 YouTube 영상 검색 (videoId 기준 중복 제거)
         boolean hasWeaknessVideo = hasWeaknessResource(curriculum, "youtube");
@@ -1276,21 +1277,21 @@ public class CurriculumEnrichmentService {
             curriculum.updateResources(resources);
             weeklyCurriculumRepository.save(curriculum);
         } else if (hasWeaknessVideo) {
-            log.info("[{}주차] 약점 보충 영상 이미 존재 — 영상 검색 스킵", curriculum.getWeekNumber());
+            log.info("[{}주차 약점 보충] 영상 이미 존재 — 영상 검색 스킵", originalWeekNumber);
         }
 
         // Step W-B: 약점 키워드 통합 학습 자료 1개 생성
         if (!hasWeaknessResource(curriculum, "md")) {
-            generateAndUploadWeaknessMaterial(curriculum, weaknessKeywords, subject, level);
+            generateAndUploadWeaknessMaterial(curriculum, weaknessKeywords, subject, level, originalWeekNumber);
         } else {
-            log.info("[{}주차] 약점 보충 자료 이미 존재 — 자료 생성 스킵", curriculum.getWeekNumber());
+            log.info("[{}주차 약점 보충] 자료 이미 존재 — 자료 생성 스킵", originalWeekNumber);
         }
 
         // Step W-C: 약점 퀴즈 생성
         generateWeaknessQuiz(curriculum, weaknessKeywords);
 
-        log.info("[{}주차] 약점 키워드 보충 enrichment 완료 — {}개 키워드, {}개 영상",
-                curriculum.getWeekNumber(), weaknessKeywords.size(), weaknessVideos.size());
+        log.info("[{}주차 약점 보충] enrichment 완료 — {}개 키워드, {}개 영상",
+                originalWeekNumber, weaknessKeywords.size(), weaknessVideos.size());
     }
 
     private List<CurriculumResource> findVideosForWeaknessKeywords(WeeklyCurriculum curriculum,
@@ -1383,38 +1384,65 @@ public class CurriculumEnrichmentService {
 
     private void generateAndUploadWeaknessMaterial(WeeklyCurriculum curriculum,
                                                     List<String> weaknessKeywords,
-                                                    String subject, String level) {
+                                                    String subject, String level,
+                                                    short originalWeekNumber) {
         try {
             String systemPrompt = """
-                    당신은 MoAI 학습 플랫폼의 학습 보충 자료 생성 전문가 AI입니다.
+                    당신은 MoAI 학습 플랫폼의 학습 콘텐츠 생성 전문가 AI입니다.
 
-                    학습자가 파이널 퀴즈에서 부족했던 약점 키워드들을 집중 보완하는 학습 자료를 생성하세요.
+                    학습자가 파이널 퀴즈에서 부족했던 약점 키워드들을 집중 보완하는 상세 학습 자료를 생성하세요.
 
                     ■ 출력 형식: 순수 JSON (코드블록/마크다운 절대 금지)
                     {"study_material": "마크다운 학습 자료 전문"}
 
-                    ■ 학습 자료 필수 구성:
-                    ### 🔁 약점 보충 학습 목표
-                    (왜 이 키워드들이 부족했는지, 무엇을 보완해야 하는지 1문단)
+                    ■ study_material 구성 (순서 준수):
 
-                    ### 키워드별 심화 정리
-                    (각 약점 키워드마다 정의→원리→예시→자주 하는 실수 구조로 최소 300자 이상 상세 서술)
+                    [1] ### 🔁 약점 보충 학습 목표
+                    왜 이 키워드들이 부족했는지, 무엇을 집중 보완해야 하는지 2~3문단으로 서술.
 
-                    ### 비교 정리표
-                    (키워드들 간 차이점·공통점 마크다운 표)
+                    [2] ### 🔍 키워드별 심화 학습
+                    각 약점 키워드마다 아래 형식으로 작성:
+                      #### 키워드명
+                      - 하나의 #### 섹션은 반드시 단 하나의 키워드만 다룰 것. 절대 두 개 이상을 한 섹션에 묶지 말 것.
+                      - 섹션 구성 규칙 (반드시 준수):
+                        1. 섹션 시작부에 해당 키워드가 무엇인지 설명하는 2~3문장의 산문(불릿 없이 일반 문장)을 먼저 작성.
+                        2. 이후 세부 내용(원리, 특징, 예시, 관련 개념 등)은 불릿(-)과 들여쓰기 불릿(  -)으로 작성.
+                        3. 불릿은 세부 항목이 여러 개일 때 사용. 설명 전체를 불릿으로 도배하지 말 것.
+                      - ①②③ 같은 원형 숫자 특수문자 사용 금지. 번호 목록은 1. 2. 3. 형태만 사용.
+                      - 소제목(원리, 예시, 주의사항 등의 세부 헤더) 분리 금지.
+                      - 각 키워드당 최소 400자 이상 서술할 것.
+                      키워드 간 구분은 --- (수평선)으로 구분.
 
-                    ### 핵심 암기 포인트 & 체크리스트
+                    [3] ### 📊 비교 정리
+                    키워드들 간 차이점·공통점을 마크다운 표로 정리.
+                    표 수는 키워드에 따라 자유롭게.
 
-                    ■ 필수 규칙:
-                    1. 전체 2500자 이상
-                    2. 학습자가 틀렸던 개념에 특히 집중
-                    3. 모든 내용 한국어, 전문 용어는 영어 병기 (예: 정규화(Normalization))
+                    [4] ### 🚨 자주 하는 실수
+                    이 키워드들과 관련해 혼동하기 쉬운 오개념·함정 포인트를 항목별로 서술.
+
+                    ■ 마크다운 디자인 규칙 (핵심 — 반드시 준수):
+                    - 긴 설명은 절대 문단 하나로 뭉치지 말 것. 불릿(-)과 들여쓰기 불릿(  -)을 적극 활용해 시각적으로 분리할 것.
+                    - 섹션마다 디자인을 조금씩 다르게: 어떤 키워드는 불릿 중심, 어떤 키워드는 불릿+인용구(>) 조합, 어떤 키워드는 표+불릿 조합 등 마크다운 요소를 다양하게 혼용.
+                    - > 인용구는 해당 섹션에서 가장 핵심적인 정의나 원칙 한 줄에 가끔 사용. 남발하지 말 것.
+                    - 사용 가능한 마크다운 요소: *이탤릭*, `인라인코드`, > 인용구, --- 구분선, | 표, - 불릿, 들여쓰기 불릿, 1. 번호목록.
+                    - **볼드** 사용 규칙 (렌더링 안전을 위해 엄격히 준수):
+                      - 볼드는 불릿 항목의 맨 앞 키워드에만 사용. 예: `- **완전 함수 종속**: 설명...`
+                      - 문장 중간에 볼드 삽입 금지 (파서 호환성 문제 발생).
+                      - 한 불릿 라인에 볼드(**...**) 를 두 번 이상 사용 금지.
+                    - 헤더(###, ####)와 본문 사이 빈 줄 필수.
+                    - 한 문단 최대 3~4줄. 그 이상이면 불릿 분리 또는 단락 분리.
+
+                    ■ 콘텐츠 규칙:
+                    1. study_material 최소 2500자 이상. 각 키워드마다 400자 이상 서술할 것.
+                    2. 표 수와 키워드 수는 약점 키워드에 따라 가변적으로 결정.
+                    3. 실전 시나리오, 시험 포인트, 체크리스트 섹션은 포함하지 말 것.
+                    4. 모든 내용은 한국어. 전문 용어는 영어 병기 (예: 정규화(Normalization)).
                     """;
 
             String userMessage = String.format(
                     "과목: %s\n난이도: %s\n%d주차 약점 키워드: %s",
                     nullSafe(subject), nullSafe(level),
-                    (int) curriculum.getWeekNumber(),
+                    (int) originalWeekNumber,
                     String.join(", ", weaknessKeywords)
             );
 
@@ -1425,12 +1453,12 @@ public class CurriculumEnrichmentService {
 
             WeaknessMaterialResponse response = llmService.callJson(request, WeaknessMaterialResponse.class);
             if (response == null || response.getStudyMaterial() == null || response.getStudyMaterial().isBlank()) {
-                log.warn("[{}주차] 약점 학습 자료 LLM 응답 없음", curriculum.getWeekNumber());
+                log.warn("[{}주차 약점 보충] LLM 응답 없음", originalWeekNumber);
                 return;
             }
 
             MaterialContent content = new MaterialContent(
-                    curriculum.getWeekNumber() + "주차 약점 보충 자료",
+                    originalWeekNumber + "주차 약점 보충 자료",
                     List.of(new MaterialContent.Section("약점 보충 학습", response.getStudyMaterial()))
             );
 
@@ -1447,8 +1475,8 @@ public class CurriculumEnrichmentService {
                     .limit(3)
                     .map(k -> k.replaceAll("[\\s/\\[\\]()]", "_"))
                     .collect(Collectors.joining("_"));
-            String fileBaseName = curriculum.getWeekNumber() + "주차_약점보충_" + keywordsSlug;
-            String materialTitle = curriculum.getWeekNumber() + "주차 약점 보충 자료";
+            String fileBaseName = originalWeekNumber + "주차_약점보충_" + keywordsSlug;
+            String materialTitle = originalWeekNumber + "주차 약점 보충 자료";
 
             List<CurriculumResource> resources = new ArrayList<>(
                     curriculum.getResources() != null ? curriculum.getResources() : List.of());
@@ -1459,20 +1487,20 @@ public class CurriculumEnrichmentService {
                 String mdSize = formatFileSize(mdBytes.length);
                 if (mdUrl != null) {
                     resources.add(new CurriculumResource("md", null, materialTitle, mdUrl, mdSize, null, null, "weakness"));
-                    log.info("[{}주차] 약점 Markdown 업로드 완료 — url: {}, size: {}", curriculum.getWeekNumber(), mdUrl, mdSize);
+                    log.info("[{}주차 약점 보충] Markdown 업로드 완료 — url: {}, size: {}", originalWeekNumber, mdUrl, mdSize);
                 } else {
-                    log.info("[{}주차] 약점 Markdown 생성 완료 ({}) — URL 없음, 리소스 미등록", curriculum.getWeekNumber(), mdSize);
+                    log.info("[{}주차 약점 보충] Markdown 생성 완료 ({}) — URL 없음, 리소스 미등록", originalWeekNumber, mdSize);
                 }
             } catch (Exception e) {
-                log.warn("[{}주차] 약점 Markdown 생성/업로드 실패: {}", curriculum.getWeekNumber(), e.getMessage());
+                log.warn("[{}주차 약점 보충] Markdown 생성/업로드 실패: {}", originalWeekNumber, e.getMessage());
             }
 
             curriculum.updateResources(resources);
             weeklyCurriculumRepository.save(curriculum);
 
         } catch (Exception e) {
-            log.warn("[{}주차] 약점 학습 자료 생성 실패 (재시도 포함): {}", curriculum.getWeekNumber(), e.getMessage());
-            pushLlmErrorSse(curriculum, curriculum.getWeekNumber() + "주차 약점 보충 자료 생성에 실패했습니다.");
+            log.warn("[{}주차 약점 보충] 학습 자료 생성 실패: {}", originalWeekNumber, e.getMessage());
+            pushLlmErrorSse(curriculum, originalWeekNumber + "주차 약점 보충 자료 생성에 실패했습니다.");
         }
     }
 

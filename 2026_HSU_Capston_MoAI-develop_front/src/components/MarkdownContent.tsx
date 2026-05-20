@@ -92,6 +92,11 @@ const markdownContentCss = `
 .moai-markdown li > p {
     margin: 0;
 }
+.moai-markdown li > ul,
+.moai-markdown li > ol {
+    margin-top: 4px;
+    margin-bottom: 2px;
+}
 .moai-markdown strong {
     color: var(--moai-markdown-strong, #5b4bdb);
     font-weight: 800;
@@ -259,6 +264,49 @@ function isSeparatorRow(line: string): boolean {
     return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell))
 }
 
+// LLM이 구분선 행과 데이터 행을 한 줄에 이어 붙여 출력하는 경우를 분리한다.
+// 예: "| :--- | :--- | | 데이터1 | 데이터2 | | 데이터3 | 데이터4 |"
+// → "| :--- | :--- |" / "| 데이터1 | 데이터2 |" / "| 데이터3 | 데이터4 |"
+function preNormalizeConcatenatedTable(content: string): string {
+    const lines = content.split(/\r?\n/)
+    const result: string[] = []
+
+    for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('|')) { result.push(line); continue }
+
+        const cells = splitTableRow(trimmed)
+        let sepCount = 0
+        for (const cell of cells) {
+            if (/^:?-{3,}:?$/.test(cell)) sepCount++
+            else break
+        }
+
+        // 구분선 셀이 없거나 전부 구분선 → 일반 행
+        if (sepCount === 0 || sepCount === cells.length) { result.push(line); continue }
+
+        // 구분선 셀 + 데이터 셀이 혼합 → 분리
+        result.push('| ' + cells.slice(0, sepCount).join(' | ') + ' |')
+
+        const remaining = cells.slice(sepCount)
+        const groups: string[][] = []
+        let cur: string[] = []
+        for (const cell of remaining) {
+            if (cell === '') {
+                if (cur.length > 0) { groups.push(cur); cur = [] }
+            } else {
+                cur.push(cell)
+            }
+        }
+        if (cur.length > 0) groups.push(cur)
+        for (const group of groups) {
+            result.push('| ' + group.join(' | ') + ' |')
+        }
+    }
+
+    return result.join('\n')
+}
+
 function splitMarkdownTables(markdown: string): MarkdownBlock[] {
     const lines = markdown.split(/\r?\n/)
     const blocks: MarkdownBlock[] = []
@@ -277,6 +325,7 @@ function splitMarkdownTables(markdown: string): MarkdownBlock[] {
         const next = lines[i + 1]
 
         if (isTableRow(current) && next && isSeparatorRow(next)) {
+            // 표준 형식: 헤더 행 다음에 구분선 행
             flushMarkdown()
             const headers = splitTableRow(current)
             const rows: string[][] = []
@@ -288,6 +337,19 @@ function splitMarkdownTables(markdown: string): MarkdownBlock[] {
             }
             i -= 1
             blocks.push({ type: 'table', headers, rows })
+        } else if (isSeparatorRow(current) && next && isTableRow(next) && !isSeparatorRow(next)) {
+            // 헤더 없는 형식: 구분선이 첫 번째 행
+            flushMarkdown()
+            const columnCount = splitTableRow(current).length
+            const rows: string[][] = []
+            i += 1
+            while (i < lines.length && isTableRow(lines[i]) && !isSeparatorRow(lines[i])) {
+                const row = splitTableRow(lines[i])
+                rows.push(Array.from({ length: columnCount }, (_, idx) => row[idx] ?? ''))
+                i += 1
+            }
+            i -= 1
+            blocks.push({ type: 'table', headers: [], rows })
         } else {
             markdownBuffer.push(current)
         }
@@ -380,7 +442,10 @@ export default function MarkdownContent({
     paper = false,
     compact = false,
 }: MarkdownContentProps) {
-    const blocks = useMemo(() => splitMarkdownTables(collapseBlankLines(content)), [content])
+    const blocks = useMemo(
+        () => splitMarkdownTables(preNormalizeConcatenatedTable(collapseBlankLines(content))),
+        [content],
+    )
     const classes = [
         'moai-markdown',
         paper ? 'moai-markdown--paper' : '',
@@ -401,17 +466,19 @@ export default function MarkdownContent({
                         ) : (
                             <div className="moai-markdown__table-wrap">
                                 <table className="moai-markdown__table">
-                                    <thead>
-                                        <tr>
-                                            {block.headers.map((header, cellIndex) => (
-                                                <th key={cellIndex}>
-                                                    <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>
-                                                        {normalizeInlineBreaks(header)}
-                                                    </ReactMarkdown>
-                                                </th>
-                                            ))}
-                                        </tr>
-                                    </thead>
+                                    {block.headers.length > 0 && (
+                                        <thead>
+                                            <tr>
+                                                {block.headers.map((header, cellIndex) => (
+                                                    <th key={cellIndex}>
+                                                        <ReactMarkdown remarkPlugins={markdownRemarkPlugins}>
+                                                            {normalizeInlineBreaks(header)}
+                                                        </ReactMarkdown>
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                    )}
                                     <tbody>
                                         {block.rows.map((row, rowIndex) => (
                                             <tr key={rowIndex}>

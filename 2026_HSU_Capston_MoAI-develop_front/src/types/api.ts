@@ -155,6 +155,7 @@ export interface RecommendedVideo {
   viewCount: number
   isMain?: boolean      // true = this is the primary video for the week (main player)
   thumbnailUrl?: string
+  tag?: string          // "weakness" = 약점 보충 영상
 }
 
 /** Wrapper shape returned by GET …/recommended-videos */

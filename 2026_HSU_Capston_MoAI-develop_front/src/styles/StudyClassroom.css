@@ -3621,6 +3621,33 @@
     font-weight: 600;
 }
 
+/* Weakness video section divider */
+.sc-video-weakness-divider {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0 4px;
+}
+.sc-video-weakness-divider__line {
+    flex: 1;
+    height: 1px;
+    background: rgba(124, 58, 237, 0.22);
+}
+.sc-video-weakness-divider__label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-purple-500, #7c3aed);
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+}
+.dark .sc-video-weakness-divider__line {
+    background: rgba(167, 139, 250, 0.28);
+}
+.dark .sc-video-weakness-divider__label {
+    color: #c4b5fd;
+}
+
 /* Summary tab heading row */
 .sc-summary-heading-row {
     display: flex;
