@@ -113,6 +113,9 @@ public class LlmService {
         } catch (WebClientResponseException e) {
             log.error("Gemini API 호출 실패 [{}]: {}", e.getStatusCode(), e.getResponseBodyAsString());
             throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
+        } catch (Exception e) {
+            log.error("Gemini API 네트워크/타임아웃 오류: {}", e.getMessage());
+            throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
         }
     }
 

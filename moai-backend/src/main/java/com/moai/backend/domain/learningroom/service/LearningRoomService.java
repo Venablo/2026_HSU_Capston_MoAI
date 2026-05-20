@@ -32,9 +32,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -67,6 +70,7 @@ public class LearningRoomService {
     private final FlippedSessionRepository flippedSessionRepository;
     private final UserKeywordRepository userKeywordRepository;
     private final CustomMaterialRepository customMaterialRepository;
+    private final PlatformTransactionManager transactionManager;
 
     @Value("${moai.files.local-root:../data}")
     private String localFileRoot;
@@ -80,22 +84,11 @@ public class LearningRoomService {
                 .toList();
     }
 
-    @Transactional
+    // NOT_SUPPORTED: 클래스 레벨 @Transactional(readOnly=true)을 억제하여 LLM 호출 중 DB 커넥션을 점유하지 않는다.
+    // LLM 호출(수십 초) → 완료 후 TransactionTemplate으로 짧게 쓰기 트랜잭션만 열기.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LearningRoomCreateResponseDto createRoom(String email, LearningRoomCreateRequestDto requestDto) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-
-        // 1. LearningRoom INSERT
-        LearningRoom room = LearningRoom.builder()
-                .user(user)
-                .subject(requestDto.getSubject())
-                .level(requestDto.getLevel())
-                .durationWeeks(requestDto.getDurationWeeks())
-                .hoursPerDay(requestDto.getHoursPerDay())
-                .build();
-        learningRoomRepository.save(room);
-
-        // 2. P1 프롬프트 — 주차별 학습 주제 + 핵심 키워드 생성 (동기 1회 호출)
+        // 1. LLM 호출 — DB 커넥션 미점유 상태에서 실행
         P1CurriculumResponse p1Response = generateCurriculum(
                 requestDto.getSubject(),
                 requestDto.getLevel(),
@@ -103,59 +96,74 @@ public class LearningRoomService {
                 requestDto.getHoursPerDay().doubleValue()
         );
 
-        // 3. WeeklyCurriculum INSERT × N주 + 병렬 enrichment 컨텍스트 수집
-        List<WeeklyCurriculum> savedCurriculums = new ArrayList<>();
-        List<WeekEnrichmentContext> enrichmentContexts = new ArrayList<>();
-        List<LearningRoomCreateResponseDto.CurriculumSummary> summaries = new ArrayList<>();
+        // 2. LLM 결과 획득 후 DB 저장만 짧게 트랜잭션으로 감싸기
+        LearningRoomCreateResponseDto result = new TransactionTemplate(transactionManager).execute(status -> {
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        for (P1CurriculumResponse.WeekItem week : p1Response.getWeeklyTopics()) {
-            WeeklyCurriculum curriculum = WeeklyCurriculum.builder()
-                    .room(room)
-                    .weekNumber((short) week.getWeekNumber())
-                    .topic(week.getTopic())
-                    .description(week.getWeeklySummary())
-                    .keywords(initialKeywords(week))
+            LearningRoom room = LearningRoom.builder()
+                    .user(user)
+                    .subject(requestDto.getSubject())
+                    .level(requestDto.getLevel())
+                    .durationWeeks(requestDto.getDurationWeeks())
+                    .hoursPerDay(requestDto.getHoursPerDay())
                     .build();
-            weeklyCurriculumRepository.save(curriculum);
-            savedCurriculums.add(curriculum);
+            learningRoomRepository.save(room);
 
-            enrichmentContexts.add(new WeekEnrichmentContext(
-                    curriculum.getId(),
-                    week.getTopic(),
-                    week.getWeeklySummary(),
-                    nullSafe(week.getLearningObjectives()),
-                    nullSafe(week.getKeyConcepts()),
-                    nullSafe(week.getFocusQuestions()),
-                    nullSafe(week.getPracticeKeywords()),
-                    week.getYoutubeSearchQuery(),
-                    requestDto.getSubject(),
-                    requestDto.getLevel()
-            ));
+            List<WeekEnrichmentContext> enrichmentContexts = new ArrayList<>();
+            List<LearningRoomCreateResponseDto.CurriculumSummary> summaries = new ArrayList<>();
 
-            summaries.add(new LearningRoomCreateResponseDto.CurriculumSummary(
-                    week.getWeekNumber(), week.getTopic()
-            ));
-        }
+            for (P1CurriculumResponse.WeekItem week : p1Response.getWeeklyTopics()) {
+                String normalizedSummary = normalizeBullets(week.getWeeklySummary());
+                WeeklyCurriculum curriculum = WeeklyCurriculum.builder()
+                        .room(room)
+                        .weekNumber((short) week.getWeekNumber())
+                        .topic(week.getTopic())
+                        .description(normalizedSummary)
+                        .keywords(initialKeywords(week))
+                        .build();
+                weeklyCurriculumRepository.save(curriculum);
 
-        // 4. 주차별 P2 enrichment를 비동기 병렬 실행 — 트랜잭션 커밋 후에 실행해야
-        // async 스레드의 findById()가 방금 저장한 행을 읽을 수 있다.
-        final List<WeekEnrichmentContext> contextsToEnrich = enrichmentContexts;
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                for (WeekEnrichmentContext ctx : contextsToEnrich) {
-                    curriculumEnrichmentService.enrichWeek(ctx);
-                }
+                enrichmentContexts.add(new WeekEnrichmentContext(
+                        curriculum.getId(),
+                        week.getTopic(),
+                        normalizedSummary,
+                        nullSafe(week.getLearningObjectives()),
+                        nullSafe(week.getKeyConcepts()),
+                        nullSafe(week.getFocusQuestions()),
+                        nullSafe(week.getPracticeKeywords()),
+                        week.getYoutubeSearchQuery(),
+                        requestDto.getSubject(),
+                        requestDto.getLevel()
+                ));
+
+                summaries.add(new LearningRoomCreateResponseDto.CurriculumSummary(
+                        week.getWeekNumber(), week.getTopic()
+                ));
             }
+
+            // P2 enrichment는 트랜잭션 커밋 후 비동기 실행 — async 스레드가 저장된 행을 읽을 수 있도록
+            final List<WeekEnrichmentContext> contextsToEnrich = enrichmentContexts;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    for (WeekEnrichmentContext ctx : contextsToEnrich) {
+                        curriculumEnrichmentService.enrichWeek(ctx);
+                    }
+                }
+            });
+
+            return LearningRoomCreateResponseDto.builder()
+                    .roomId(room.getId())
+                    .subject(room.getSubject())
+                    .level(room.getLevel())
+                    .durationWeeks(room.getDurationWeeks())
+                    .curriculum(summaries)
+                    .build();
         });
 
-        return LearningRoomCreateResponseDto.builder()
-                .roomId(room.getId())
-                .subject(room.getSubject())
-                .level(room.getLevel())
-                .durationWeeks(room.getDurationWeeks())
-                .curriculum(summaries)
-                .build();
+        if (result == null) throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
+        return result;
     }
 
     @Transactional
@@ -260,7 +268,7 @@ public class LearningRoomService {
                 1. 요청된 주차 수 전부 빠짐없이 생성
                 2. topic은 반드시 대주제 — 세부범위 형태로 구체적 작성
                 3. 주차 간 선수학습→심화 논리적 연결 (1주차 기초 → 마지막 주차 종합)
-                4. weekly_summary는 도입 문장(1~2문장) + 핵심 포인트 불릿(2~3개) 혼합 구성. 전체가 한 덩어리 글이 되지 않도록 불릿으로 시각적으로 분리할 것. 지나치게 길지 않게, 핵심만 간결하게.
+                4. weekly_summary는 도입 문장(1~2문장) + 핵심 포인트 불릿(2~3개) 혼합 구성. 전체가 한 덩어리 글이 되지 않도록 불릿으로 시각적으로 분리할 것. 지나치게 길지 않게, 핵심만 간결하게. 불릿 항목 사이에는 빈 줄(연속 개행) 절대 금지 — 각 불릿은 \\n 하나로만 구분. 마크다운 헤더(#, ##, ###) 절대 금지. 불릿 앞에 **볼드 레이블**: 형태 삽입 금지 — 불릿 텍스트는 그냥 평문으로 작성.
                 5. key_concepts는 최소 5개 이상 (시험 출제 키워드 중심)
                 6. learning_objectives는 최소 4개 이상, 행동동사 사용 (설명할 수 있다, 비교할 수 있다, 구현할 수 있다)
                 7. focus_questions는 최소 2개 이상
@@ -280,6 +288,12 @@ public class LearningRoomService {
                 .build();
 
         return llmService.callJson(request, P1CurriculumResponse.class);
+    }
+
+    /** 불릿(-) 항목 앞의 연속 개행(\n\n-)을 단일 개행(\n-)으로 압축한다. LLM이 프롬프트 무시 시 후처리로 보장. */
+    private static String normalizeBullets(String text) {
+        if (text == null) return null;
+        return text.replaceAll("\\n{2,}(?=-)", "\n");
     }
 
     private <T> List<T> nullSafe(List<T> list) {

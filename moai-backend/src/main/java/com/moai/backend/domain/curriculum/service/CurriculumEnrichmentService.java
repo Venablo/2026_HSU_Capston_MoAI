@@ -350,12 +350,22 @@ public class CurriculumEnrichmentService {
         if (duration >= 10800) return false;
 
         LanguageSubjectProfile languageProfile = languageSubjectProfile(subject);
+
+        // audioLang이 명시된 경우: 한국어 플랫폼이므로 외국어 과목이 아니면 비한국어 오디오 거부
+        String audioLang = video.defaultAudioLanguage();
+        if (audioLang != null && !audioLang.startsWith("ko")) {
+            if (languageProfile == null) return false;
+        }
+        // audioLang 미확인 + 제목에 한국어 없음: 자동번역된 외국 영상 의심 → 거부
+        if (audioLang == null && !hasKoreanChars(title)) return false;
+
         if (languageProfile != null) {
             if (containsAny(combined, languageProfile.conflictAliases())) return false;
             if (!containsAny(combined, languageProfile.evidenceTokens())) return false;
         }
 
-        return hasTopicEvidence(combined, targetTopic, keyConcepts);
+        // hasTopicEvidence 하드 필터 제거 — 검색 쿼리가 이미 주제를 한정하고, LLM이 관련성 최종 검증
+        return true;
     }
 
     private boolean hasTopicEvidence(String combinedText, String topic, List<String> keyConcepts) {
@@ -431,10 +441,12 @@ public class CurriculumEnrichmentService {
         String audioLang = video.defaultAudioLanguage();
         if (audioLang != null && audioLang.startsWith("ko")) {
             score += 25;
-        } else if (audioLang != null && audioLang.startsWith("en")) {
-            score += 5;
         } else if (audioLang != null) {
-            score -= 20;
+            // 비한국어 명시: 외국어 학습 과목의 대상 언어 오디오 (isAcceptableVideoCandidate를 통과한 경우)
+            score += 5;
+        } else {
+            // audioLang 미확인: isAcceptableVideoCandidate에서 한국어 제목 검증을 통과했으므로 소폭 보너스
+            score += 10;
         }
         if (video.hasCaptions()) score += 10;
 
@@ -480,9 +492,11 @@ public class CurriculumEnrichmentService {
                                         List<YoutubeApiService.VideoMeta> candidates,
                                         Set<String> excludedVideoIds) {
         if (candidates == null || candidates.isEmpty()) return null;
+        // Integer.MIN_VALUE = isAcceptableVideoCandidate 실패. 초기 필터를 통과한 후보는 점수 하한 없이 최고 점수 수용.
+        // YouTube API가 durationSec/audioLanguage를 미제공하면 점수가 0이 되어 기존 임계값(25)에서 탈락했던 문제 해결.
         return candidates.stream()
                 .map(video -> new ScoredVideo(video, scoreVideoCandidate(subject, targetTopic, keyConcepts, video, excludedVideoIds)))
-                .filter(scored -> scored.score() >= 25)
+                .filter(scored -> scored.score() > Integer.MIN_VALUE)
                 .max(Comparator.comparingInt(ScoredVideo::score))
                 .orElse(null);
     }
@@ -626,10 +640,12 @@ public class CurriculumEnrichmentService {
                 1. 학습실 주제(과목)와 현재 목표 주제의 관련성이 높아야 한다.
                 2. 개념·이론을 설명하는 강의형 영상이어야 한다.
                 3. 문제풀이, 기출, 시험 전략, 공부법, 독학법, 로드맵, 채널 추천, 쇼츠, 브이로그는 제외한다.
-                4. 과목이 언어 학습이면 대상 언어가 반드시 일치해야 한다.
-                5. 제목·설명이 현재 주제와 명백히 무관한 콘텐츠는 제외한다.
-                6. 반드시 후보 목록에 있는 videoId만 반환한다.
-                7. %s
+                4. 과목이 언어 학습이면 대상 언어가 반드시 일치해야 한다. 그 외 과목은 반드시 한국어 강의여야 한다.
+                5. 언어 정보가 'ko'가 아닌 값으로 명시된 영상은 언어 학습 과목이 아닌 이상 배제한다.
+                6. 언어 정보가 '미확인'인 영상은 제목에 한국어가 포함되어 있어야 선택한다.
+                7. 제목·설명이 현재 주제와 명백히 무관한 콘텐츠는 제외한다.
+                8. 반드시 후보 목록에 있는 videoId만 반환한다.
+                9. %s
 
                 ■ 출력 형식: 순수 JSON (코드블록 금지)
                 {"rankings": [{"videoId": "영상ID", "score": 0~10, "reason": "한 줄 이유"}]}
@@ -1083,6 +1099,8 @@ public class CurriculumEnrichmentService {
                       - 한 불릿 라인에 볼드(**...**) 를 두 번 이상 사용 금지.
                     - 헤더(###, ####)와 본문 사이 빈 줄 필수.
                     - 한 문단 최대 3~4줄. 그 이상이면 불릿 분리 또는 단락 분리.
+                    - **헤더 레벨 엄격 제한**: study_material 내에서 ## (h2) 절대 사용 금지. 반드시 ### (h3) 또는 #### (h4) 만 사용.
+                    - **표 셀 단일 라인 규칙**: 마크다운 표(|) 내 각 셀에는 줄바꿈(\\n) 금지. • 기호나 - 불릿을 셀 안에 넣지 말 것. 셀 하나에 내용 한 줄만 작성.
 
                     ■ 콘텐츠 규칙:
                     1. study_material 최소 3500자 이상. 각 개념마다 500자 이상 서술할 것.
@@ -1133,7 +1151,7 @@ public class CurriculumEnrichmentService {
 
         String title = curriculum.getWeekNumber() + "주차 학습 자료 — " + curriculum.getTopic();
         List<MaterialContent.Section> sections = List.of(
-                new MaterialContent.Section("학습 자료", detail.getStudyMaterial())
+                new MaterialContent.Section("", detail.getStudyMaterial())
         );
         return new MaterialContent(title, sections);
     }
@@ -1380,6 +1398,11 @@ public class CurriculumEnrichmentService {
         long cjkCount = text.chars().filter(c -> c >= 0x4E00 && c <= 0x9FFF).count();
         long koreanCount = text.chars().filter(c -> (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF)).count();
         return cjkCount > 3 && koreanCount == 0;
+    }
+
+    private boolean hasKoreanChars(String text) {
+        if (text == null || text.isBlank()) return false;
+        return text.chars().anyMatch(c -> (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF));
     }
 
     private void generateAndUploadWeaknessMaterial(WeeklyCurriculum curriculum,

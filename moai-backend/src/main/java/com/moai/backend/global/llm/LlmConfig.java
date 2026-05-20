@@ -21,8 +21,8 @@ public class LlmConfig {
     @Bean
     public WebClient llmWebClient() {
         HttpClient httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
-                .responseTimeout(Duration.ofSeconds(30));
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
+                .responseTimeout(Duration.ofSeconds(120));
 
         return WebClient.builder()
                 .baseUrl(apiUrl)

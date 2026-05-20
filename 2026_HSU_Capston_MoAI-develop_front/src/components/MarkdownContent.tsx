@@ -67,7 +67,6 @@ const markdownContentCss = `
     color: inherit;
     line-height: inherit;
     overflow-wrap: anywhere;
-    white-space: pre-line;
 }
 .moai-markdown p {
     margin: 0 0 12px;
@@ -149,7 +148,6 @@ const markdownContentCss = `
     line-height: 1.55;
     text-align: left;
     vertical-align: top;
-    white-space: pre-line;
 }
 .moai-markdown__table tbody td {
     padding: var(--moai-markdown-table-cell-padding, 14px 16px);
@@ -158,7 +156,6 @@ const markdownContentCss = `
     font-size: inherit;
     line-height: inherit;
     vertical-align: top;
-    white-space: pre-line;
 }
 .moai-markdown__table th + th,
 .moai-markdown__table td + td {
@@ -208,6 +205,16 @@ const markdownContentCss = `
 .moai-markdown--compact ul,
 .moai-markdown--compact ol {
     margin: 4px 0 8px;
+}
+.moai-markdown--compact h1,
+.moai-markdown--compact h2,
+.moai-markdown--compact h3,
+.moai-markdown--compact h4 {
+    font-size: 1em;
+    font-weight: 700;
+    color: inherit;
+    line-height: inherit;
+    margin: 0.3em 0 0.1em;
 }
 .dark .moai-markdown__table-wrap {
     border-color: rgba(167, 139, 250, 0.24);
@@ -363,11 +370,24 @@ function normalizeInlineBreaks(value: string): string {
     return value.replace(/<br\s*\/?>/gi, '\n')
 }
 
+// # 제목이 있는 문서에서 ## 섹션 헤더를 ### 으로 강등한다.
+// LLM이 h2를 써도 paper/compact 뷰에서 h3 수준으로만 나타나게 한다.
+function normalizeHeadingLevels(content: string): string {
+    const lines = content.split(/\r?\n/)
+    const hasH1 = lines.some(line => /^# [^#]/.test(line))
+    if (!hasH1) return content
+    return lines.map(line => (/^## [^#]/.test(line) ? '#' + line : line)).join('\n')
+}
+
 function collapseBlankLines(content: string): string {
-    // Collapse ALL blank lines except those immediately before/after heading lines.
-    // This converts loose lists to tight, removes inter-paragraph gaps from LLM output,
-    // while preserving visual separation around # headings.
+    // Collapse ALL blank lines except those immediately before/after heading lines,
+    // and those adjacent to --- / === lines.
+    //
+    // Critical: --- immediately after text (no blank line) is parsed by CommonMark
+    // as a setext-style h2 underline, turning the preceding text into a heading.
+    // Preserving a blank line before --- prevents this misparse.
     const isHeading = (line: string) => /^#{1,4} /.test(line)
+    const isHrOrSetext = (line: string) => /^-{3,}$|^={3,}$/.test(line.trim())
 
     const lines = content.split(/\r?\n/)
     const out: string[] = []
@@ -378,8 +398,7 @@ function collapseBlankLines(content: string): string {
             while (j < lines.length && lines[j].trim() === '') j++
             const prevLine = out.length > 0 ? out[out.length - 1] : ''
             const nextLine = j < lines.length ? lines[j] : ''
-            // Keep exactly one blank line only if adjacent to a heading
-            if (isHeading(prevLine) || isHeading(nextLine)) {
+            if (isHeading(prevLine) || isHeading(nextLine) || isHrOrSetext(prevLine) || isHrOrSetext(nextLine)) {
                 out.push('')
             }
             i = j
@@ -443,7 +462,7 @@ export default function MarkdownContent({
     compact = false,
 }: MarkdownContentProps) {
     const blocks = useMemo(
-        () => splitMarkdownTables(preNormalizeConcatenatedTable(collapseBlankLines(content))),
+        () => splitMarkdownTables(preNormalizeConcatenatedTable(collapseBlankLines(normalizeHeadingLevels(content)))),
         [content],
     )
     const classes = [
