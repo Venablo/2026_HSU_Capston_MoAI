@@ -198,6 +198,12 @@ function StudyClassroomContent() {
     // 퀴즈 완료 트리거 — 돌발퀴즈·파이널퀴즈 완료 시 키워드·퀴즈내역 즉시 갱신
     const [quizCompletedCount, setQuizCompletedCount] = useState(0)
 
+    // AI 패턴 트리거 — video_rewind/video_pause/tab_departure 감지 시 약점 키워드 즉시 갱신
+    const [patternRefreshCount, setPatternRefreshCount] = useState(0)
+
+    // 퀴즈 타입 추론 캐시 — 상세 로드 후 options 유무로 instant(돌발) / final(파이널) 판별
+    const [quizTypeMap, setQuizTypeMap] = useState<Record<string, 'instant' | 'final'>>({})
+
     // 아코디언 / 더 보기 UI 상태
     const [keywordsExpanded,  setKeywordsExpanded]  = useState(false)
     const [quizCorrectOpen,   setQuizCorrectOpen]   = useState(true)
@@ -656,7 +662,7 @@ function StudyClassroomContent() {
             .catch(() => { if (!cancelled) setUserKeywords(null) })
             .finally(() => { if (!cancelled) setKeywordsLoading(false) })
         return () => { cancelled = true }
-    }, [roomId, weekData?.weekId, metacogComplete, quizSubmitted, quizCompletedCount])
+    }, [roomId, weekData?.weekId, metacogComplete, quizSubmitted, quizCompletedCount, patternRefreshCount])
 
     // ── 패턴 감지 핸들러 ─────────────────────────────────────────────────────
     const handlePatternDetected = useCallback(async (
@@ -673,6 +679,9 @@ function StudyClassroomContent() {
             })
 
             if (!result.aiTriggered) return
+
+            // AI가 이벤트를 처리했으므로 약점 키워드 카운트가 갱신됐을 수 있다 → 즉시 새로고침
+            setPatternRefreshCount(c => c + 1)
 
             if (
                 result.eventType === 'video_rewind' ||
@@ -1021,6 +1030,9 @@ function StudyClassroomContent() {
         try {
             const detail = await getQuizAttemptDetail(attemptId)
             setQuizDetailCache(prev => ({ ...prev, [attemptId]: detail }))
+            // options 여부로 퀴즈 타입 추론: 객관식 = 돌발퀴즈, 서술형(없음) = 파이널퀴즈
+            const inferredType = (detail.options?.length ?? 0) > 0 ? 'instant' as const : 'final' as const
+            setQuizTypeMap(prev => ({ ...prev, [attemptId]: inferredType }))
         } catch {
             // 상세 조회 실패 시 조용히 무시
         } finally {
@@ -1490,6 +1502,10 @@ function StudyClassroomContent() {
                                     const isOpen   = expandedQuizId === item.attemptId
                                     const isLoading = quizDetailLoading === item.attemptId
                                     const detail   = quizDetailCache[item.attemptId]
+                                    // 백엔드 제공 quizType 우선, 없으면 상세 로드 후 추론값 사용
+                                    const effectiveType = (item.quizType === 'instant' || item.quizType === 'final')
+                                        ? item.quizType as 'instant' | 'final'
+                                        : quizTypeMap[item.attemptId]
                                     return (
                                         <div key={item.attemptId} className={`classroom__quiz-item${isOpen ? ' classroom__quiz-item--open' : ''}`}>
                                             <button
@@ -1498,6 +1514,11 @@ function StudyClassroomContent() {
                                             >
                                                 <div className="classroom__quiz-q">Q{i + 1}. {item.questionTitle}</div>
                                                 <div className="classroom__quiz-result-row">
+                                                    {effectiveType && (
+                                                        <span className={`classroom__quiz-type-badge classroom__quiz-type-badge--${effectiveType}`}>
+                                                            {effectiveType === 'instant' ? '돌발퀴즈' : '파이널퀴즈'}
+                                                        </span>
+                                                    )}
                                                     <span className={`classroom__quiz-badge ${item.isCorrect ? 'classroom__quiz-badge--correct' : 'classroom__quiz-badge--wrong'}`}>
                                                         {item.isCorrect ? '정답' : '오답'}
                                                     </span>

@@ -190,6 +190,7 @@ export interface QuizAttemptListItem {
   isCorrect: boolean
   videoSegment: string
   attemptedAt: string          // ISO 8601
+  quizType?: 'instant' | 'final' | string  // 돌발퀴즈 | 파이널퀴즈
 }
 
 export interface QuizOption {

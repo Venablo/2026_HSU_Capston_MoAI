@@ -374,6 +374,25 @@
     color: #dc2626;
 }
 
+/* 퀴즈 출처 배지 — 돌발퀴즈 / 파이널퀴즈 */
+.classroom__quiz-type-badge {
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.classroom__quiz-type-badge--instant {
+    background: #ede9fe;
+    color: #7c3aed;
+}
+
+.classroom__quiz-type-badge--final {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
 .classroom__quiz-score {
     font-size: 12px;
     color: var(--color-text-muted);
@@ -2654,6 +2673,9 @@
     padding: 18px;
     margin-bottom: 22px;
     text-align: left;
+    /* 내용이 길면 박스 내부에서 스크롤 — 모달이 뷰포트를 벗어나는 것을 방지 */
+    max-height: clamp(140px, calc(100vh - 440px), 280px);
+    overflow-y: auto;
 }
 
 .modal-quiz-result__concept-label {
