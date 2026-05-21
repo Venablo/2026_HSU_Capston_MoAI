@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -70,7 +71,22 @@ public class SubtitleScraperService {
     @Value("${subtitle.enable-fallback:true}")
     private boolean enableFallback;
 
+    /**
+     * YouTube 봇 탐지(IP 밴) 우회용 Netscape 포맷 cookies.txt 절대 경로.
+     * 비어있으면 쿠키 미사용. 파일 누락은 Python 스크립트에서 soft-skip 처리.
+     */
+    @Value("${subtitle.cookies-path:}")
+    private String cookiesPath;
+
+    /**
+     * 동시 호출 한도. YouTube 봇 탐지 회피를 위해 동시에 N 개의 자막 스크래핑만 허용한다.
+     * 권장 1~3. 4 이상은 동일 IP 에서 자동화 시그널이 강해질 수 있음.
+     */
+    @Value("${subtitle.concurrency-limit:2}")
+    private int concurrencyLimit;
+
     private String resolvedScriptPath;
+    private Semaphore concurrencyLimiter;
 
     @PostConstruct
     public void resolveScript() {
@@ -79,40 +95,65 @@ public class SubtitleScraperService {
         if (configured.exists()) {
             resolvedScriptPath = configured.getAbsolutePath();
             log.info("자막 스크립트 발견 (설정 경로): {}", resolvedScriptPath);
-            return;
-        }
+        } else {
+            // 2) classpath 의 scripts/scrape_subtitle.py 를 임시 디렉토리에 추출
+            ClassPathResource resource = new ClassPathResource("scripts/scrape_subtitle.py");
+            if (resource.exists()) {
+                try {
+                    File tempDir = Files.createTempDirectory("moai_subtitle").toFile();
+                    tempDir.deleteOnExit();
 
-        // 2) classpath 의 scripts/scrape_subtitle.py 를 임시 디렉토리에 추출
-        ClassPathResource resource = new ClassPathResource("scripts/scrape_subtitle.py");
-        if (resource.exists()) {
-            try {
-                File tempDir = Files.createTempDirectory("moai_subtitle").toFile();
-                tempDir.deleteOnExit();
-
-                File tempScript = new File(tempDir, "scrape_subtitle.py");
-                tempScript.deleteOnExit();
-                Files.copy(resource.getInputStream(), tempScript.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                resolvedScriptPath = tempScript.getAbsolutePath();
-                log.info("자막 스크립트를 classpath 에서 추출: {}", resolvedScriptPath);
-            } catch (IOException e) {
-                log.warn("자막 스크립트 추출 실패, 설정 경로로 폴백: {}", scriptPath);
+                    File tempScript = new File(tempDir, "scrape_subtitle.py");
+                    tempScript.deleteOnExit();
+                    Files.copy(resource.getInputStream(), tempScript.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    resolvedScriptPath = tempScript.getAbsolutePath();
+                    log.info("자막 스크립트를 classpath 에서 추출: {}", resolvedScriptPath);
+                } catch (IOException e) {
+                    log.warn("자막 스크립트 추출 실패, 설정 경로로 폴백: {}", scriptPath);
+                    resolvedScriptPath = scriptPath;
+                }
+            } else {
+                log.warn("자막 스크립트를 찾을 수 없음 — 경로='{}'. 자막 추출은 항상 실패한다.", scriptPath);
                 resolvedScriptPath = scriptPath;
             }
-        } else {
-            log.warn("자막 스크립트를 찾을 수 없음 — 경로='{}'. 자막 추출은 항상 실패한다.", scriptPath);
-            resolvedScriptPath = scriptPath;
         }
+
+        // 동시성 제한 세마포어 초기화 — 잘못된 설정(0/음수)도 1 로 보정해 데드락 방지
+        int permits = Math.max(1, concurrencyLimit);
+        this.concurrencyLimiter = new Semaphore(permits, true);
+        log.info("자막 스크래핑 동시성 한도: {}", permits);
     }
 
     /**
      * 주어진 YouTube videoId 에 대해 자막을 추출한다.
      *
-     * Python 실행 명령 후보를 순서대로 시도하고, "명령을 찾을 수 없음" 류의 실패가 아닌
-     * 정상 시작 후의 실패는 그대로 SubtitleScrapeException 으로 전파한다.
+     * 봇 탐지 회피를 위해 {@link #concurrencyLimiter} 로 동시 실행 수를 제한한다.
+     * 한도를 초과한 호출자는 슬롯이 빌 때까지 블로킹된다 (FIFO 공정성 보장).
      *
      * @throws SubtitleScrapeException 실패 시. errorCode 로 분기 처리 가능.
      */
     public SubtitleScrapeResult scrape(String videoId) {
+        try {
+            concurrencyLimiter.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SubtitleScrapeException(SubtitleErrorCode.SCRIPT_EXECUTION_FAILED,
+                    "동시성 세마포어 대기 중 인터럽트", e);
+        }
+        try {
+            return doScrape(videoId);
+        } finally {
+            concurrencyLimiter.release();
+        }
+    }
+
+    /**
+     * 실제 Python 호출 + stdout/stderr 처리. 동시성 제어는 {@link #scrape(String)} 가 담당한다.
+     *
+     * Python 실행 명령 후보를 순서대로 시도하고, "명령을 찾을 수 없음" 류의 실패가 아닌
+     * 정상 시작 후의 실패는 그대로 SubtitleScrapeException 으로 전파한다.
+     */
+    private SubtitleScrapeResult doScrape(String videoId) {
         List<String> pythonCandidates = parsePythonCandidates();
 
         Process process = null;
@@ -191,6 +232,11 @@ public class SubtitleScraperService {
         command.add(preferredLangs);
         if (!enableFallback) {
             command.add("--no-fallback");
+        }
+        // 쿠키 경로가 설정된 경우에만 --cookies 인자 추가. Fail-Fast/soft-skip 분기는 Python 측에서 수행.
+        if (cookiesPath != null && !cookiesPath.isBlank()) {
+            command.add("--cookies");
+            command.add(cookiesPath);
         }
         return command;
     }

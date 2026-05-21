@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import tempfile
+from http.cookiejar import MozillaCookieJar
 
 # --- 종료 코드 (Java SubtitleErrorCode 와 1:1 매핑) -------------------------
 EXIT_OK = 0
@@ -70,6 +71,52 @@ USER_MESSAGES = {
 
 # YouTube 영상 ID 는 정확히 11자리이며 [A-Za-z0-9_-] 만 허용
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+# Netscape 쿠키 파일이 반드시 가져야 하는 헤더 (MozillaCookieJar 가 요구함)
+NETSCAPE_HEADER = "# Netscape HTTP Cookie File\n"
+
+
+def ensure_netscape_header(cookies_path):
+    """
+    cookies.txt 의 첫 비공백 줄이 Netscape 헤더가 아니면 헤더를 앞에 자동으로 끼워 넣는다.
+    MozillaCookieJar.load() 가 헤더 없는 파일에서 LoadError 를 던지는 문제를 사전에 해소한다.
+    기존 쿠키 내용은 그대로 보존한다.
+    """
+    with open(cookies_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    if content.lstrip().startswith("# Netscape HTTP Cookie File"):
+        return
+
+    with open(cookies_path, "w", encoding="utf-8") as f:
+        f.write(NETSCAPE_HEADER)
+        f.write(content)
+
+
+def load_cookie_jar(cookies_path):
+    """
+    cookies.txt 를 검증한 뒤 MozillaCookieJar 로 로드한다.
+
+    하이브리드 정책:
+    - 경로가 비어있으면 None 반환 (쿠키 미사용)
+    - 파일이 존재하지 않으면 stderr 경고 후 None 반환 (soft-skip — 쿠키 없이 진행)
+    - Netscape 헤더가 빠져 있으면 자동으로 보정
+    - 그 외 로드 실패(포맷 깨짐 등) 는 예외를 그대로 전파 (Fail-Fast — 설정 실수일 가능성 높음)
+    """
+    if not cookies_path:
+        return None
+    if not os.path.isfile(cookies_path):
+        sys.stderr.write(
+            "[warn] 쿠키 파일을 찾을 수 없어 쿠키 없이 진행: {}\n".format(cookies_path)
+        )
+        sys.stderr.flush()
+        return None
+
+    ensure_netscape_header(cookies_path)
+
+    jar = MozillaCookieJar(cookies_path)
+    jar.load(ignore_discard=True, ignore_expires=True)
+    return jar
 
 
 def emit_error(error_code, detail=""):
@@ -133,13 +180,16 @@ def transform_json3(data):
     return chunks
 
 
-def try_yt_dlp(video_id, langs):
+def try_yt_dlp(video_id, langs, cookies_path=None):
     """
     yt-dlp 로 자막 추출을 시도한다.
 
     반환값:
       성공: ({"chunks","lang","source"}, None, None)
       실패: (None, error_code, detail_string)
+
+    cookies_path 가 주어지면 yt-dlp 의 cookiefile 옵션으로 위임한다.
+    (yt-dlp 가 Netscape 포맷 cookies.txt 를 네이티브로 처리)
     """
     try:
         from yt_dlp import YoutubeDL
@@ -161,10 +211,18 @@ def try_yt_dlp(video_id, langs):
             "noprogress": True,
             "logtostderr": True,
             "consoletitle": False,
+            # 봇 탐지 회피용 요청 간 sleep — 매 요청 사이 2~5초 랜덤 대기 + API 호출마다 1초 추가.
+            # 일정 간격 자동화 패턴을 무너뜨려 패턴 기반 차단을 어렵게 만든다.
+            "sleep_interval": 2,
+            "max_sleep_interval": 5,
+            "sleep_requests": 1,
             "extractor_args": {
                 "youtube": {"player_client": ["android", "web", "ios", "tv_embedded"]}
             },
         }
+        # 봇 탐지 우회용 인증 쿠키가 설정돼 있으면 yt-dlp 에 직접 위임
+        if cookies_path:
+            opts["cookiefile"] = cookies_path
 
         try:
             # 옵션만으로 막지 못한 잔여 stdout 누출까지 차단하기 위해 호출 영역 자체를 stderr 로 redirect
@@ -219,8 +277,13 @@ def try_yt_dlp(video_id, langs):
         }, None, None
 
 
-def try_youtube_transcript_api(video_id, langs):
-    """레거시 폴백 경로. try_yt_dlp 와 동일한 반환 형태를 사용한다."""
+def try_youtube_transcript_api(video_id, langs, cookies_path=None):
+    """
+    레거시 폴백 경로. try_yt_dlp 와 동일한 반환 형태를 사용한다.
+
+    cookies_path 가 주어지면 requests.Session 에 MozillaCookieJar 를 붙여
+    YouTubeTranscriptApi(http_client=session) 으로 주입한다.
+    """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api._errors import (
@@ -231,8 +294,21 @@ def try_youtube_transcript_api(video_id, langs):
     except ImportError as e:
         return None, EC_NO_SUBTITLES, "youtube-transcript-api 미설치: {}".format(e)
 
+    # 쿠키가 설정돼 있으면 requests.Session 으로 인증 정보를 함께 실어 보낸다.
+    # 파일 없음은 load_cookie_jar 에서 soft-skip (None) 되므로 그대로 폴스루.
+    session = None
+    if cookies_path:
+        try:
+            import requests
+            jar = load_cookie_jar(cookies_path)
+            if jar is not None:
+                session = requests.Session()
+                session.cookies = jar
+        except Exception as e:
+            return None, EC_UNKNOWN, "쿠키 세션 구성 실패: {}".format(e)
+
     try:
-        api = YouTubeTranscriptApi()
+        api = YouTubeTranscriptApi(http_client=session) if session else YouTubeTranscriptApi()
         try:
             transcript_list = api.list(video_id)
         except VideoUnavailable as e:
@@ -321,25 +397,43 @@ def main():
                         help="우선순위가 적용된 언어 목록 (콤마 구분, 기본값: ko,en)")
     parser.add_argument("--no-fallback", action="store_true",
                         help="youtube-transcript-api 폴백 비활성화")
+    parser.add_argument("--cookies", default=None,
+                        help="Netscape 포맷 cookies.txt 경로 (봇 탐지 우회용 인증 쿠키)")
     args = parser.parse_args()
 
     if not VIDEO_ID_RE.match(args.video_id or ""):
         emit_error(EC_INVALID_ID, "입력값: {!r}".format(args.video_id))
         sys.exit(EXIT_INVALID_VIDEO_ID)
 
+    # 쿠키 사전 검증 (하이브리드 정책):
+    # - 파일 없음 → load_cookie_jar 가 None 반환 + stderr 경고. effective_cookies 를 None 으로 떨어뜨려
+    #   yt-dlp/폴백 양쪽 다 쿠키 없이 진행 (soft-skip)
+    # - 포맷 깨짐 등 로드 실패 → Fail-Fast 로 즉시 종료 (설정 실수 가능성 높음)
+    effective_cookies = args.cookies
+    if args.cookies:
+        try:
+            jar = load_cookie_jar(args.cookies)
+            if jar is None:
+                effective_cookies = None
+        except Exception as e:
+            emit_error(EC_UNKNOWN, "쿠키 파일 로드 실패: {}".format(e))
+            sys.exit(EXIT_UNKNOWN)
+
     langs = [l.strip() for l in (args.langs or "").split(",") if l.strip()]
     if not langs:
         langs = ["ko", "en"]
 
     # 1차: yt-dlp
-    result, primary_code, primary_detail = try_yt_dlp(args.video_id, langs)
+    result, primary_code, primary_detail = try_yt_dlp(args.video_id, langs, effective_cookies)
     if result is not None:
         sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
         sys.exit(EXIT_OK)
 
     # 2차: youtube-transcript-api (옵션 비활성화 또는 단정적 영상 상태 오류면 스킵)
     if not args.no_fallback and primary_code not in _TERMINAL_VIDEO_CODES:
-        fb_result, fb_code, fb_detail = try_youtube_transcript_api(args.video_id, langs)
+        fb_result, fb_code, fb_detail = try_youtube_transcript_api(
+            args.video_id, langs, effective_cookies
+        )
         if fb_result is not None:
             sys.stdout.write(json.dumps(fb_result, ensure_ascii=False) + "\n")
             sys.exit(EXIT_OK)

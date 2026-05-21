@@ -44,6 +44,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
@@ -150,7 +151,7 @@ public class CurriculumEnrichmentService {
         List<SubtitleChunk> chunks = new ArrayList<>();
         int transcriptCount = 0;
         try {
-            SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
+            SubtitleScrapeResult result = scrapeWithCache(curriculum, videoId);
             chunks.addAll(result.chunks());
             transcriptCount = saveTranscripts(curriculum, videoId, result.chunks());
             log.info("[{}주차] 자막 스크래핑 성공 — videoId={}, lang={}, source={}, chunks={}",
@@ -189,7 +190,7 @@ public class CurriculumEnrichmentService {
         if (selectedVideos.size() > 1) {
             String secondaryVideoId = selectedVideos.get(1).videoId();
             try {
-                SubtitleScrapeResult secondaryResult = subtitleScraperService.scrape(secondaryVideoId);
+                SubtitleScrapeResult secondaryResult = scrapeWithCache(curriculum, secondaryVideoId);
                 int secondaryCount = saveTranscripts(curriculum, secondaryVideoId, secondaryResult.chunks());
                 chunks.addAll(secondaryResult.chunks());
                 transcriptCount += secondaryCount;
@@ -833,6 +834,45 @@ public class CurriculumEnrichmentService {
     // --- Step B: 자막 청크 저장 + 재시도 로직 ---
 
     /**
+     * 자막 스크래핑 전 글로벌 캐시 확인.
+     * 같은 videoId 의 자막이 다른 학습실에서 이미 스크래핑된 적 있으면 그 chunks 를 그대로 재사용한다.
+     * 캐시 미스면 실제 YouTube 호출.
+     *
+     * → 같은 영상은 시스템 전체에서 단 한 번만 YouTube 를 호출하게 되어 IP 밴 압력이 크게 줄어든다.
+     * → 캐시 hit 시 lang 은 보존되지 않으므로 null, source 는 "cache" 로 표기한다.
+     */
+    private SubtitleScrapeResult scrapeWithCache(WeeklyCurriculum curriculum, String videoId) {
+        Optional<VideoTranscript> sample =
+                videoTranscriptRepository.findFirstByVideoIdOrderByChunkIndexAsc(videoId);
+        if (sample.isPresent()) {
+            String sourceCurriculumId = sample.get().getCurriculum().getId();
+            List<VideoTranscript> cachedRows = videoTranscriptRepository
+                    .findByCurriculumIdAndVideoIdOrderByChunkIndexAsc(sourceCurriculumId, videoId);
+            if (!cachedRows.isEmpty()) {
+                List<SubtitleChunk> chunks = cachedRows.stream()
+                        .map(this::toSubtitleChunk)
+                        .toList();
+                log.info("[{}주차] 자막 캐시 hit — videoId={}, source curriculumId={}, chunks={}",
+                        curriculum.getWeekNumber(), videoId, sourceCurriculumId, chunks.size());
+                return new SubtitleScrapeResult(chunks, null, "cache");
+            }
+        }
+        return subtitleScraperService.scrape(videoId);
+    }
+
+    /**
+     * VideoTranscript row 를 SubtitleChunk DTO 로 변환한다 (캐시 복제용).
+     */
+    private SubtitleChunk toSubtitleChunk(VideoTranscript row) {
+        return new SubtitleChunk(
+                row.getChunkIndex(),
+                row.getTextContent(),
+                row.getStartSec(),
+                row.getEndSec()
+        );
+    }
+
+    /**
      * 청크 리스트를 VideoTranscript 엔티티로 변환해 일괄 저장한다.
      *
      * @return 저장된 청크 개수
@@ -879,7 +919,7 @@ public class CurriculumEnrichmentService {
                 curriculum.getWeekNumber(), altVideoId, altTitle);
 
         try {
-            SubtitleScrapeResult retried = subtitleScraperService.scrape(altVideoId);
+            SubtitleScrapeResult retried = scrapeWithCache(curriculum, altVideoId);
             // 자막 추출에 성공한 차선책으로 실패한 주력 영상만 교체하고, 기존 보완 영상은 유지한다.
             List<CurriculumResource> normalVideos = new ArrayList<>();
             normalVideos.add(toYoutubeResource(curriculum, alternative));
@@ -921,7 +961,7 @@ public class CurriculumEnrichmentService {
         }
 
         try {
-            SubtitleScrapeResult result = subtitleScraperService.scrape(videoId);
+            SubtitleScrapeResult result = scrapeWithCache(curriculum, videoId);
             int count = saveTranscripts(curriculum, videoId, result.chunks());
             List<String> keywords = extractKeywords(curriculum, result.chunks());
             if (keywords != null && !keywords.isEmpty()) {
