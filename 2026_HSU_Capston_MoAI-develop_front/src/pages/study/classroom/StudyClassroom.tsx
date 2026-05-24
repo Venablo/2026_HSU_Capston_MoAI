@@ -29,7 +29,7 @@ import {
     Calendar, BrainCircuit, CheckCircle2,
     Trophy, Lock, Users, MessageCircle,
     UserCircle, ArrowRight, Loader2,
-    Moon, Sun, X, Check, LogOut, Send,
+    Moon, Sun, X, Check, LogOut, Send, Maximize2,
 } from 'lucide-react'
 import '../../../styles/StudyClassroom.css'
 import '../../../styles/FinalQuizModal.css'
@@ -1066,6 +1066,15 @@ function StudyClassroomContent() {
             <header className="topbar">
                 <h2 className="topbar__title">AI 상세 학습실</h2>
                 <div className="topbar__actions">
+                    {/* 집중학습 모드 진입 */}
+                    <button
+                        className="sc-focus-mode-btn"
+                        onClick={() => navigate(`/study/${roomId}/focus${weekData ? `?curriculumId=${weekData.weekId}` : ''}`)}
+                        title="집중학습 모드로 전환"
+                    >
+                        <Maximize2 size={14} strokeWidth={1.5} />
+                        집중학습 모드
+                    </button>
                     {/* 검색 */}
                     <div ref={searchRef} className="sc-search-wrap">
                         <div className="sc-search-box">

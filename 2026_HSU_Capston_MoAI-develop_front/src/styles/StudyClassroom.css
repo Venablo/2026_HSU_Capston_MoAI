@@ -1,5 +1,35 @@
 /* ── Study Classroom ── */
 
+/* 집중학습 모드 버튼 (TopBar) */
+.sc-focus-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--color-purple-200);
+    background: var(--color-purple-50, #f5f3ff);
+    color: var(--color-purple-700, #6d28d9);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    font-family: inherit;
+}
+.sc-focus-mode-btn:hover {
+    background: var(--color-purple-100, #ede9fe);
+    color: var(--color-purple-800, #5b21b6);
+}
+.dark .sc-focus-mode-btn {
+    background: rgba(124, 58, 237, 0.12);
+    border-color: rgba(124, 58, 237, 0.3);
+    color: #c4b5fd;
+}
+.dark .sc-focus-mode-btn:hover {
+    background: rgba(124, 58, 237, 0.2);
+}
+
 /* Layout */
 .classroom {
     display: flex;

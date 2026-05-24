@@ -165,7 +165,7 @@ export default function MyStudiesPage() {
                                 onFocus={() => setSearchFocus(true)}
                                 onKeyDown={e => {
                                     if (e.key === 'Enter' && filteredRooms[0]) {
-                                        navigate(`/study/${filteredRooms[0].roomId}/classroom`)
+                                        navigate(`/study/${filteredRooms[0].roomId}/curriculum`, { state: { subject: filteredRooms[0].subject, level: filteredRooms[0].level, completionRate: filteredRooms[0].completionRate } })
                                         setSearchValue('')
                                         setSearchFocus(false)
                                     }
@@ -185,7 +185,7 @@ export default function MyStudiesPage() {
                                     <div className="msp-search-empty">검색 결과가 없습니다.</div>
                                 ) : filteredRooms.map(r => (
                                     <button key={r.roomId}
-                                        onClick={() => { navigate(`/study/${r.roomId}/classroom`); setSearchValue(''); setSearchFocus(false) }}
+                                        onClick={() => { navigate(`/study/${r.roomId}/curriculum`, { state: { subject: r.subject, level: r.level, completionRate: r.completionRate } }); setSearchValue(''); setSearchFocus(false) }}
                                         className="msp-search-result-btn">
                                         <span>{r.subject}</span>
                                         <span className="msp-search-result-pct">{r.completionRate}%</span>
@@ -317,7 +317,7 @@ export default function MyStudiesPage() {
                                 <div
                                     key={room.roomId}
                                     className={`study-card animate-fade-in delay-${i * 100}`}
-                                    onClick={() => navigate(`/study/${room.roomId}/classroom`)}
+                                    onClick={() => navigate(`/study/${room.roomId}/curriculum`, { state: { subject: room.subject, level: room.level, completionRate: room.completionRate } })}
                                 >
                                     <div className="study-card__header">
                                         <div className="study-card__info-row">

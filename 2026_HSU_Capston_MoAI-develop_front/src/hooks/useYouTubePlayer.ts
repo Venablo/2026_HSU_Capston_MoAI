@@ -47,6 +47,10 @@ interface YTPlayer {
     getDuration(): number
     /** 현재 재생 배속 반환: 0.25, 0.5, 1, 1.5, 2 등 */
     getPlaybackRate(): number
+    /** 영상 재생 배속 설정 */
+    setPlaybackRate(suggestedRate: number): void
+    /** 영상 재생 */
+    playVideo(): void
     /** 영상 일시정지 */
     pauseVideo(): void
     /** 지정한 초 위치로 이동 */
@@ -114,6 +118,11 @@ export interface UseYouTubePlayerOptions {
      * @param rate - 0~100 진행률
      */
     onProgressMilestone?: (rate: number) => void
+    /**
+     * 1초 폴링마다 현재 재생 위치·시간·배속을 전달한다.
+     * 커스텀 플레이어 컨트롤 UI(타임라인, 속도 표시 등)에 사용한다.
+     */
+    onTimeUpdate?: (current: number, duration: number, isPlaying: boolean, rate: number) => void
 }
 
 export interface UseYouTubePlayerReturn {
@@ -125,8 +134,12 @@ export interface UseYouTubePlayerReturn {
     playerHostRef: RefObject<HTMLDivElement | null>
     /** 외부에서 영상을 일시정지할 때 사용 (모달 오픈 시 등) */
     pausePlayer: () => void
+    /** 외부에서 영상을 재생할 때 사용 */
+    playVideo: () => void
     /** 외부에서 특정 시점으로 영상을 이동할 때 사용 */
     seekPlayer: (sec: number) => void
+    /** 재생 배속 설정 (0.75 / 1 / 1.5 / 2 등) */
+    setPlaybackRate: (rate: number) => void
 }
 
 /** 진행률 마일스톤 목록 (오름차순) */
@@ -137,6 +150,7 @@ export function useYouTubePlayer({
     videoId,
     onPatternDetected,
     onProgressMilestone,
+    onTimeUpdate,
 }: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
     // 플레이어가 렌더링될 div의 고유 ID
     const playerDivIdRef = useRef(`yt-player-${Math.random().toString(36).slice(2)}`)
@@ -177,6 +191,9 @@ export function useYouTubePlayer({
 
     const onProgressRef = useRef(onProgressMilestone)
     useEffect(() => { onProgressRef.current = onProgressMilestone }, [onProgressMilestone])
+
+    const onTimeUpdateRef = useRef(onTimeUpdate)
+    useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
 
     // 이미 알린 마일스톤 추적 (중복 알림 방지)
     const reportedMilestonesRef = useRef<Set<number>>(new Set())
@@ -264,6 +281,12 @@ export function useYouTubePlayer({
                 pauseStartedAtRef.current = null
                 lastTimeRef.current = current
 
+                // 커스텀 UI용 시간 콜백
+                if (onTimeUpdateRef.current) {
+                    const dur = durationRef.current || player.getDuration()
+                    onTimeUpdateRef.current(current, dur, true, player.getPlaybackRate())
+                }
+
             } else if (state === 2) {
                 // ── 일시정지 중(paused): 장시간 일시정지 감지 ───────────────
 
@@ -300,6 +323,12 @@ export function useYouTubePlayer({
                         // → 다음 3분이 지났을 때 다시 감지됨
                         pauseStartedAtRef.current = Date.now()
                     }
+                }
+
+                // 커스텀 UI용 시간 콜백 (일시정지 중에도 슬라이더 위치 유지)
+                if (onTimeUpdateRef.current) {
+                    const dur = durationRef.current || player.getDuration()
+                    onTimeUpdateRef.current(lastTimeRef.current, dur, false, player.getPlaybackRate())
                 }
             }
         }, POLL_INTERVAL_MS)
@@ -458,10 +487,18 @@ export function useYouTubePlayer({
         playerRef.current?.pauseVideo()
     }, [])
 
+    const playVideo = useCallback(() => {
+        playerRef.current?.playVideo()
+    }, [])
+
     const seekPlayer = useCallback((sec: number) => {
         seekSuppressUntilRef.current = Date.now() + 2000
         playerRef.current?.seekTo(sec, true)
     }, [])
 
-    return { playerDivId, playerHostRef, pausePlayer, seekPlayer }
+    const setPlaybackRate = useCallback((rate: number) => {
+        playerRef.current?.setPlaybackRate(rate)
+    }, [])
+
+    return { playerDivId, playerHostRef, pausePlayer, playVideo, seekPlayer, setPlaybackRate }
 }

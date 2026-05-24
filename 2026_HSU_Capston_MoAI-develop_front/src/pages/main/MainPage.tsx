@@ -149,7 +149,7 @@ export default function MainPage() {
                                 onFocus={() => setSearchFocus(true)}
                                 onKeyDown={e => {
                                     if (e.key === 'Enter' && filteredRooms[0]) {
-                                        navigate(`/study/${filteredRooms[0].roomId}/classroom`)
+                                        navigate(`/study/${filteredRooms[0].roomId}/curriculum`, { state: { subject: filteredRooms[0].subject, level: filteredRooms[0].level, completionRate: filteredRooms[0].completionRate } })
                                         setSearchValue('')
                                         setSearchFocus(false)
                                     }
@@ -169,7 +169,7 @@ export default function MainPage() {
                                     <div className="mp-search-empty">검색 결과가 없습니다.</div>
                                 ) : filteredRooms.map(r => (
                                     <button key={r.roomId}
-                                        onClick={() => { navigate(`/study/${r.roomId}/classroom`); setSearchValue(''); setSearchFocus(false) }}
+                                        onClick={() => { navigate(`/study/${r.roomId}/curriculum`, { state: { subject: r.subject, level: r.level, completionRate: r.completionRate } }); setSearchValue(''); setSearchFocus(false) }}
                                         className="mp-search-result-btn">
                                         <span>{r.subject}</span>
                                         <span className="mp-search-result-rate">{r.completionRate}%</span>
@@ -327,7 +327,7 @@ export default function MainPage() {
                     ) : (
                         <div
                             className="active-study__card"
-                            onClick={() => navigate(`/study/${activeRoom.roomId}/classroom`)}
+                            onClick={() => navigate(`/study/${activeRoom.roomId}/curriculum`, { state: { subject: activeRoom.subject, level: activeRoom.level, completionRate: activeRoom.completionRate } })}
                         >
                             <div className="active-study__emoji mp-active-emoji">
                                 <BookOpen size={28} strokeWidth={1.5} />
