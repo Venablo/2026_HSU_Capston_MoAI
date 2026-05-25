@@ -3,12 +3,14 @@ package com.moai.backend.domain.auth.service;
 import com.moai.backend.domain.auth.dto.UserLoginRequestDto;
 import com.moai.backend.domain.auth.dto.UserRefreshResponseDto;
 import com.moai.backend.domain.auth.dto.UserTokenResponseDto;
+import com.moai.backend.domain.demo.service.DemoResetService;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
 import com.moai.backend.global.auth.JwtTokenProvider;
 import com.moai.backend.global.exception.CustomException;
 import com.moai.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -25,6 +28,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RedisTemplate<String, String> redisTemplate;
+    private final DemoResetService demoResetService;
 
     @Transactional(readOnly = true)
     public UserTokenResponseDto login(UserLoginRequestDto requestDto) {
@@ -78,6 +82,18 @@ public class AuthService {
         // 토큰 원문 대신 'BL:<sha256>' 키에 저장한다. (JwtTokenProvider.blacklistKey 참조)
         redisTemplate.opsForValue()
                 .set(JwtTokenProvider.blacklistKey(accessToken), "logout", expiration, TimeUnit.MILLISECONDS);
+
+        // 시연용 데모 데이터 자동 초기화 — 화이트리스트(application.yaml moai.demo.cleanup-login-ids) 등록 계정만.
+        // cleanup 실패는 로그아웃 자체를 막지 않는다 (try/catch).
+        try {
+            userRepository.findByEmail(email).ifPresent(user -> {
+                if (demoResetService.isDemoAccount(user.getLoginId())) {
+                    demoResetService.cleanupDemoData(user.getId());
+                }
+            });
+        } catch (Exception e) {
+            log.warn("[demo] logout 후 cleanupDemoData 실패 — 로그아웃은 정상 진행: email={}", email, e);
+        }
     }
 
     @Transactional

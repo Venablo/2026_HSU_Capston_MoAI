@@ -17,4 +17,9 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttempt, String
     @Modifying
     @Query("DELETE FROM QuizAttempt qa WHERE qa.quiz.curriculum.id IN :curriculumIds")
     void deleteByCurriculumIdIn(@Param("curriculumIds") List<String> curriculumIds);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM QuizAttempt qa WHERE qa.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

@@ -20,4 +20,9 @@ public interface FlippedSessionRepository extends JpaRepository<FlippedSession, 
     @Modifying
     @Query("DELETE FROM FlippedSession fs WHERE fs.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM FlippedSession fs WHERE fs.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

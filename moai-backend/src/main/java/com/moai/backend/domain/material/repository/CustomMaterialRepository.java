@@ -15,4 +15,9 @@ public interface CustomMaterialRepository extends JpaRepository<CustomMaterial, 
     @Modifying
     @Query("delete from CustomMaterial m where m.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM CustomMaterial m WHERE m.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

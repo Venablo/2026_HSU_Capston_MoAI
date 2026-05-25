@@ -13,4 +13,9 @@ public interface LearningEventLogRepository extends JpaRepository<LearningEventL
     @Modifying
     @Query("DELETE FROM LearningEventLog el WHERE el.curriculum.id IN :curriculumIds")
     void deleteByCurriculumIdIn(@Param("curriculumIds") List<String> curriculumIds);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM LearningEventLog el WHERE el.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

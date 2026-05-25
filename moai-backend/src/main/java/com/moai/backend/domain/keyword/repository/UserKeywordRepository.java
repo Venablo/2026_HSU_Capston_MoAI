@@ -25,6 +25,11 @@ public interface UserKeywordRepository extends JpaRepository<UserKeyword, String
     @Query("DELETE FROM UserKeyword uk WHERE uk.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);
 
+    // 시연용 cleanup. 학생 C strength 시드는 user_id 가 다르므로 영향 없음.
+    @Modifying
+    @Query("DELETE FROM UserKeyword uk WHERE uk.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
+
     List<UserKeyword> findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc(
             String userId, String curriculumId, String keywordType, Short weaknessCount);
 

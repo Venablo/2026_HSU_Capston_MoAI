@@ -22,4 +22,9 @@ public interface QuizRepository extends JpaRepository<Quiz, String> {
     @Modifying
     @Query("DELETE FROM Quiz q WHERE q.curriculum.id IN :curriculumIds")
     void deleteByCurriculumIdIn(@Param("curriculumIds") List<String> curriculumIds);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM Quiz q WHERE q.curriculum.room.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

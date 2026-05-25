@@ -15,4 +15,9 @@ public interface AiInteractionRepository extends JpaRepository<AiInteraction, St
     @Modifying
     @Query("DELETE FROM AiInteraction ai WHERE ai.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);
+
+    // 시연용 cleanup
+    @Modifying
+    @Query("DELETE FROM AiInteraction ai WHERE ai.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

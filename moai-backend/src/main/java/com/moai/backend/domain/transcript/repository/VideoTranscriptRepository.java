@@ -29,4 +29,9 @@ public interface VideoTranscriptRepository extends JpaRepository<VideoTranscript
     @Modifying
     @Query("DELETE FROM VideoTranscript vt WHERE vt.curriculum.id IN :curriculumIds")
     void deleteByCurriculumIdIn(@Param("curriculumIds") List<String> curriculumIds);
+
+    // 시연용 cleanup: 해당 사용자의 모든 학습실 하위 자막 일괄 삭제
+    @Modifying
+    @Query("DELETE FROM VideoTranscript vt WHERE vt.curriculum.room.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

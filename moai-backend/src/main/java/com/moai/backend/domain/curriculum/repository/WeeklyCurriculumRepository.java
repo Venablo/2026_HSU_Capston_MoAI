@@ -23,4 +23,9 @@ public interface WeeklyCurriculumRepository extends JpaRepository<WeeklyCurricul
     @Modifying
     @Query("DELETE FROM WeeklyCurriculum wc WHERE wc.room.id = :roomId")
     void deleteByRoomId(@Param("roomId") String roomId);
+
+    // 시연용 cleanup: 해당 사용자의 모든 학습실 하위 주차 일괄 삭제
+    @Modifying
+    @Query("DELETE FROM WeeklyCurriculum wc WHERE wc.room.user.id = :userId")
+    void deleteByUserId(@Param("userId") String userId);
 }

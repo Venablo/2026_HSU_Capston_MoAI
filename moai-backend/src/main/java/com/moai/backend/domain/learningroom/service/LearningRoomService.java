@@ -5,6 +5,10 @@ import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService.WeekEnrichmentContext;
+import com.moai.backend.domain.demo.entity.MockCurriculumTemplate;
+import com.moai.backend.domain.demo.entity.MockTranscriptTemplate;
+import com.moai.backend.domain.demo.repository.MockCurriculumTemplateRepository;
+import com.moai.backend.domain.demo.repository.MockTranscriptTemplateRepository;
 import com.moai.backend.domain.eventlog.repository.LearningEventLogRepository;
 import com.moai.backend.domain.flipped.repository.AiInteractionRepository;
 import com.moai.backend.domain.flipped.repository.FlippedSessionRepository;
@@ -19,6 +23,7 @@ import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
 import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizReportRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.transcript.entity.VideoTranscript;
 import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
 import com.moai.backend.domain.users.entity.User;
 import com.moai.backend.domain.users.repository.UserRepository;
@@ -70,7 +75,12 @@ public class LearningRoomService {
     private final FlippedSessionRepository flippedSessionRepository;
     private final UserKeywordRepository userKeywordRepository;
     private final CustomMaterialRepository customMaterialRepository;
+    private final MockCurriculumTemplateRepository mockCurriculumTemplateRepository;
+    private final MockTranscriptTemplateRepository mockTranscriptTemplateRepository;
     private final PlatformTransactionManager transactionManager;
+
+    // 시연 모드 분기 키워드 — 일치 시 LLM 호출 없이 mock 템플릿 복사.
+    private static final String DEMO_SUBJECT = "정보처리기사";
 
     @Value("${moai.files.local-root:../data}")
     private String localFileRoot;
@@ -88,6 +98,11 @@ public class LearningRoomService {
     // LLM 호출(수십 초) → 완료 후 TransactionTemplate으로 짧게 쓰기 트랜잭션만 열기.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LearningRoomCreateResponseDto createRoom(String email, LearningRoomCreateRequestDto requestDto) {
+        // 시연 모드: 정보처리기사 → LLM 호출 없이 mock 템플릿에서 직접 복사
+        if (DEMO_SUBJECT.equals(requestDto.getSubject())) {
+            return copyFromTemplate(email, requestDto);
+        }
+
         // 1. LLM 호출 — DB 커넥션 미점유 상태에서 실행
         P1CurriculumResponse p1Response = generateCurriculum(
                 requestDto.getSubject(),
@@ -238,6 +253,76 @@ public class LearningRoomService {
         } catch (IOException e) {
             log.warn("Failed to delete local material directory: {}", materialDir, e);
         }
+    }
+
+    /**
+     * 시연용: 정보처리기사 학습실 생성 시 mock_curriculum_templates / mock_transcript_templates
+     * 에서 weekly_curriculums / video_transcripts 로 복사한다. LLM 호출 없음.
+     * mock 엔티티가 WeeklyCurriculum 과 동일한 컨버터(List<String>, List<CurriculumResource>)를 사용하므로
+     * 변환 없이 필드 매핑만으로 복사 가능.
+     */
+    private LearningRoomCreateResponseDto copyFromTemplate(String email, LearningRoomCreateRequestDto requestDto) {
+        LearningRoomCreateResponseDto result = new TransactionTemplate(transactionManager).execute(status -> {
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+            LearningRoom room = LearningRoom.builder()
+                    .user(user)
+                    .subject(requestDto.getSubject())
+                    .level(requestDto.getLevel())
+                    .durationWeeks(requestDto.getDurationWeeks())
+                    .hoursPerDay(requestDto.getHoursPerDay())
+                    .build();
+            learningRoomRepository.save(room);
+
+            List<MockCurriculumTemplate> templates =
+                    mockCurriculumTemplateRepository.findAllByOrderByWeekNumberAsc();
+
+            List<LearningRoomCreateResponseDto.CurriculumSummary> summaries = new ArrayList<>();
+
+            for (MockCurriculumTemplate tmpl : templates) {
+                WeeklyCurriculum curriculum = WeeklyCurriculum.builder()
+                        .room(room)
+                        .weekNumber(tmpl.getWeekNumber())
+                        .topic(tmpl.getTopic())
+                        .description(tmpl.getDescription())
+                        .keywords(tmpl.getKeywords())
+                        .resources(tmpl.getResources())
+                        .build();
+                weeklyCurriculumRepository.save(curriculum);
+
+                List<MockTranscriptTemplate> transcripts =
+                        mockTranscriptTemplateRepository.findByTemplateIdOrderByChunkIndexAsc(tmpl.getId());
+                for (MockTranscriptTemplate t : transcripts) {
+                    videoTranscriptRepository.save(VideoTranscript.builder()
+                            .curriculum(curriculum)
+                            .videoId(t.getVideoId())
+                            .startSec(t.getStartSec())
+                            .endSec(t.getEndSec())
+                            .textContent(t.getTextContent())
+                            .chunkIndex(t.getChunkIndex())
+                            .build());
+                }
+
+                summaries.add(new LearningRoomCreateResponseDto.CurriculumSummary(
+                        tmpl.getWeekNumber().intValue(), tmpl.getTopic()
+                ));
+            }
+
+            log.info("[demo] 정보처리기사 학습실 생성 완료 — LLM 호출 0회, roomId={}, weeks={}",
+                    room.getId(), templates.size());
+
+            return LearningRoomCreateResponseDto.builder()
+                    .roomId(room.getId())
+                    .subject(room.getSubject())
+                    .level(room.getLevel())
+                    .durationWeeks(room.getDurationWeeks())
+                    .curriculum(summaries)
+                    .build();
+        });
+
+        if (result == null) throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
+        return result;
     }
 
     private P1CurriculumResponse generateCurriculum(String subject, String level,
