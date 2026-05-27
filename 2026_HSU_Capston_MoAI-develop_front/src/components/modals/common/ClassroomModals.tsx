@@ -47,9 +47,11 @@ interface ClassroomModalsProps {
     onSeekPlayer?: (sec: number) => void
     /** 돌발퀴즈·파이널퀴즈 완료 시 호출 — 키워드/퀴즈내역 즉시 갱신 */
     onAnyQuizComplete?: () => void
+    /** 메타인지(거꾸로 학습) 세션 완료 시 호출 — 약점 키워드 즉시 갱신 */
+    onMetacogComplete?: () => void
 }
 
-export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete }: ClassroomModalsProps) {
+export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete, onMetacogComplete }: ClassroomModalsProps) {
     const {
         modal, modalData, open, close,
         setMetacogComplete, setPartnerInfo, partnerInfo,
@@ -93,8 +95,9 @@ export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete }: Cla
      *   EndFlippedResponse.weakKeywords    → MetaEvaluationResponse.weakKeywords
      */
     const handleSessionEnd = (result: EndFlippedResponse) => {
-        // 거꾸로 학습 세션 완료 → 파이널 퀴즈 잠금 해제
+        // 거꾸로 학습 세션 완료 → 파이널 퀴즈 잠금 해제 + 약점 키워드 갱신
         setMetacogComplete(true)
+        onMetacogComplete?.()
         const evaluation: MetaEvaluationResponse = {
             comprehensionScore: result.score,
             strongKeywords:     result.gainedKeywords,
@@ -130,7 +133,8 @@ export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete }: Cla
                 }
                 close()
                 const curriculumParam = res.curriculumId ? `?curriculumId=${res.curriculumId}` : ''
-                navigate(`/study/${res.roomId}/classroom${curriculumParam}`)
+                // BUG-02 fix: /classroom은 구 학습실 라우트, 집중학습실은 /focus
+                navigate(`/study/${res.roomId}/focus${curriculumParam}`)
             } else {
                 // I accepted first — wait for partner; SSE study_group_activated will navigate
                 setMatchStatus('waiting_partner')

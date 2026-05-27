@@ -164,6 +164,13 @@ function FocusClassroomContent() {
     useEffect(() => { navigateRef.current = navigate }, [navigate])
     const nicknameRef        = useRef(nickname)
     useEffect(() => { nicknameRef.current = nickname }, [nickname])
+    // BUG-05: 타임아웃 시점의 실제 matchStatus를 읽기 위한 ref
+    const matchStatusRef     = useRef(matchStatus)
+    useEffect(() => { matchStatusRef.current = matchStatus }, [matchStatus])
+
+    // ── MD 탭 드래그 스크롤 ──────────────────────────────────────────────────
+    const mdTabsRef  = useRef<HTMLDivElement>(null)
+    const mdTabsDrag = useRef({ startX: 0, scrollLeft: 0, moved: false })
 
     // ── 파생값 ───────────────────────────────────────────────────────────────
     const activeVideoId  = weekData?.mainVideoId ?? ''
@@ -357,7 +364,13 @@ function FocusClassroomContent() {
                 if (!activatedRoomId || !activatedCurriculumId) return
                 setMatchStateForKey(
                     `${activatedRoomId}_${activatedCurriculumId}`,
-                    (): WeekMatchState => ({ matchStatus: 'completed', partnerConnected: true, partnerInfo: null, groupId: activatedGroupId }),
+                    (prev): WeekMatchState => ({
+                        ...prev,
+                        matchStatus: 'completed',
+                        partnerConnected: true,
+                        partnerInfo: null,
+                        groupId: activatedGroupId,
+                    }),
                 )
                 navigateRef.current(`/study/${activatedRoomId}/focus?curriculumId=${activatedCurriculumId}`)
             } catch { /* ignore malformed SSE data */ }
@@ -367,9 +380,34 @@ function FocusClassroomContent() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
                 const type = String(data.type ?? '')
-                if (type === 'study_group_activated') handleGroupActivated(e)
-                else if (type === 'week_unlocked') {
+                if (type === 'study_group_activated') {
+                    handleGroupActivated(e)
+                } else if (type === 'week_unlocked') {
                     if (roomId) getCurriculum(roomId).then(setAllWeeks).catch(() => {})
+                } else if (type === 'study_match') {
+                    // BUG-04 fix: 파트너 매칭 제안 SSE 처리
+                    // 백엔드가 매칭 상대를 찾아 보낸 알림 → pending 상태로 전환
+                    if (matchStatusRef.current === 'searching') {
+                        const partner = data.partner as { nickname?: string; role?: string; strengthKeyword?: string } | undefined
+                        const matchedPartnerInfo = {
+                            partnerId:       String(data.suggestionId ?? ''),
+                            partnerName:     String(partner?.nickname ?? '파트너'),
+                            partnerAvatar:   String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
+                            partnerRole:     (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                            matchRate:       Math.round((Number(data.matchScore) || 0) * 100),
+                            partnerStrengths: partner?.strengthKeyword ? [partner.strengthKeyword] : [],
+                            matchKeyword:    String(data.matchKeyword ?? ''),
+                        }
+                        if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
+                        setMatchStatus('pending')
+                        setPartnerInfo(matchedPartnerInfo)
+                    }
+                } else if (type === 'study_no_candidate') {
+                    // BUG-04 fix: 매칭 후보 없음 SSE 처리 → searching 상태 해제
+                    if (matchStatusRef.current === 'searching') {
+                        if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
+                        setMatchStatus('idle')
+                    }
                 }
             } catch { /* ignore malformed SSE data */ }
         }
@@ -391,8 +429,12 @@ function FocusClassroomContent() {
         setMatchStatus('searching')
         try {
             await requestStudyMatch(roomId, weekData.weekId)
+            // BUG-05 fix: 타임아웃 시 'searching' 상태일 때만 idle로 리셋
+            // (파트너가 60초 이내에 찾아져 pending/completed가 된 경우 리셋하지 않음)
             matchTimeoutRef.current = window.setTimeout(() => {
-                if (matchRequestKeyRef.current === key) setMatchStatus('idle')
+                if (matchRequestKeyRef.current === key && matchStatusRef.current === 'searching') {
+                    setMatchStatus('idle')
+                }
             }, 60_000)
         } catch { setMatchStatus('idle') }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,6 +458,35 @@ function FocusClassroomContent() {
         try { if (refreshToken) await logout({ refreshToken }) } catch { /* ignore logout errors */ }
         clearAuth(); navigate('/')
     }, [refreshToken, clearAuth, navigate])
+
+    // ── MD 탭 드래그 스크롤 핸들러 ──────────────────────────────────────────
+    const handleMdTabsMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const el = mdTabsRef.current
+        if (!el) return
+        mdTabsDrag.current = { startX: e.clientX, scrollLeft: el.scrollLeft, moved: false }
+        const onMove = (ev: MouseEvent) => {
+            const walk = ev.clientX - mdTabsDrag.current.startX
+            if (Math.abs(walk) > 4) {
+                mdTabsDrag.current.moved = true
+                el.scrollLeft = mdTabsDrag.current.scrollLeft - walk
+            }
+        }
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+    }, [])
+
+    /** 드래그 중에는 하위 버튼 click 이벤트 차단 */
+    const handleMdTabsClick = useCallback((e: React.MouseEvent) => {
+        if (mdTabsDrag.current.moved) {
+            e.stopPropagation()
+            e.preventDefault()
+            mdTabsDrag.current.moved = false
+        }
+    }, [])
 
     // 드롭다운 외부 클릭 닫기
     useEffect(() => {
@@ -989,25 +1060,19 @@ function FocusClassroomContent() {
 
                 {/* ══════════ Right Panel ══════════ */}
                 <div className="fc-right">
-                    {/* 툴바: 키워드 + 문서 선택 + 다운로드 */}
+                    {/* 툴바: 문서 선택(가로 드래그 스크롤) + 다운로드 */}
                     <div className="fc-md-toolbar">
-                        <div className="fc-md-toolbar-meta">
-                            <div className="fc-keywords">
-                                {safeKeywords.slice(0, 5).map(kw => (
-                                    <span key={kw} className="fc-keyword-badge">{kw}</span>
-                                ))}
-                            </div>
-                            {mdResources.length > 1 && mdResources.map((r, i) => (
+                        <div
+                            className="fc-md-toolbar-meta"
+                            ref={mdTabsRef}
+                            onMouseDown={handleMdTabsMouseDown}
+                            onClick={handleMdTabsClick}
+                        >
+                            {mdResources.map((r, i) => (
                                 <button
                                     key={i}
                                     onClick={() => setSelectedMdIdx(i)}
-                                    style={{
-                                        marginLeft: 4, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
-                                        border: '1px solid var(--color-border)',
-                                        background: selectedMdIdx === i ? 'var(--color-purple-100)' : 'none',
-                                        color: selectedMdIdx === i ? 'var(--color-purple-700)' : 'var(--color-text-muted)',
-                                        fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
+                                    className={`fc-md-tab-btn${selectedMdIdx === i ? ' fc-md-tab-btn--active' : ''}`}
                                     title={r.title}
                                 >
                                     {r.title}
@@ -1070,6 +1135,12 @@ function FocusClassroomContent() {
             <ClassroomModals
                 onSeekPlayer={sec => seekPlayerRef.current(sec)}
                 onAnyQuizComplete={() => setQuizCompletedCount(prev => prev + 1)}
+                onMetacogComplete={() => {
+                    if (weekData) {
+                        getCurriculumKeywords(roomId, weekData.weekId)
+                            .then(setUserKeywords).catch(() => {})
+                    }
+                }}
             />
 
         </div>

@@ -71,6 +71,10 @@ interface YTPlayerOptions {
     events?: {
         onReady?: () => void
         onStateChange?: (event: { data: number }) => void
+        // onPlaybackRateChange 타입 추가
+        // YouTube IFrame API는 배속 변경 시 이 이벤트를 발생시키며,
+        // 폴링에만 의존하면 변경 감지가 최대 1초 지연되거나 누락될 수 있다.
+        onPlaybackRateChange?: (event: { data: number }) => void
     }
 }
 
@@ -147,11 +151,11 @@ const PROGRESS_MILESTONES = [10, 25, 40, 50, 75, 100]
 
 // ── 훅 구현 ───────────────────────────────────────────────────────────────────
 export function useYouTubePlayer({
-    videoId,
-    onPatternDetected,
-    onProgressMilestone,
-    onTimeUpdate,
-}: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
+                                     videoId,
+                                     onPatternDetected,
+                                     onProgressMilestone,
+                                     onTimeUpdate,
+                                 }: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
     // 플레이어가 렌더링될 div의 고유 ID
     const playerDivIdRef = useRef(`yt-player-${Math.random().toString(36).slice(2)}`)
     const playerDivId = playerDivIdRef.current
@@ -237,29 +241,19 @@ export function useYouTubePlayer({
                 }
 
                 // ── 고배속(2x 이상) 감지 ──────────────────────────────────
-                const rate = player.getPlaybackRate()
-                if (rate >= SPEED_THRESHOLD) {
-                    if (speedStartedAtRef.current === null) {
-                        // 2배속 구간 시작
-                        speedStartedAtRef.current  = Date.now()
-                        speedStartSecRef.current   = current
-                        speedEventFiredRef.current = false
-                    } else if (!speedEventFiredRef.current) {
-                        // 5초 이상 유지 → 재생 중에 즉시 이벤트 발송
-                        const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
-                        if (duration_sec >= SPEED_MIN_DURATION_SEC) {
-                            onPatternRef.current('video_speed_up', {
-                                video_id:        videoId,
-                                speed_start_sec: speedStartSecRef.current,
-                                duration_sec,
-                            })
-                            speedEventFiredRef.current = true
-                        }
+                // 폴링에서는 구간 시작/종료 로직을 제거하고
+                // onPlaybackRateChange 이벤트에서 처리한다.
+                // 폴링은 오직 "이미 열린 구간의 5초 도달 여부"만 확인한다.
+                if (speedStartedAtRef.current !== null && !speedEventFiredRef.current) {
+                    const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                    if (duration_sec >= SPEED_MIN_DURATION_SEC) {
+                        onPatternRef.current('video_speed_up', {
+                            video_id:        videoId,
+                            speed_start_sec: speedStartSecRef.current,
+                            duration_sec,
+                        })
+                        speedEventFiredRef.current = true
                     }
-                } else if (speedStartedAtRef.current !== null) {
-                    // 배속이 2x 미만으로 복귀 → 구간 종료 (이미 발송했으면 스킵)
-                    speedStartedAtRef.current  = null
-                    speedEventFiredRef.current = false
                 }
 
                 // ── 진행률 마일스톤 감지 ───────────────────────────────────
@@ -290,10 +284,18 @@ export function useYouTubePlayer({
             } else if (state === 2) {
                 // ── 일시정지 중(paused): 장시간 일시정지 감지 ───────────────
 
-                // 2배속 구간 중 일시정지 → 미발송 상태면 조건 충족 시 발송
+                // 2배속 구간 중 일시정지 처리
+                // pauseStartedAtRef가 null인 시점 = 방금 막 일시정지된 첫 폴링 틱.
+                // 이 시점의 Date.now()를 구간 종료 시각으로 사용해야 일시정지
+                // 대기 시간이 duration_sec에 포함되는 것을 막을 수 있다.
+                // 이후 폴링 틱부터는 pauseStartedAtRef에 기록된 시각을 기준으로
+                // 계산하여 일시정지 시간이 누적되지 않도록 한다.
                 if (speedStartedAtRef.current !== null) {
                     if (!speedEventFiredRef.current) {
-                        const duration_sec = (Date.now() - speedStartedAtRef.current) / 1000
+                        // 일시정지 시작 시각이 기록되어 있으면 그 시각까지만,
+                        // 없으면(첫 폴링) 현재 시각 기준으로 계산
+                        const speedEndTime = pauseStartedAtRef.current ?? Date.now()
+                        const duration_sec = (speedEndTime - speedStartedAtRef.current) / 1000
                         if (duration_sec >= SPEED_MIN_DURATION_SEC) {
                             onPatternRef.current('video_speed_up', {
                                 video_id:        videoId,
@@ -394,6 +396,32 @@ export function useYouTubePlayer({
                         // 플레이어 DOM 준비 완료 → 폴링 시작
                         startPolling()
                     },
+
+                    // onPlaybackRateChange 이벤트 핸들러 추가
+                    // YouTube IFrame API는 배속 변경 시 onStateChange가 아닌
+                    // 이 이벤트를 발생시킨다. 폴링(1초 간격)에만 의존하면 빠른
+                    // 배속 변경이 누락되거나 구간 경계가 부정확해진다.
+                    onPlaybackRateChange: (event) => {
+                        const newRate = event.data
+
+                        if (newRate < SPEED_THRESHOLD) {
+                            // 배속이 임계값 아래로 내려감 → 구간 즉시 종료
+                            // 폴링 틱을 기다리지 않고 정확한 시점에 리셋한다.
+                            speedStartedAtRef.current  = null
+                            speedEventFiredRef.current = false
+                        } else if (speedStartedAtRef.current === null) {
+                            // 배속이 임계값 이상으로 올라감 → 구간 즉시 시작
+                            // 폴링 틱 지연(최대 1초) 없이 정확한 시작 시각을 기록한다.
+                            speedStartedAtRef.current  = Date.now()
+                            speedStartSecRef.current   = playerRef.current?.getCurrentTime() ?? 0
+                            speedEventFiredRef.current = false
+                        }
+                        // speedStartedAtRef !== null && newRate >= SPEED_THRESHOLD:
+                        // 이미 구간이 열려 있는 상태에서 배속이 또 변경된 경우(예: 2x → 1.5x → 2x).
+                        // 기존 구간을 유지하고 시작 시각을 바꾸지 않는다.
+                        // (구간을 리셋하고 싶다면 이 조건에 리셋 로직을 추가할 것)
+                    },
+
                     onStateChange: (event) => {
                         // 영상 종료(0)시 폴링 정지, 재생 재개(1)시 폴링 재시작
                         if (event.data === 0) {
@@ -498,6 +526,15 @@ export function useYouTubePlayer({
 
     const setPlaybackRate = useCallback((rate: number) => {
         playerRef.current?.setPlaybackRate(rate)
+        // onPlaybackRateChange 이벤트와 동일한 로직으로 즉시 ref 상태 정리
+        if (rate < SPEED_THRESHOLD) {
+            speedStartedAtRef.current  = null
+            speedEventFiredRef.current = false
+        } else if (speedStartedAtRef.current === null) {
+            speedStartedAtRef.current  = Date.now()
+            speedStartSecRef.current   = playerRef.current?.getCurrentTime() ?? 0
+            speedEventFiredRef.current = false
+        }
     }, [])
 
     return { playerDivId, playerHostRef, pausePlayer, playVideo, seekPlayer, setPlaybackRate }

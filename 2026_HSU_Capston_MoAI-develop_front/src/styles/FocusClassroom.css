@@ -510,10 +510,56 @@
 .fc-md-toolbar-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
     min-width: 0;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    cursor: grab;
+    user-select: none;
+    /* 가로 스크롤바 스타일 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+    padding-bottom: 2px; /* 스크롤바 공간 확보 */
+}
+.fc-md-toolbar-meta::-webkit-scrollbar {
+    height: 3px;
+}
+.fc-md-toolbar-meta::-webkit-scrollbar-track {
+    background: transparent;
+}
+.fc-md-toolbar-meta::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 2px;
+}
+.fc-md-toolbar-meta:active {
+    cursor: grabbing;
+}
+
+/* MD 자료 탭 버튼 */
+.fc-md-tab-btn {
+    padding: 3px 10px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    border: 1px solid var(--color-border);
+    background: none;
+    color: var(--color-text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.fc-md-tab-btn:hover {
+    background: var(--color-purple-50);
+    color: var(--color-purple-700);
+    border-color: var(--color-purple-200);
+}
+.fc-md-tab-btn--active {
+    background: var(--color-purple-100);
+    color: var(--color-purple-700);
+    border-color: var(--color-purple-200);
 }
 
 .fc-keywords {

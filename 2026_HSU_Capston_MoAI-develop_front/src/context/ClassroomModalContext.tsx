@@ -52,6 +52,10 @@ export interface WeekMatchState {
     partnerConnected: boolean
     partnerInfo:      StudyMatchResponse | null
     groupId:          string | null
+    /** 메타인지(거꾸로 학습) 완료 여부 — 주차별로 localStorage에 영속화 */
+    metacogComplete:  boolean
+    /** 파이널 퀴즈 제출 완료 여부 — 주차별로 localStorage에 영속화 */
+    quizSubmitted:    boolean
 }
 
 const DEFAULT_WEEK_MATCH: WeekMatchState = {
@@ -59,6 +63,8 @@ const DEFAULT_WEEK_MATCH: WeekMatchState = {
     partnerConnected: false,
     partnerInfo:      null,
     groupId:          null,
+    metacogComplete:  false,
+    quizSubmitted:    false,
 }
 
 const LS_MATCH_STATES = 'moai_match_states'
@@ -75,7 +81,8 @@ function persistMatchStates(map: Record<string, WeekMatchState>) {
     // 기본값과 동일한 항목은 저장하지 않아 localStorage를 깔끔하게 유지한다.
     const cleaned = Object.fromEntries(
         Object.entries(map).filter(([, v]) =>
-            v.matchStatus !== 'idle' || v.partnerConnected || v.partnerInfo || v.groupId
+            v.matchStatus !== 'idle' || v.partnerConnected || v.partnerInfo || v.groupId ||
+            v.metacogComplete || v.quizSubmitted
         )
     )
     if (Object.keys(cleaned).length === 0) localStorage.removeItem(LS_MATCH_STATES)
@@ -90,8 +97,10 @@ interface ClassroomModalContextValue {
     open:  (key: NonNullable<ModalKey>, data?: ModalData) => void
     close: () => void
 
+    /** 현재 주차의 메타인지 완료 여부 (localStorage에 주차별 영속화) */
     metacogComplete:    boolean
     setMetacogComplete: (v: boolean) => void
+    /** 현재 주차의 파이널 퀴즈 제출 완료 여부 (localStorage에 주차별 영속화) */
     quizSubmitted:      boolean
     setQuizSubmitted:   (v: boolean) => void
 
@@ -138,20 +147,18 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const [modal,     setModal]     = useState<ModalKey>(null)
     const [modalData, setModalData] = useState<ModalData | null>(null)
 
-    const [metacogComplete, setMetacogComplete] = useState(false)
-    const [quizSubmitted,   setQuizSubmitted]   = useState(false)
     const [currentWeekId,   setCurrentWeekId]   = useState<string | null>(null)
 
-    // 주차별 매칭 상태 맵 — 새로고침 시 localStorage에서 복원
+    // 주차별 상태 맵 — 매칭·메타인지·퀴즈 완료 여부 포함, 새로고침 시 localStorage에서 복원
     const [matchStates,     setMatchStates]     = useState<Record<string, WeekMatchState>>(loadMatchStates)
     const [currentMatchKey, setCurrentMatchKey] = useState<string | null>(null)
 
     // 저장된 요약 — 주차 전환 시 loadSummariesForWeek로 교체
     const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([])
 
-    // 현재 주차의 파생 상태
+    // 현재 주차의 파생 상태 (metacogComplete, quizSubmitted 포함)
     const currentMatch   = currentMatchKey ? (matchStates[currentMatchKey] ?? DEFAULT_WEEK_MATCH) : DEFAULT_WEEK_MATCH
-    const { matchStatus, partnerConnected, partnerInfo, groupId } = currentMatch
+    const { matchStatus, partnerConnected, partnerInfo, groupId, metacogComplete, quizSubmitted } = currentMatch
 
     const updateCurrentMatch = (updater: (prev: WeekMatchState) => WeekMatchState) => {
         if (!currentMatchKey) return
@@ -174,6 +181,9 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
     const setPartnerConnected = (v: boolean)                      => updateCurrentMatch(p => ({ ...p, partnerConnected:  v    }))
     const setPartnerInfo      = (info: StudyMatchResponse | null) => updateCurrentMatch(p => ({ ...p, partnerInfo:       info }))
     const setGroupId          = (id: string | null)               => updateCurrentMatch(p => ({ ...p, groupId:           id   }))
+    // metacogComplete · quizSubmitted — 주차별 WeekMatchState에 포함되어 localStorage에 자동 영속화
+    const setMetacogComplete  = (v: boolean)                      => updateCurrentMatch(p => ({ ...p, metacogComplete:   v    }))
+    const setQuizSubmitted    = (v: boolean)                      => updateCurrentMatch(p => ({ ...p, quizSubmitted:     v    }))
 
     const open  = (key: NonNullable<ModalKey>, data?: ModalData) => { setModalData(data ?? null); setModal(key) }
     const close = () => { setModal(null); setModalData(null) }
@@ -200,8 +210,7 @@ export function ClassroomModalProvider({ children }: { children: React.ReactNode
             currentMatchKey,  setCurrentMatchKey,
             matchStatus,      partnerConnected, partnerInfo, groupId,
             setMatchStatus,   setPartnerConnected, setPartnerInfo, setGroupId,
-            setMatchStateForKey,
-            matchStates,
+            setMatchStateForKey, matchStates,
             savedSummaries, saveSummary, loadSummariesForWeek,
         }}>
             {children}
