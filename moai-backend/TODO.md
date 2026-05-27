@@ -461,3 +461,35 @@
 - [x] StompChannelInterceptor: Access Token만 WebSocket 연결 허용
 - [x] AuthService.logout(): Access Token인지 검증
 - [x] AuthService.reissue(): Refresh Token인지 검증
+## PHASE 12 — 자막 스크래핑 Provider 추상화 + Supadata 도입
+
+배경: EC2 IP 대역이 YouTube 봇 탐지에 즉시 IP 밴(429 / "Sign in to confirm you're not a bot")
+당해 yt-dlp 가 prod 환경에서 사실상 동작 불가. Supadata 관리형 API 를 신규 provider 로 추가하고
+인터페이스 토글로 환경별 전환.
+
+### 12-1. 인터페이스 도입
+- [x] global/subtitle/SubtitleScraper.java 신규 — `scrape(String videoId)` 단일 메서드 인터페이스
+- [x] global/subtitle/YtdlpSubtitleScraper.java 신규 — 기존 SubtitleScraperService 의 로직을 그대로 이전(클래스명/어노테이션만 변경). `@ConditionalOnProperty(name="subtitle.provider", havingValue="ytdlp", matchIfMissing=true)` 로 기본 활성
+- [x] global/subtitle/SubtitleScraperService.java 삭제 — YtdlpSubtitleScraper 로 대체
+
+### 12-2. Supadata 구현체
+- [x] global/subtitle/SupadataConfig.java 신규 — `supadataWebClient` 빈, BASE_URL=https://api.supadata.ai, responseTimeout 30초. `@ConditionalOnProperty(havingValue="supadata")`
+- [x] global/subtitle/SupadataSubtitleScraper.java 신규 — `GET /v1/transcript`, 헤더 `x-api-key`, 쿼리 `url + text=false + mode=native` 고정 (text=false 로 시간 청크 보존, mode=native 로 기존 자막만 1크레딧 소비)
+  - 202(jobId) 응답 → `GET /v1/transcript/{jobId}` 폴링 (15회 × 2초 = 30초 한도). 초과 시 SCRIPT_TIMEOUT. 한도를 30초로 둔 이유는 @Async 스레드 풀 보호 + 기존 yt-dlp `subtitle.timeout-sec=30` 정책과 일치
+  - HTTP status → SubtitleErrorCode 매핑: 200→정상, 202→폴링, 206→NO_SUBTITLES_AVAILABLE, 401/403→SUPADATA_AUTH_FAILED, 402→SUPADATA_QUOTA_EXCEEDED, 404→VIDEO_NOT_FOUND, 429→RATE_LIMITED, 5xx/네트워크→NETWORK_ERROR
+  - offset/duration(ms) → startSec/endSec(초) 정확 변환 (offset=12500,duration=3000 → start=12.500,end=15.500)
+  - API 키 환경변수 `${SUPADATA_API_KEY}` 주입 (하드코딩 금지)
+
+### 12-3. ErrorCode 추가
+- [x] global/subtitle/exception/SubtitleErrorCode.java 수정 — SUPADATA_AUTH_FAILED(401, SUB_201), SUPADATA_QUOTA_EXCEEDED(402, SUB_202) 추가. 기존 코드(NO_SUBTITLES_AVAILABLE/RATE_LIMITED/VIDEO_NOT_FOUND/NETWORK_ERROR/SCRIPT_TIMEOUT)는 재사용
+
+### 12-4. 호출부 인터페이스 의존 전환
+- [x] domain/curriculum/service/CurriculumEnrichmentService.java 수정 — `SubtitleScraperService` → `SubtitleScraper` 인터페이스로 의존 변경 (3줄: import, 필드, 호출). 분기 로직(NO_SUBTITLES_AVAILABLE 재선정, RATE_LIMITED 재시도 큐)은 그대로 재사용
+
+### 12-5. 설정
+- [x] application.yaml 수정 — `subtitle.provider: ${SUBTITLE_PROVIDER:ytdlp}` 추가(기본값 ytdlp로 로컬 호환성 유지), `supadata.api-key: ${SUPADATA_API_KEY:}` 추가
+- [x] application-local.yaml 수정 — `subtitle.provider` 명시 (로컬 기본 ytdlp)
+- [x] prod 프로필 yaml 별도 생성하지 않음 — EC2 배포 시 `.env` 에서 `SUBTITLE_PROVIDER=supadata` + `SUPADATA_API_KEY=...` override 만으로 전환
+
+### 12-6. 검증
+- [x] `./gradlew compileJava` 통과 확인

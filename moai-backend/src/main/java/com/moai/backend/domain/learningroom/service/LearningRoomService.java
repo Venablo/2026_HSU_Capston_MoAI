@@ -9,6 +9,7 @@ import com.moai.backend.domain.demo.entity.MockCurriculumTemplate;
 import com.moai.backend.domain.demo.entity.MockTranscriptTemplate;
 import com.moai.backend.domain.demo.repository.MockCurriculumTemplateRepository;
 import com.moai.backend.domain.demo.repository.MockTranscriptTemplateRepository;
+import com.moai.backend.domain.demo.service.DemoResetService;
 import com.moai.backend.domain.eventlog.repository.LearningEventLogRepository;
 import com.moai.backend.domain.flipped.repository.AiInteractionRepository;
 import com.moai.backend.domain.flipped.repository.FlippedSessionRepository;
@@ -77,6 +78,7 @@ public class LearningRoomService {
     private final CustomMaterialRepository customMaterialRepository;
     private final MockCurriculumTemplateRepository mockCurriculumTemplateRepository;
     private final MockTranscriptTemplateRepository mockTranscriptTemplateRepository;
+    private final DemoResetService demoResetService;
     private final PlatformTransactionManager transactionManager;
 
     // 시연 모드 분기 키워드 — 일치 시 LLM 호출 없이 mock 템플릿 복사.
@@ -98,9 +100,16 @@ public class LearningRoomService {
     // LLM 호출(수십 초) → 완료 후 TransactionTemplate으로 짧게 쓰기 트랜잭션만 열기.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LearningRoomCreateResponseDto createRoom(String email, LearningRoomCreateRequestDto requestDto) {
-        // 시연 모드: 정보처리기사 → LLM 호출 없이 mock 템플릿에서 직접 복사
+        // 시연 모드 분기: subject == "정보처리기사" AND 화이트리스트(moai.demo.cleanup-login-ids) 등록된
+        // 시연 계정일 때만 mock 템플릿 복사로 우회. 그 외(일반 사용자가 "정보처리기사" 입력 / 시연 계정이
+        // 다른 subject 입력) 케이스는 모두 정상 LLM 생성 흐름으로 폴백한다.
         if (DEMO_SUBJECT.equals(requestDto.getSubject())) {
-            return copyFromTemplate(email, requestDto);
+            User candidate = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+            if (demoResetService.isDemoAccount(candidate.getLoginId())) {
+                return copyFromTemplate(email, requestDto);
+            }
+            // 화이트리스트 미포함 → LLM 흐름으로 폴백 (아래 정상 경로 진입)
         }
 
         // 1. LLM 호출 — DB 커넥션 미점유 상태에서 실행
@@ -262,6 +271,10 @@ public class LearningRoomService {
      * 변환 없이 필드 매핑만으로 복사 가능.
      */
     private LearningRoomCreateResponseDto copyFromTemplate(String email, LearningRoomCreateRequestDto requestDto) {
+        // 트랜잭션 안에서 생성된 주차 id 를 모아둔다. 커밋 후 비동기 Step D 호출에 사용.
+        List<String> copiedCurriculumIds = new ArrayList<>();
+        String[] subjectLevel = new String[2];  // [0]=subject, [1]=level
+
         LearningRoomCreateResponseDto result = new TransactionTemplate(transactionManager).execute(status -> {
             User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
@@ -274,6 +287,9 @@ public class LearningRoomService {
                     .hoursPerDay(requestDto.getHoursPerDay())
                     .build();
             learningRoomRepository.save(room);
+
+            subjectLevel[0] = room.getSubject();
+            subjectLevel[1] = room.getLevel();
 
             List<MockCurriculumTemplate> templates =
                     mockCurriculumTemplateRepository.findAllByOrderByWeekNumberAsc();
@@ -290,6 +306,7 @@ public class LearningRoomService {
                         .resources(tmpl.getResources())
                         .build();
                 weeklyCurriculumRepository.save(curriculum);
+                copiedCurriculumIds.add(curriculum.getId());
 
                 List<MockTranscriptTemplate> transcripts =
                         mockTranscriptTemplateRepository.findByTemplateIdOrderByChunkIndexAsc(tmpl.getId());
@@ -322,6 +339,17 @@ public class LearningRoomService {
         });
 
         if (result == null) throw new CustomException(ErrorCode.LLM_API_CALL_FAILED);
+
+        // 트랜잭션 커밋 후 — 주차별 Markdown 학습 자료를 백그라운드 생성.
+        // 학습실 생성 응답은 이미 빌드되어 사용자에게 즉시 반환되고,
+        // 자료는 잠시 후 weekly_curriculums.resources 에 Markdown 항목으로 추가된다.
+        // 각 호출은 @Async("curriculumTaskExecutor") 로 독립 실행되어 한 주차 실패가 격리된다.
+        for (String curriculumId : copiedCurriculumIds) {
+            curriculumEnrichmentService.generateDemoMaterialForWeek(
+                    curriculumId, subjectLevel[0], subjectLevel[1]
+            );
+        }
+
         return result;
     }
 

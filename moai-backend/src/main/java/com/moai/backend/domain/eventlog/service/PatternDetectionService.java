@@ -147,6 +147,9 @@ public class PatternDetectionService {
         Long accumulated = redisTemplate.opsForValue().increment(accumKey, durationSec);
         setTtlIfNew(accumKey);
 
+        log.info("패턴4(2배속) Redis 누적 — user={}, video={}, 누적={}초 (임계={}초)",
+                userId, videoId, accumulated, SPEEDUP_THRESHOLD_SEC);
+
         if (accumulated == null || accumulated < SPEEDUP_THRESHOLD_SEC) {
             return PatternResult.notTriggered();
         }

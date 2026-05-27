@@ -19,7 +19,7 @@ import com.moai.backend.global.material.MaterialContent;
 import com.moai.backend.global.material.MaterialGeneratorService;
 import com.moai.backend.global.s3.S3Service;
 import com.moai.backend.global.subtitle.SubtitleRetryQueue;
-import com.moai.backend.global.subtitle.SubtitleScraperService;
+import com.moai.backend.global.subtitle.SubtitleScraper;
 import com.moai.backend.global.subtitle.dto.SubtitleChunk;
 import com.moai.backend.global.subtitle.dto.SubtitleScrapeResult;
 import com.moai.backend.global.subtitle.exception.SubtitleErrorCode;
@@ -57,7 +57,7 @@ public class CurriculumEnrichmentService {
     private final WeeklyCurriculumRepository weeklyCurriculumRepository;
     private final VideoTranscriptRepository videoTranscriptRepository;
     private final LlmService llmService;
-    private final SubtitleScraperService subtitleScraperService;
+    private final SubtitleScraper subtitleScraper;
     private final MaterialGeneratorService materialGeneratorService;
     private final S3Service s3Service;
     private final YoutubeApiService youtubeApiService;
@@ -226,6 +226,44 @@ public class CurriculumEnrichmentService {
         log.info("[{}주차] enrichment 완료 — videoId: {}, transcripts: {}개, keywords: {}",
                 curriculum.getWeekNumber(), videoId, transcriptCount,
                 keywords != null ? keywords.size() + "개" : "추출 실패");
+    }
+
+    /**
+     * 시연용: copyFromTemplate 으로 생성된 학습실의 주차별 Markdown 학습 자료를 비동기 생성.
+     * 시드된 mock 데이터에는 curriculum/transcripts 만 있으므로 학습 자료(Markdown)는 비어있다.
+     * 이 메서드가 백그라운드로 Step D 만 실행해 resources 에 Markdown 항목을 추가한다.
+     *
+     * 일반 enrichWeek 와 달리 Step A/B/C(영상추천/자막/키워드추출) 모두 스킵.
+     * WeekEnrichmentContext 의 subject/level/topic 외 필드는 빈 값으로 채움
+     * (generateMaterialContent 의 nullSafe/joinLines/joinCsv 가 빈 값 안전 처리).
+     *
+     * 한 주차 실패가 다른 주차에 영향 주지 않으며, 학습실 생성 응답은 즉시 반환된다.
+     */
+    @Async("curriculumTaskExecutor")
+    @Transactional
+    public void generateDemoMaterialForWeek(String curriculumId, String subject, String level) {
+        WeeklyCurriculum curriculum = weeklyCurriculumRepository.findById(curriculumId).orElse(null);
+        if (curriculum == null) {
+            log.warn("[demo] Step D 대상 커리큘럼 없음 — curriculumId={}", curriculumId);
+            return;
+        }
+
+        WeekEnrichmentContext context = new WeekEnrichmentContext(
+                curriculumId,
+                curriculum.getTopic(),
+                "",                          // weeklySummary
+                Collections.emptyList(),     // learningObjectives
+                Collections.emptyList(),     // keyConcepts
+                Collections.emptyList(),     // focusQuestions
+                Collections.emptyList(),     // practiceKeywords
+                "",                          // youtubeSearchQuery
+                subject,
+                level
+        );
+
+        log.info("[demo][{}주차] Step D 시작 — topic={}", curriculum.getWeekNumber(), curriculum.getTopic());
+        generateAndUploadMaterials(curriculum, context);
+        log.info("[demo][{}주차] Step D 완료", curriculum.getWeekNumber());
     }
 
     // --- Step A: Algorithmic YouTube 영상 추천 ---
@@ -857,7 +895,7 @@ public class CurriculumEnrichmentService {
                 return new SubtitleScrapeResult(chunks, null, "cache");
             }
         }
-        return subtitleScraperService.scrape(videoId);
+        return subtitleScraper.scrape(videoId);
     }
 
     /**

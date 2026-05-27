@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application on Java 17. Stack: MySQL + Redis + AWS S3, JWT auth, STOMP/WebSocket for chat, SSE for real-time notifications and flipped-learning events, WebFlux `WebClient` for LLM calls, Apache PDFBox for material generation, and a Python subprocess (yt-dlp 기본 + youtube-transcript-api 폴백) for subtitle scraping.
+MoAI (AI-based Study Platform) backend — Spring Boot 3.5 application on Java 17. Stack: MySQL + Redis + AWS S3, JWT auth, STOMP/WebSocket for chat, SSE for real-time notifications and flipped-learning events, WebFlux `WebClient` for LLM calls, Apache PDFBox for material generation, and a pluggable subtitle scraper (`SubtitleScraper` 인터페이스 — `subtitle.provider` 프로퍼티로 ytdlp/supadata 토글).
 
 ## Reference docs
 
@@ -40,6 +40,8 @@ docker-compose up -d
 - `LLM_API_KEY` — LLM API key (OpenAI or Gemini)
 - `LLM_API_URL` — LLM API endpoint URL
 - `LLM_MODEL` — Model name to use (e.g. gpt-4o)
+- `SUBTITLE_PROVIDER` — `ytdlp`(로컬 기본, 미설정 시 동일) 또는 `supadata`(EC2 등 클라우드 IP)
+- `SUPADATA_API_KEY` — Supadata Transcript API 키 (`SUBTITLE_PROVIDER=supadata` 일 때만 필수)
 
 ## Architecture
 
@@ -67,7 +69,10 @@ docker-compose up -d
   - `exception/` — `CustomException(status, code, message)`, `GlobalExceptionHandler`
   - `llm/` — shared `LlmService` (WebClient-based), `LlmConfig`, request/response DTOs. All LLM calls go through this module
   - `s3/` — `S3Service` / `S3Config` (AWS SDK v2) for learning-room file URLs
-  - `subtitle/` — `SubtitleScraperService` invokes `scripts/scrape_subtitle.py` via `ProcessBuilder` (yt-dlp 기본 + youtube-transcript-api 폴백). 에러는 `SubtitleScrapeException(SubtitleErrorCode)`로 분기.
+  - `subtitle/` — `SubtitleScraper` 인터페이스 + 두 구현체. `subtitle.provider` 프로퍼티로 토글:
+    - `YtdlpSubtitleScraper` (기본/local) — `scripts/scrape_subtitle.py` 를 `ProcessBuilder` 로 실행 (yt-dlp 기본 + youtube-transcript-api 폴백)
+    - `SupadataSubtitleScraper` (EC2/prod) — Supadata Transcript API (`GET /v1/transcript`, `mode=native` + `text=false` 고정, `x-api-key` 헤더 인증). EC2 IP 대역의 YouTube 봇 탐지(IP 밴) 우회 목적
+    - 호출부(`CurriculumEnrichmentService`)는 인터페이스에만 의존. 에러는 `SubtitleScrapeException(SubtitleErrorCode)` 로 분기 (Supadata 신규 코드 — `SUPADATA_AUTH_FAILED` 401/403, `SUPADATA_QUOTA_EXCEEDED` 402)
   - `material/` — `MaterialGeneratorService` + `MaterialContent` (PDF output)
 
 ### Key patterns
@@ -92,7 +97,7 @@ docker-compose up -d
 - Tests use H2 in-memory (`testRuntimeOnly 'com.h2database:h2'`) — running `./gradlew test` does NOT require a live MySQL/Redis.
 - JPA `ddl-auto: update` — schema managed by Hibernate
 - Config file is `src/main/resources/application.yaml` (not `application.yml`). `subtitle.script-path` points at the Python scraper.
-- The deployment environment (and local) must have Python 3, `yt-dlp`, and `youtube-transcript-api` installed (`pip install -r src/main/resources/scripts/requirements.txt`).
+- ytdlp 사용 환경(로컬, `SUBTITLE_PROVIDER=ytdlp`)은 Python 3, `yt-dlp`, `youtube-transcript-api` 설치 필요 (`pip install -r src/main/resources/scripts/requirements.txt`). Supadata 사용 환경(EC2, `SUBTITLE_PROVIDER=supadata`)은 Python 의존성 불필요.
 
 ### Key dependencies (non-obvious)
 
@@ -172,12 +177,14 @@ graph TB
 - **패턴 감지**: Redis 기반 카운팅. 키 `moai:events:{userId}:{videoId}:{eventType}` (TTL 10분), 쿨다운 `moai:cooldown:{userId}:{videoId}:{pattern}` (TTL 5분)
 - **진척도**: 영상 시청 40% + 거꾸로 학습 30% + 파이널 퀴즈 30%. 학습실 전체 달성률 = 주차별 평균
 - **매칭 엔진**: 약점 키워드 weakness_count >= 2 + 동일 키워드 strength 보유자 + created_at 7일 이내 + Redis 토큰 존재(온라인)
-- **자막 스크래핑**: Python 스크립트 경로 `src/main/resources/scripts/scrape_subtitle.py` (yt-dlp 기본 + youtube-transcript-api 폴백).
-  application.yaml `subtitle.script-path` / `python-bin` / `timeout-sec` / `preferred-langs` / `enable-fallback` 프로퍼티로 관리.
-  ProcessBuilder로 호출 (stdout/stderr 분리). 실패 시 `SubtitleScrapeException(SubtitleErrorCode)` 발생, 에러 코드별 분기:
+- **자막 스크래핑**: `SubtitleScraper` 인터페이스 추상화. `subtitle.provider` 프로퍼티로 두 구현체 토글:
+  - **ytdlp** (기본/로컬) — `src/main/resources/scripts/scrape_subtitle.py` 를 ProcessBuilder 로 호출 (yt-dlp 기본 + youtube-transcript-api 폴백). `subtitle.script-path` / `python-bin` / `timeout-sec` / `preferred-langs` / `enable-fallback` / `cookies-path` / `concurrency-limit` 프로퍼티로 관리.
+  - **supadata** (EC2/prod) — Supadata Transcript API (`GET https://api.supadata.ai/v1/transcript`, `x-api-key` 헤더, `mode=native` + `text=false` 고정). 202 비동기 응답은 jobId 폴링(최대 30초 — 15회 × 2초, 기존 yt-dlp 의 30초 타임아웃 정책과 일치). 폴링 한도는 @Async 스레드 풀 보호 목적. HTTP status 매핑: 200→정상, 202→폴링, 206→NO_SUBTITLES_AVAILABLE, 401/403→SUPADATA_AUTH_FAILED, 402→SUPADATA_QUOTA_EXCEEDED, 404→VIDEO_NOT_FOUND, 429→RATE_LIMITED, 5xx/네트워크→NETWORK_ERROR, 폴링 초과→SCRIPT_TIMEOUT.
+
+  공통: 실패 시 `SubtitleScrapeException(SubtitleErrorCode)` 발생, 호출부 분기 정책은 구현체 무관하게 동일:
     - `NO_SUBTITLES_AVAILABLE` → 후보 풀 차순위 영상으로 재선정 1회 시도
     - `RATE_LIMITED` → `SubtitleRetryQueue` 에 등록 (60초 뒤 같은 영상 재시도)
-    - 기타 (PRIVATE/AGE/REGION/NOT_FOUND/NETWORK/TIMEOUT 등) → 자막 없이 다음 Step 진행
+    - 기타 (PRIVATE/AGE/REGION/NOT_FOUND/NETWORK/TIMEOUT/SUPADATA_*) → 자막 없이 다음 Step 진행
   학습실 생성 트랜잭션은 자막 실패로 절대 롤백되지 않는다.
 - **LLM 연동**: 프롬프트 설계는 AI 담당이 별도 진행. 백엔드는 LLMService 공통 모듈로 호출만 담당
 - **상세 흐름**: `docs/architecture.md` 참조

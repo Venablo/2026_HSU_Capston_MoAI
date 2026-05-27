@@ -103,14 +103,8 @@ public class DemoResetService {
         customMaterialRepository.deleteByUserId(userId);
         userKeywordRepository.deleteByUserId(userId);
 
-        // 2. 주차 커리큘럼 → 학습실
-        weeklyCurriculumRepository.deleteByUserId(userId);
-        learningRoomRepository.deleteByUserId(userId);
-
-        // 3. 알림
-        notificationRepository.deleteByUserId(userId);
-
-        // 4. 스터디 정리
+        // 2. 스터디 정리 — weekly_curriculums 삭제보다 먼저 처리해야 한다.
+        //    study_suggestions.curriculum_id FK 가 살아있으면 weekly_curriculums 삭제가 거부됨.
         //    - 김코딩이 멤버였던 그룹 (양측 수락 완료)
         //    - 김코딩이 받은 pending/rejected suggestion 의 그룹 (수락 전이라 member 에 없음)
         //    두 경로 합집합으로 group_id 모음.
@@ -127,6 +121,13 @@ public class DemoResetService {
             studySuggestionRepository.deleteByGroupIdIn(groupIds);
             studyGroupRepository.deleteAllByIdInBatch(groupIds);
         }
+
+        // 3. 주차 커리큘럼 → 학습실
+        weeklyCurriculumRepository.deleteByUserId(userId);
+        learningRoomRepository.deleteByUserId(userId);
+
+        // 4. 알림
+        notificationRepository.deleteByUserId(userId);
 
         log.info("[demo] cleanupDemoData 완료: userId={}, 정리된 스터디 그룹 수={}", userId, groupIds.size());
     }

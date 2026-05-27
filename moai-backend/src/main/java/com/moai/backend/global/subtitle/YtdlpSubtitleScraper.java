@@ -11,6 +11,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -33,7 +34,10 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
- * Python 스크립트(scrape_subtitle.py)를 호출해 자막을 추출하는 서비스.
+ * Python 스크립트(scrape_subtitle.py)를 호출해 자막을 추출하는 구현체.
+ *
+ * subtitle.provider=ytdlp (또는 미설정 — matchIfMissing=true) 일 때 활성화된다.
+ * 로컬 개발 환경 및 EC2 외 IP에서 사용.
  *
  * 동작:
  * - 1차 yt-dlp, 2차 youtube-transcript-api (스크립트 내부 폴백)
@@ -46,8 +50,9 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "subtitle.provider", havingValue = "ytdlp", matchIfMissing = true)
 @RequiredArgsConstructor
-public class SubtitleScraperService {
+public class YtdlpSubtitleScraper implements SubtitleScraper {
 
     private final ObjectMapper objectMapper;
 
@@ -132,6 +137,7 @@ public class SubtitleScraperService {
      *
      * @throws SubtitleScrapeException 실패 시. errorCode 로 분기 처리 가능.
      */
+    @Override
     public SubtitleScrapeResult scrape(String videoId) {
         try {
             concurrencyLimiter.acquire();
