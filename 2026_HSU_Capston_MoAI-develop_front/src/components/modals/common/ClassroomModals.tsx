@@ -130,7 +130,8 @@ export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete }: Cla
                 }
                 close()
                 const curriculumParam = res.curriculumId ? `?curriculumId=${res.curriculumId}` : ''
-                navigate(`/study/${res.roomId}/classroom${curriculumParam}`)
+                // BUG-02 fix: /classroom은 구 학습실 라우트, 집중학습실은 /focus
+                navigate(`/study/${res.roomId}/focus${curriculumParam}`)
             } else {
                 // I accepted first — wait for partner; SSE study_group_activated will navigate
                 setMatchStatus('waiting_partner')

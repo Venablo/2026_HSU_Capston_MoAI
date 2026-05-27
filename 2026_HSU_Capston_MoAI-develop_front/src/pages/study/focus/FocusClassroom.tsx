@@ -164,6 +164,9 @@ function FocusClassroomContent() {
     useEffect(() => { navigateRef.current = navigate }, [navigate])
     const nicknameRef        = useRef(nickname)
     useEffect(() => { nicknameRef.current = nickname }, [nickname])
+    // BUG-05: 타임아웃 시점의 실제 matchStatus를 읽기 위한 ref
+    const matchStatusRef     = useRef(matchStatus)
+    useEffect(() => { matchStatusRef.current = matchStatus }, [matchStatus])
 
     // ── 파생값 ───────────────────────────────────────────────────────────────
     const activeVideoId  = weekData?.mainVideoId ?? ''
@@ -357,7 +360,13 @@ function FocusClassroomContent() {
                 if (!activatedRoomId || !activatedCurriculumId) return
                 setMatchStateForKey(
                     `${activatedRoomId}_${activatedCurriculumId}`,
-                    (): WeekMatchState => ({ matchStatus: 'completed', partnerConnected: true, partnerInfo: null, groupId: activatedGroupId }),
+                    (prev): WeekMatchState => ({
+                        ...prev,
+                        matchStatus: 'completed',
+                        partnerConnected: true,
+                        partnerInfo: null,
+                        groupId: activatedGroupId,
+                    }),
                 )
                 navigateRef.current(`/study/${activatedRoomId}/focus?curriculumId=${activatedCurriculumId}`)
             } catch { /* ignore malformed SSE data */ }
@@ -367,9 +376,34 @@ function FocusClassroomContent() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const data = JSON.parse(e.data as string) as any
                 const type = String(data.type ?? '')
-                if (type === 'study_group_activated') handleGroupActivated(e)
-                else if (type === 'week_unlocked') {
+                if (type === 'study_group_activated') {
+                    handleGroupActivated(e)
+                } else if (type === 'week_unlocked') {
                     if (roomId) getCurriculum(roomId).then(setAllWeeks).catch(() => {})
+                } else if (type === 'study_match') {
+                    // BUG-04 fix: 파트너 매칭 제안 SSE 처리
+                    // 백엔드가 매칭 상대를 찾아 보낸 알림 → pending 상태로 전환
+                    if (matchStatusRef.current === 'searching') {
+                        const partner = data.partner as { nickname?: string; role?: string; strengthKeyword?: string } | undefined
+                        const matchedPartnerInfo = {
+                            partnerId:       String(data.suggestionId ?? ''),
+                            partnerName:     String(partner?.nickname ?? '파트너'),
+                            partnerAvatar:   String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
+                            partnerRole:     (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                            matchRate:       Math.round((Number(data.matchScore) || 0) * 100),
+                            partnerStrengths: partner?.strengthKeyword ? [partner.strengthKeyword] : [],
+                            matchKeyword:    String(data.matchKeyword ?? ''),
+                        }
+                        if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
+                        setMatchStatus('pending')
+                        setPartnerInfo(matchedPartnerInfo)
+                    }
+                } else if (type === 'study_no_candidate') {
+                    // BUG-04 fix: 매칭 후보 없음 SSE 처리 → searching 상태 해제
+                    if (matchStatusRef.current === 'searching') {
+                        if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
+                        setMatchStatus('idle')
+                    }
                 }
             } catch { /* ignore malformed SSE data */ }
         }
@@ -391,8 +425,12 @@ function FocusClassroomContent() {
         setMatchStatus('searching')
         try {
             await requestStudyMatch(roomId, weekData.weekId)
+            // BUG-05 fix: 타임아웃 시 'searching' 상태일 때만 idle로 리셋
+            // (파트너가 60초 이내에 찾아져 pending/completed가 된 경우 리셋하지 않음)
             matchTimeoutRef.current = window.setTimeout(() => {
-                if (matchRequestKeyRef.current === key) setMatchStatus('idle')
+                if (matchRequestKeyRef.current === key && matchStatusRef.current === 'searching') {
+                    setMatchStatus('idle')
+                }
             }, 60_000)
         } catch { setMatchStatus('idle') }
     // eslint-disable-next-line react-hooks/exhaustive-deps
