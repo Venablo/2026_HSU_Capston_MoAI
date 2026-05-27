@@ -130,10 +130,15 @@ const markdownContentCss = `
 }
 .moai-markdown__table {
     width: 100%;
-    min-width: var(--moai-markdown-table-min-width, 620px);
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     color: var(--moai-markdown-table-text, var(--color-text-primary, #182033));
+}
+.moai-markdown__table th,
+.moai-markdown__table td {
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 .moai-markdown__table thead th {
     position: sticky;
@@ -194,7 +199,6 @@ const markdownContentCss = `
     box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08);
 }
 .moai-markdown--compact {
-    --moai-markdown-table-min-width: 420px;
     --moai-markdown-table-head-padding: 10px 12px;
     --moai-markdown-table-cell-padding: 10px 12px;
     --moai-markdown-table-head-size: 12px;

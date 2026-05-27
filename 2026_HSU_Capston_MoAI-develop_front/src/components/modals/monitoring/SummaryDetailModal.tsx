@@ -34,7 +34,7 @@ export default function SummaryDetailModal({
                 </div>
                 <h3 className="modal-summary__title" style={{ marginBottom: '14px' }}>{conceptName} 핵심 요약</h3>
 
-                <div className="modal-summary__list" style={{ flex: 1, maxHeight: '320px', overflowY: 'auto' }}>
+                <div className="modal-summary__list" style={{ flex: 1, maxHeight: '320px', overflowY: 'auto' , overflowX: 'hidden', minWidth: 0}}>
                     {summaryItems.map((item, i) => (
                         <div
                             key={item.letter}
