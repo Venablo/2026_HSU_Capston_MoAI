@@ -1027,14 +1027,9 @@ function FocusClassroomContent() {
 
                 {/* ══════════ Right Panel ══════════ */}
                 <div className="fc-right">
-                    {/* 툴바: 키워드 + 문서 선택 + 다운로드 */}
+                    {/* 툴바: 문서 선택 + 다운로드 */}
                     <div className="fc-md-toolbar">
                         <div className="fc-md-toolbar-meta">
-                            <div className="fc-keywords">
-                                {safeKeywords.slice(0, 5).map(kw => (
-                                    <span key={kw} className="fc-keyword-badge">{kw}</span>
-                                ))}
-                            </div>
                             {mdResources.length > 1 && mdResources.map((r, i) => (
                                 <button
                                     key={i}
@@ -1108,6 +1103,12 @@ function FocusClassroomContent() {
             <ClassroomModals
                 onSeekPlayer={sec => seekPlayerRef.current(sec)}
                 onAnyQuizComplete={() => setQuizCompletedCount(prev => prev + 1)}
+                onMetacogComplete={() => {
+                    if (weekData) {
+                        getCurriculumKeywords(roomId, weekData.weekId)
+                            .then(setUserKeywords).catch(() => {})
+                    }
+                }}
             />
 
         </div>
