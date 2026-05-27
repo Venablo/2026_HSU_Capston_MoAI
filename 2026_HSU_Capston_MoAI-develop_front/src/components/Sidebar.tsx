@@ -1,6 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Home, BookOpen, User, Moon, Sun, LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
+import { logout } from '../services/apiService'
 import '../styles/Sidebar.css'
 
 interface SidebarProps {
@@ -24,6 +26,13 @@ export default function Sidebar({
 }: SidebarProps) {
     const navigate = useNavigate()
     const { darkMode, toggleDark } = useTheme()
+    const { refreshToken, clearAuth } = useAuth()
+
+    const handleLogout = async () => {
+        try { if (refreshToken) await logout({ refreshToken }) } catch { /* ignore */ }
+        clearAuth()
+        navigate('/')
+    }
 
     return (
         <aside className={`sidebar animate-slide-up${collapsed ? ' sidebar--collapsed' : ''}`}>
@@ -67,11 +76,11 @@ export default function Sidebar({
                 </button>
                 <button
                     className="sidebar__bottom-btn"
-                    onClick={() => navigate('/')}
-                    title={collapsed ? 'Logout' : undefined}
+                    onClick={handleLogout}
+                    title={collapsed ? '로그아웃' : undefined}
                 >
                     <LogOut size={16} strokeWidth={2} />
-                    {!collapsed && <span className="sidebar__nav-label">Logout</span>}
+                    {!collapsed && <span className="sidebar__nav-label">로그아웃</span>}
                 </button>
             </div>
         </aside>

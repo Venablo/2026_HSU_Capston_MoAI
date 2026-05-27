@@ -168,6 +168,10 @@ function FocusClassroomContent() {
     const matchStatusRef     = useRef(matchStatus)
     useEffect(() => { matchStatusRef.current = matchStatus }, [matchStatus])
 
+    // ── MD 탭 드래그 스크롤 ──────────────────────────────────────────────────
+    const mdTabsRef  = useRef<HTMLDivElement>(null)
+    const mdTabsDrag = useRef({ startX: 0, scrollLeft: 0, moved: false })
+
     // ── 파생값 ───────────────────────────────────────────────────────────────
     const activeVideoId  = weekData?.mainVideoId ?? ''
     const progress       = Math.max(Number(weekData?.completionRate) || 0, videoProgress)
@@ -454,6 +458,35 @@ function FocusClassroomContent() {
         try { if (refreshToken) await logout({ refreshToken }) } catch { /* ignore logout errors */ }
         clearAuth(); navigate('/')
     }, [refreshToken, clearAuth, navigate])
+
+    // ── MD 탭 드래그 스크롤 핸들러 ──────────────────────────────────────────
+    const handleMdTabsMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const el = mdTabsRef.current
+        if (!el) return
+        mdTabsDrag.current = { startX: e.clientX, scrollLeft: el.scrollLeft, moved: false }
+        const onMove = (ev: MouseEvent) => {
+            const walk = ev.clientX - mdTabsDrag.current.startX
+            if (Math.abs(walk) > 4) {
+                mdTabsDrag.current.moved = true
+                el.scrollLeft = mdTabsDrag.current.scrollLeft - walk
+            }
+        }
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+    }, [])
+
+    /** 드래그 중에는 하위 버튼 click 이벤트 차단 */
+    const handleMdTabsClick = useCallback((e: React.MouseEvent) => {
+        if (mdTabsDrag.current.moved) {
+            e.stopPropagation()
+            e.preventDefault()
+            mdTabsDrag.current.moved = false
+        }
+    }, [])
 
     // 드롭다운 외부 클릭 닫기
     useEffect(() => {
@@ -1027,20 +1060,19 @@ function FocusClassroomContent() {
 
                 {/* ══════════ Right Panel ══════════ */}
                 <div className="fc-right">
-                    {/* 툴바: 문서 선택 + 다운로드 */}
+                    {/* 툴바: 문서 선택(가로 드래그 스크롤) + 다운로드 */}
                     <div className="fc-md-toolbar">
-                        <div className="fc-md-toolbar-meta">
-                            {mdResources.length > 1 && mdResources.map((r, i) => (
+                        <div
+                            className="fc-md-toolbar-meta"
+                            ref={mdTabsRef}
+                            onMouseDown={handleMdTabsMouseDown}
+                            onClick={handleMdTabsClick}
+                        >
+                            {mdResources.map((r, i) => (
                                 <button
                                     key={i}
                                     onClick={() => setSelectedMdIdx(i)}
-                                    style={{
-                                        marginLeft: 4, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
-                                        border: '1px solid var(--color-border)',
-                                        background: selectedMdIdx === i ? 'var(--color-purple-100)' : 'none',
-                                        color: selectedMdIdx === i ? 'var(--color-purple-700)' : 'var(--color-text-muted)',
-                                        fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                                    }}
+                                    className={`fc-md-tab-btn${selectedMdIdx === i ? ' fc-md-tab-btn--active' : ''}`}
                                     title={r.title}
                                 >
                                     {r.title}
