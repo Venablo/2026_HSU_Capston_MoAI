@@ -40,8 +40,10 @@ public class KeywordService {
                 .map(KeywordListResponseDto.StrengthKeyword::from)
                 .toList();
 
+        // 해소된(is_resolved=true) 약점 키워드는 노출에서 제외
         List<KeywordListResponseDto.WeaknessKeyword> weaknesses = keywords.stream()
                 .filter(uk -> "weakness".equals(uk.getKeywordType()))
+                .filter(uk -> !Boolean.TRUE.equals(uk.getIsResolved()))
                 .map(KeywordListResponseDto.WeaknessKeyword::from)
                 .toList();
 
@@ -67,8 +69,10 @@ public class KeywordService {
                 .map(KeywordListResponseDto.StrengthKeyword::from)
                 .toList();
 
+        // 해소된(is_resolved=true) 약점 키워드는 노출에서 제외
         List<KeywordListResponseDto.WeaknessKeyword> weaknesses = keywords.stream()
                 .filter(uk -> "weakness".equals(uk.getKeywordType()))
+                .filter(uk -> !Boolean.TRUE.equals(uk.getIsResolved()))
                 .map(KeywordListResponseDto.WeaknessKeyword::from)
                 .toList();
 
