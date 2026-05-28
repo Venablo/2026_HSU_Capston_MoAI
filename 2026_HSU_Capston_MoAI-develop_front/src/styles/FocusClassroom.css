@@ -449,6 +449,28 @@
     color: var(--color-text-secondary);
 }
 
+/* Strength keywords */
+.fc-strength-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding-top: 2px;
+}
+.fc-strength-badge {
+    background: #f0fdf4;
+    color: #16a34a;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    border: 1px solid #bbf7d0;
+}
+.dark .fc-strength-badge {
+    background: rgba(22,163,74,0.1);
+    border-color: rgba(22,163,74,0.25);
+    color: #4ade80;
+}
+
 /* Weak keywords */
 .fc-weakness-tags {
     display: flex;
@@ -469,6 +491,46 @@
     background: rgba(220,38,38,0.1);
     border-color: rgba(220,38,38,0.25);
     color: #f87171;
+}
+
+/* Saved AI summaries list */
+.fc-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 6px;
+}
+.fc-summary-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border-radius: 7px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: background 0.12s;
+    width: 100%;
+}
+.fc-summary-item:hover { background: var(--color-purple-50); border-color: var(--color-purple-200); }
+.dark .fc-summary-item:hover { background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.25); }
+.fc-summary-item__name {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.fc-summary-item__time {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    margin-left: 8px;
 }
 
 /* ── Resizer ─────────────────────────────────────────────────────────────── */
