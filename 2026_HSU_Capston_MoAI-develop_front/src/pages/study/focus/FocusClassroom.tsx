@@ -94,6 +94,7 @@ function FocusClassroomContent() {
         partnerConnected, partnerInfo, setPartnerInfo, setPartnerConnected,
         groupId, setGroupId,
         currentMatchKey, setCurrentMatchKey, setMatchStateForKey,
+        savedSummaries, loadSummariesForWeek,
     } = useClassroomModal()
 
     const { nickname, refreshToken, clearAuth } = useAuth()
@@ -124,6 +125,7 @@ function FocusClassroomContent() {
     const [quizHistoryOpen,  setQuizHistoryOpen]  = useState(false)
     const [keywordsOpen,     setKeywordsOpen]      = useState(true)
     const [keywordsExpanded, setKeywordsExpanded] = useState(false)
+    const [summariesOpen,    setSummariesOpen]    = useState(false)
 
     // ── 퀴즈 이력 ─────────────────────────────────────────────────────────────
     const [quizAttempts,     setQuizAttempts]     = useState<QuizAttemptListItem[] | null>(null)
@@ -158,6 +160,8 @@ function FocusClassroomContent() {
     const bodyRef            = useRef<HTMLDivElement>(null)
     const pausePlayerRef     = useRef<() => void>(() => {})
     const seekPlayerRef      = useRef<(sec: number) => void>(() => {})
+    const openRef            = useRef(open)
+    openRef.current          = open
     const matchTimeoutRef    = useRef<number | null>(null)
     const matchRequestKeyRef = useRef<string | null>(null)
     const navigateRef        = useRef(navigate)
@@ -196,6 +200,7 @@ function FocusClassroomContent() {
             setWeekData(data)
             setCurrentWeekId(weekId)
             setCurrentMatchKey(`${roomId}_${weekId}`)
+            loadSummariesForWeek(roomId, weekId)
             setVideoProgress(0)
             setSelectedMdIdx(0)
 
@@ -292,6 +297,8 @@ function FocusClassroomContent() {
 
             if (!result.aiTriggered) return
 
+            getCurriculumKeywords(roomId, weekData.weekId).then(setUserKeywords).catch(() => {})
+
             if (
                 result.eventType === 'video_rewind' ||
                 result.eventType === 'video_pause'  ||
@@ -324,9 +331,6 @@ function FocusClassroomContent() {
             // pattern detection errors are silent
         }
 
-        if (['video_rewind', 'video_pause', 'tab_departure'].includes(eventType)) {
-            getCurriculumKeywords(roomId, weekData.weekId).then(setUserKeywords).catch(() => {})
-        }
     }, [weekData, roomId, open])
 
     const handleProgressMilestone = useCallback((rate: number) => {
@@ -368,7 +372,7 @@ function FocusClassroomContent() {
                         ...prev,
                         matchStatus: 'completed',
                         partnerConnected: true,
-                        partnerInfo: null,
+                        partnerInfo: prev.partnerInfo,
                         groupId: activatedGroupId,
                     }),
                 )
@@ -385,28 +389,37 @@ function FocusClassroomContent() {
                 } else if (type === 'week_unlocked') {
                     if (roomId) getCurriculum(roomId).then(setAllWeeks).catch(() => {})
                 } else if (type === 'study_match') {
-                    // BUG-04 fix: 파트너 매칭 제안 SSE 처리
-                    // 백엔드가 매칭 상대를 찾아 보낸 알림 → pending 상태로 전환
                     if (matchStatusRef.current === 'searching') {
                         const partner = data.partner as { nickname?: string; role?: string; strengthKeyword?: string } | undefined
                         const matchedPartnerInfo = {
-                            partnerId:       String(data.suggestionId ?? ''),
-                            partnerName:     String(partner?.nickname ?? '파트너'),
-                            partnerAvatar:   String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
-                            partnerRole:     (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
-                            matchRate:       Math.round((Number(data.matchScore) || 0) * 100),
+                            partnerId:        String(data.suggestionId ?? ''),
+                            partnerName:      String(partner?.nickname ?? '파트너'),
+                            partnerAvatar:    String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
+                            partnerRole:      (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                            matchRate:        Math.round((Number(data.matchScore) || 0) * 100),
                             partnerStrengths: partner?.strengthKeyword ? [partner.strengthKeyword] : [],
-                            matchKeyword:    String(data.matchKeyword ?? ''),
+                            matchKeyword:     String(data.matchKeyword ?? ''),
                         }
                         if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
-                        setMatchStatus('pending')
-                        setPartnerInfo(matchedPartnerInfo)
+                        // setMatchStatus/setPartnerInfo are stale closures (empty-deps useEffect).
+                        // Use setMatchStateForKey (stable: only depends on setMatchStates, a useState setter)
+                        // and setCurrentMatchKey (stable: direct useState setter) instead.
+                        if (matchRequestKeyRef.current) {
+                            setMatchStateForKey(matchRequestKeyRef.current, (prev) => ({
+                                ...prev,
+                                matchStatus: 'pending',
+                                partnerInfo: matchedPartnerInfo,
+                            }))
+                            setCurrentMatchKey(matchRequestKeyRef.current)
+                        }
+                        openRef.current('study-matching', { type: 'study-matching', match: matchedPartnerInfo })
                     }
                 } else if (type === 'study_no_candidate') {
-                    // BUG-04 fix: 매칭 후보 없음 SSE 처리 → searching 상태 해제
                     if (matchStatusRef.current === 'searching') {
                         if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
-                        setMatchStatus('idle')
+                        if (matchRequestKeyRef.current) {
+                            setMatchStateForKey(matchRequestKeyRef.current, (prev) => ({ ...prev, matchStatus: 'idle' }))
+                        }
                     }
                 }
             } catch { /* ignore malformed SSE data */ }
@@ -501,6 +514,7 @@ function FocusClassroomContent() {
     // ── STOMP 채팅 — groupId 확정 시 연결 ────────────────────────────────────
     useEffect(() => {
         if (!groupId) return
+        setChatMessages([])
         getGroupMessages(groupId)
             .then(msgs => {
                 setChatMessages(msgs.map((m: ChatMessage) => ({
@@ -874,20 +888,36 @@ function FocusClassroomContent() {
                                                         {keywordsExpanded ? '접기 ↑' : `더 보기 +${safeKeywords.length - 5}개`}
                                                     </button>
                                                 )}
-                                                {/* 약점 키워드 */}
-                                                {(keywordsLoading || safeUserKeywords.weaknesses.length > 0) && (
+                                                {/* 강점 / 약점 키워드 */}
+                                                {(keywordsLoading || safeUserKeywords.strengths.length > 0 || safeUserKeywords.weaknesses.length > 0) && (
                                                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                                                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>약점 키워드</div>
                                                         {keywordsLoading ? (
                                                             <div className="fc-quiz-loading" style={{ fontSize: 11 }}><Loader2 size={12} className="animate-spin" /> 분석 중...</div>
                                                         ) : (
-                                                            <div className="fc-weakness-tags">
-                                                                {safeUserKeywords.weaknesses.map(w => (
-                                                                    <span key={w.keyword} className="fc-weakness-badge">
-                                                                        {w.keyword}{w.weaknessCount > 1 && <span style={{ marginLeft: 3, opacity: 0.7 }}>×{w.weaknessCount}</span>}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
+                                                            <>
+                                                                {safeUserKeywords.strengths.length > 0 && (
+                                                                    <div style={{ marginBottom: 8 }}>
+                                                                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>강점 키워드</div>
+                                                                        <div className="fc-strength-tags">
+                                                                            {safeUserKeywords.strengths.map(s => (
+                                                                                <span key={s.keyword} className="fc-strength-badge">{s.keyword}</span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {safeUserKeywords.weaknesses.length > 0 && (
+                                                                    <div>
+                                                                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>약점 키워드</div>
+                                                                        <div className="fc-weakness-tags">
+                                                                            {safeUserKeywords.weaknesses.map(w => (
+                                                                                <span key={w.keyword} className="fc-weakness-badge">
+                                                                                    {w.keyword}{w.weaknessCount > 1 && <span style={{ marginLeft: 3, opacity: 0.7 }}>×{w.weaknessCount}</span>}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}
@@ -896,6 +926,32 @@ function FocusClassroomContent() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* AI 요약본 다시 보기 */}
+                            {savedSummaries.length > 0 && (
+                                <div className="fc-section-card">
+                                    <button className="fc-section-card__toggle" onClick={() => setSummariesOpen(v => !v)}>
+                                        <FileText size={15} strokeWidth={1.5} className="fc-section-card__icon" />
+                                        <span>AI 요약본 다시 보기</span>
+                                        <span className="fc-section-card__count">{savedSummaries.length}개</span>
+                                        <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: summariesOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                                    </button>
+                                    {summariesOpen && (
+                                        <div className="fc-summary-list">
+                                            {savedSummaries.map((s, i) => (
+                                                <button
+                                                    key={i}
+                                                    className="fc-summary-item"
+                                                    onClick={() => open('summary-detail', { type: 'summary-detail', conceptName: s.conceptName, summaryItems: s.summaryItems })}
+                                                >
+                                                    <span className="fc-summary-item__name">{s.conceptName}</span>
+                                                    <span className="fc-summary-item__time">{new Date(s.savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* 스터디 매칭 */}
                             <div className="fc-section-card">
