@@ -78,6 +78,7 @@ public class MatchingEngineService {
 
         // Step 2: 후보자 수집 (중복 제거, 최대 MAX_CANDIDATES명)
         Map<String, Candidate> candidateMap = new LinkedHashMap<>();
+        log.info("매칭 후보 수집 시작 — user={}, weakness 수={}", currentUser.getId(), weaknesses.size());
 
         for (UserKeyword weakness : weaknesses) {
             if (candidateMap.size() >= MAX_CANDIDATES) break;
@@ -85,6 +86,7 @@ public class MatchingEngineService {
             List<UserKeyword> strengthHolders = userKeywordRepository
                     .findByKeywordAndKeywordTypeAndUserIdNot(
                             weakness.getKeyword(), "strength", currentUser.getId());
+            log.info("약점 '{}' 에 대한 strength 보유자 수={}", weakness.getKeyword(), strengthHolders.size());
 
             for (UserKeyword strengthHolder : strengthHolders) {
                 if (candidateMap.size() >= MAX_CANDIDATES) break;
