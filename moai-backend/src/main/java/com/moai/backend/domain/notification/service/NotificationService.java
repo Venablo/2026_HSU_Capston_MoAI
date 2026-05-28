@@ -11,6 +11,7 @@ import com.moai.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -33,6 +34,10 @@ public class NotificationService {
 
     private final Map<String, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
+    // subscribe 는 in-memory ConcurrentHashMap 만 조작하므로 트랜잭션 불필요.
+    // 클래스 레벨 @Transactional(readOnly=true) 가 SSE 연결 lifecycle 동안 적용되면
+    // 커넥션이 잠식되므로 NEVER 로 명시해 트랜잭션 컨텍스트를 차단한다.
+    @Transactional(propagation = Propagation.NEVER)
     public SseEmitter subscribe(String userId) {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
         CopyOnWriteArrayList<SseEmitter> userEmitters =
