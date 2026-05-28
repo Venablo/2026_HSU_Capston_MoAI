@@ -5,6 +5,7 @@ import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
+import com.moai.backend.domain.keyword.util.KeywordNormalizer;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -722,6 +723,9 @@ public class QuizService {
                                             WeeklyCurriculum curriculum,
                                             List<String> gainedKeywords) {
         if (gainedKeywords == null || gainedKeywords.isEmpty()) return;
+        // 커리큘럼 핵심 키워드 원형으로 정규화 (LLM 이 영문/변형 표기로 반환해도 통일)
+        gainedKeywords = KeywordNormalizer.normalize(gainedKeywords, curriculum.getKeywords());
+        if (gainedKeywords.isEmpty()) return;
 
         for (String keyword : gainedKeywords) {
             userKeywordRepository
@@ -755,6 +759,9 @@ public class QuizService {
                                          WeeklyCurriculum curriculum,
                                          List<String> weaknessKeywords) {
         if (weaknessKeywords == null || weaknessKeywords.isEmpty()) return;
+        // 커리큘럼 핵심 키워드 원형으로 정규화 (LLM 이 영문/변형 표기로 반환해도 통일)
+        weaknessKeywords = KeywordNormalizer.normalize(weaknessKeywords, curriculum.getKeywords());
+        if (weaknessKeywords.isEmpty()) return;
 
         for (String keyword : weaknessKeywords) {
             Optional<UserKeyword> existing = userKeywordRepository
