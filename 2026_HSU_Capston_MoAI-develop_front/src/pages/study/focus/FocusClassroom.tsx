@@ -171,6 +171,9 @@ function FocusClassroomContent() {
     // BUG-05: 타임아웃 시점의 실제 matchStatus를 읽기 위한 ref
     const matchStatusRef     = useRef(matchStatus)
     useEffect(() => { matchStatusRef.current = matchStatus }, [matchStatus])
+    // 멘토 측 study_match 수신 시 stale closure 방지용 ref
+    const currentMatchKeyRef = useRef(currentMatchKey)
+    useEffect(() => { currentMatchKeyRef.current = currentMatchKey }, [currentMatchKey])
 
     // ── MD 탭 드래그 스크롤 ──────────────────────────────────────────────────
     const mdTabsRef  = useRef<HTMLDivElement>(null)
@@ -389,21 +392,19 @@ function FocusClassroomContent() {
                 } else if (type === 'week_unlocked') {
                     if (roomId) getCurriculum(roomId).then(setAllWeeks).catch(() => {})
                 } else if (type === 'study_match') {
+                    const partner = data.partner as { nickname?: string; role?: string; strengthKeyword?: string } | undefined
+                    const matchedPartnerInfo = {
+                        partnerId:        String(data.suggestionId ?? ''),
+                        partnerName:      String(partner?.nickname ?? '파트너'),
+                        partnerAvatar:    String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
+                        partnerRole:      (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
+                        matchRate:        Math.round((Number(data.matchScore) || 0) * 100),
+                        partnerStrengths: partner?.strengthKeyword ? [partner.strengthKeyword] : [],
+                        matchKeyword:     String(data.matchKeyword ?? ''),
+                    }
                     if (matchStatusRef.current === 'searching') {
-                        const partner = data.partner as { nickname?: string; role?: string; strengthKeyword?: string } | undefined
-                        const matchedPartnerInfo = {
-                            partnerId:        String(data.suggestionId ?? ''),
-                            partnerName:      String(partner?.nickname ?? '파트너'),
-                            partnerAvatar:    String(partner?.nickname ?? '?').charAt(0).toUpperCase(),
-                            partnerRole:      (partner?.role === 'mentor' ? 'mentor' : 'mentee') as 'mentor' | 'mentee',
-                            matchRate:        Math.round((Number(data.matchScore) || 0) * 100),
-                            partnerStrengths: partner?.strengthKeyword ? [partner.strengthKeyword] : [],
-                            matchKeyword:     String(data.matchKeyword ?? ''),
-                        }
+                        // 멘티 플로우: 직접 요청 후 매칭됨
                         if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current)
-                        // setMatchStatus/setPartnerInfo are stale closures (empty-deps useEffect).
-                        // Use setMatchStateForKey (stable: only depends on setMatchStates, a useState setter)
-                        // and setCurrentMatchKey (stable: direct useState setter) instead.
                         if (matchRequestKeyRef.current) {
                             setMatchStateForKey(matchRequestKeyRef.current, (prev) => ({
                                 ...prev,
@@ -411,6 +412,17 @@ function FocusClassroomContent() {
                                 partnerInfo: matchedPartnerInfo,
                             }))
                             setCurrentMatchKey(matchRequestKeyRef.current)
+                        }
+                        openRef.current('study-matching', { type: 'study-matching', match: matchedPartnerInfo })
+                    } else if (matchStatusRef.current === 'idle') {
+                        // 멘토 플로우: 요청 없이 서버로부터 매칭 요청을 받음
+                        const key = currentMatchKeyRef.current
+                        if (key) {
+                            setMatchStateForKey(key, (prev) => ({
+                                ...prev,
+                                matchStatus: 'pending',
+                                partnerInfo: matchedPartnerInfo,
+                            }))
                         }
                         openRef.current('study-matching', { type: 'study-matching', match: matchedPartnerInfo })
                     }
