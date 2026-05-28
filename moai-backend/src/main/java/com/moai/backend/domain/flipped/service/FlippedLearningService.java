@@ -9,6 +9,7 @@ import com.moai.backend.domain.flipped.repository.AiInteractionRepository;
 import com.moai.backend.domain.flipped.repository.FlippedSessionRepository;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
+import com.moai.backend.domain.keyword.util.KeywordNormalizer;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.learningroom.repository.LearningRoomRepository;
 import com.moai.backend.domain.users.entity.User;
@@ -370,6 +371,9 @@ public class FlippedLearningService {
                                             WeeklyCurriculum curriculum,
                                             List<String> gainedKeywords) {
         if (gainedKeywords == null || gainedKeywords.isEmpty()) return;
+        // 커리큘럼 핵심 키워드 원형으로 정규화 (LLM 이 영문/변형 표기로 반환해도 통일)
+        gainedKeywords = KeywordNormalizer.normalize(gainedKeywords, curriculum.getKeywords());
+        if (gainedKeywords.isEmpty()) return;
 
         for (String keyword : gainedKeywords) {
             // 기존 weakness가 있으면 해소 처리
@@ -409,6 +413,9 @@ public class FlippedLearningService {
     private void upsertWeaknesses(User user, LearningRoom room, WeeklyCurriculum curriculum,
                                    List<String> weakKeywords) {
         if (weakKeywords == null || weakKeywords.isEmpty()) return;
+        // 커리큘럼 핵심 키워드 원형으로 정규화 (LLM 이 영문/변형 표기로 반환해도 통일)
+        weakKeywords = KeywordNormalizer.normalize(weakKeywords, curriculum.getKeywords());
+        if (weakKeywords.isEmpty()) return;
 
         for (String keyword : weakKeywords) {
             Optional<UserKeyword> existing = userKeywordRepository

@@ -9,6 +9,7 @@ import com.moai.backend.domain.eventlog.entity.LearningEventLog;
 import com.moai.backend.domain.eventlog.repository.LearningEventLogRepository;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
+import com.moai.backend.domain.keyword.util.KeywordNormalizer;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
 import com.moai.backend.domain.material.entity.CustomMaterial;
 import com.moai.backend.domain.material.entity.SummaryItem;
@@ -365,51 +366,8 @@ public class EventProcessingService {
         LlmKeywordExtractionResult extraction = llmService.callJson(keywordRequest, LlmKeywordExtractionResult.class);
         List<String> llmKeywords = extraction.getKeywords();
 
-        if (llmKeywords == null || llmKeywords.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // 커리큘럼 키워드와 교집합 필터링 (대소문자 무시 + "한글(영문)" 변형 허용)
-        List<String> curriculumKeywords = curriculum.getKeywords();
-        if (curriculumKeywords == null || curriculumKeywords.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // "정규화(Normalization)" 같은 한글(영문) 표기를 ["정규화(normalization)", "정규화", "normalization"]
-        // 셋 다로 확장하여 LLM 이 한글만/영문만 반환해도 매칭되도록 한다.
-        Set<String> curriculumKeywordSet = curriculumKeywords.stream()
-                .flatMap(EventProcessingService::expandKeywordVariants)
-                .collect(Collectors.toSet());
-
-        // LLM 추출 키워드 중 커리큘럼 키워드(변형 포함) 에 포함된 것만 반환
-        return llmKeywords.stream()
-                .filter(k -> curriculumKeywordSet.contains(k.toLowerCase().trim()))
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 커리큘럼 키워드 표기 변형을 생성한다.
-     * - "정규화(Normalization)" → ["정규화(normalization)", "정규화", "normalization"]
-     * - 그 외(괄호 없음) → [원본 lowercase] 한 개
-     * 모든 결과는 lowercase + trim 적용.
-     */
-    private static final java.util.regex.Pattern KOR_ENG_PAREN_PATTERN =
-            java.util.regex.Pattern.compile("^([^()]+?)\\s*\\(([^()]+)\\)$");
-
-    private static java.util.stream.Stream<String> expandKeywordVariants(String keyword) {
-        if (keyword == null || keyword.isBlank()) return java.util.stream.Stream.empty();
-        String lower = keyword.toLowerCase().trim();
-        Set<String> variants = new HashSet<>();
-        variants.add(lower);
-        java.util.regex.Matcher m = KOR_ENG_PAREN_PATTERN.matcher(lower);
-        if (m.matches()) {
-            String left = m.group(1).trim();
-            String right = m.group(2).trim();
-            if (!left.isEmpty()) variants.add(left);
-            if (!right.isEmpty()) variants.add(right);
-        }
-        return variants.stream();
+        // LLM 추출 키워드를 커리큘럼 핵심 키워드 원형으로 정규화 (변형 매칭 + 원형 치환)
+        return KeywordNormalizer.normalize(llmKeywords, curriculum.getKeywords());
     }
 
     /**
@@ -619,6 +577,10 @@ public class EventProcessingService {
      */
     private void upsertWeaknessKeywords(User user, LearningRoom room,
                                          WeeklyCurriculum curriculum, List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) return;
+        // 커리큘럼 핵심 키워드 원형으로 정규화 (저장 형태 통일 + 매칭 엔진 호환)
+        keywords = KeywordNormalizer.normalize(keywords, curriculum.getKeywords());
+        if (keywords.isEmpty()) return;
         for (String keyword : keywords) {
             Optional<UserKeyword> existing = userKeywordRepository
                     .findByUserIdAndRoomIdAndKeyword(user.getId(), room.getId(), keyword);
