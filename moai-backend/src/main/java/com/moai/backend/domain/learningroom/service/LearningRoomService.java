@@ -1,6 +1,7 @@
 package com.moai.backend.domain.learningroom.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.moai.backend.domain.chat.repository.StudyMessageRepository;
 import com.moai.backend.domain.curriculum.entity.WeeklyCurriculum;
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.curriculum.service.CurriculumEnrichmentService;
@@ -24,6 +25,9 @@ import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
 import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizReportRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.study.repository.StudyGroupRepository;
+import com.moai.backend.domain.study.repository.StudyMemberRepository;
+import com.moai.backend.domain.study.repository.StudySuggestionRepository;
 import com.moai.backend.domain.transcript.entity.VideoTranscript;
 import com.moai.backend.domain.transcript.repository.VideoTranscriptRepository;
 import com.moai.backend.domain.users.entity.User;
@@ -76,6 +80,10 @@ public class LearningRoomService {
     private final FlippedSessionRepository flippedSessionRepository;
     private final UserKeywordRepository userKeywordRepository;
     private final CustomMaterialRepository customMaterialRepository;
+    private final StudySuggestionRepository studySuggestionRepository;
+    private final StudyMemberRepository studyMemberRepository;
+    private final StudyGroupRepository studyGroupRepository;
+    private final StudyMessageRepository studyMessageRepository;
     private final MockCurriculumTemplateRepository mockCurriculumTemplateRepository;
     private final MockTranscriptTemplateRepository mockTranscriptTemplateRepository;
     private final DemoResetService demoResetService;
@@ -220,6 +228,18 @@ public class LearningRoomService {
         userKeywordRepository.deleteByRoomId(roomId);
 
         customMaterialRepository.deleteByRoomId(roomId);
+
+        // 4-1. 스터디 매칭 정리 — 이 room 으로 만들어진 suggestion 의 group 전체 해체.
+        //      StudySuggestion 은 room_id / curriculum_id FK(nullable=false)를 가지므로
+        //      weekly_curriculums / learning_room 삭제 전에 반드시 정리해야 한다.
+        //      그룹 단위로 지워야 상대 멤버의 suggestion(다른 room 참조)까지 함께 정리됨.
+        List<String> studyGroupIds = studySuggestionRepository.findGroupIdsByRoomId(roomId);
+        if (!studyGroupIds.isEmpty()) {
+            studyMessageRepository.deleteByGroupIdIn(studyGroupIds);
+            studyMemberRepository.deleteByGroupIdIn(studyGroupIds);
+            studySuggestionRepository.deleteByGroupIdIn(studyGroupIds);
+            studyGroupRepository.deleteAllByIdInBatch(studyGroupIds);
+        }
 
         // 5. 주차 커리큘럼 → 학습실
         weeklyCurriculumRepository.deleteByRoomId(roomId);

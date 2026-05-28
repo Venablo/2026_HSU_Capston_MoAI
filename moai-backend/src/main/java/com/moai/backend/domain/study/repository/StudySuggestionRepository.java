@@ -40,6 +40,11 @@ public interface StudySuggestionRepository extends JpaRepository<StudySuggestion
     @Query("SELECT s.group.id FROM StudySuggestion s WHERE s.suggestedTo.id = :userId")
     List<String> findGroupIdsBySuggestedToId(@Param("userId") String userId);
 
+    // 학습실 삭제 cleanup: 이 room 으로 만들어진 suggestion 이 속한 그룹 ID 목록.
+    // 그룹 단위로 해체해야 양쪽 멤버의 suggestion(다른 room 참조)까지 함께 정리된다.
+    @Query("SELECT DISTINCT s.group.id FROM StudySuggestion s WHERE s.room.id = :roomId")
+    List<String> findGroupIdsByRoomId(@Param("roomId") String roomId);
+
     @Modifying
     @Query("DELETE FROM StudySuggestion s WHERE s.group.id IN :groupIds")
     void deleteByGroupIdIn(@Param("groupIds") List<String> groupIds);
