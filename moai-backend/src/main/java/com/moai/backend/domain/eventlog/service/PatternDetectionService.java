@@ -21,7 +21,7 @@ public class PatternDetectionService {
     // 패턴1 되감기 발동 임계값: 3회 이상 같은 구간 반복
     private static final int REWIND_THRESHOLD = 3;
     // 되감기 "같은 구간" 판정 허용 범위(초)
-    private static final double REWIND_RANGE_SEC = 10.0;
+    private static final double REWIND_RANGE_SEC = 30.0;
 
     // 패턴3 스킵 발동 임계값: 3회
     private static final int SKIP_THRESHOLD = 3;
@@ -65,6 +65,7 @@ public class PatternDetectionService {
         setTtlIfNew(listKey);
 
         Long size = redisTemplate.opsForList().size(listKey);
+        log.info("rewind 수신 — user={}, video={}, target={}초, size={}", userId, videoId, rewindTargetSec, size);
         if (size == null || size < REWIND_THRESHOLD) {
             return PatternResult.notTriggered();
         }
