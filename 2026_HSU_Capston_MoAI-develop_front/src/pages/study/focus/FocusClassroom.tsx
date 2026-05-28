@@ -1064,6 +1064,15 @@ function FocusClassroomContent() {
                                                 </p>
                                             ) : (
                                                 <>
+                                                    {/* 채팅 상단 매칭 키워드 뱃지 */}
+                                                    {partner?.matchKeyword && (
+                                                        <div className="fc-partner-widget__chat-match-kw">
+                                                            <span className="fc-partner-widget__chat-match-kw-tag">
+                                                                # {partner.matchKeyword}
+                                                            </span>
+                                                            <span className="fc-partner-widget__chat-match-kw-desc">키워드로 매칭됨</span>
+                                                        </div>
+                                                    )}
                                                     <div className="fc-partner-widget__chat-log">
                                                         {chatMessages.length === 0 ? (
                                                             <p className="fc-partner-widget__chat-placeholder">
