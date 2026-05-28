@@ -1063,6 +1063,30 @@
     border-top: 1px solid var(--color-border);
     padding-top: 10px;
 }
+.fc-partner-widget__chat-match-kw {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 8px;
+    padding: 5px 8px;
+    background: var(--color-purple-50, #f5f3ff);
+    border-radius: 8px;
+}
+.fc-partner-widget__chat-match-kw-tag {
+    background: linear-gradient(135deg, #14b8a6, var(--color-purple-500, #8b5cf6));
+    color: #fff;
+    border-radius: 99px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.fc-partner-widget__chat-match-kw-desc {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
 .fc-partner-widget__chat-log {
     max-height: 200px;
     overflow-y: auto;
