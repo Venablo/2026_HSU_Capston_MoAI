@@ -2,6 +2,7 @@ package com.moai.backend.domain.keyword.service;
 
 import com.moai.backend.domain.curriculum.repository.WeeklyCurriculumRepository;
 import com.moai.backend.domain.keyword.dto.KeywordListResponseDto;
+import com.moai.backend.domain.keyword.dto.MatchableWeaknessResponseDto;
 import com.moai.backend.domain.keyword.entity.UserKeyword;
 import com.moai.backend.domain.keyword.repository.UserKeywordRepository;
 import com.moai.backend.domain.learningroom.entity.LearningRoom;
@@ -25,6 +26,9 @@ public class KeywordService {
     private final LearningRoomRepository learningRoomRepository;
     private final UserRepository userRepository;
     private final WeeklyCurriculumRepository weeklyCurriculumRepository;
+
+    // 매칭 후보 수집 조건과 동일한 누적 카운트 임계값 (MatchingEngineService 참고)
+    private static final short MATCHABLE_WEAKNESS_COUNT_THRESHOLD = 3;
 
     public KeywordListResponseDto getKeywords(String email, String roomId) {
         User user = userRepository.findByEmail(email)
@@ -50,6 +54,23 @@ public class KeywordService {
                 .toList();
 
         return new KeywordListResponseDto(strengths, weaknesses);
+    }
+
+    public MatchableWeaknessResponseDto hasMatchableWeakness(String email, String roomId, String weekId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        learningRoomRepository.findByIdAndUserId(roomId, user.getId())
+                .orElseThrow(() -> new CustomException(ErrorCode.LEARNING_ROOM_NOT_FOUND));
+
+        weeklyCurriculumRepository.findByIdAndRoomId(weekId, roomId)
+                .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
+
+        boolean exists = userKeywordRepository
+                .existsByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqual(
+                        user.getId(), weekId, "weakness", MATCHABLE_WEAKNESS_COUNT_THRESHOLD);
+
+        return new MatchableWeaknessResponseDto(exists);
     }
 
     public KeywordListResponseDto getKeywordsByCurriculum(String email, String roomId, String weekId) {

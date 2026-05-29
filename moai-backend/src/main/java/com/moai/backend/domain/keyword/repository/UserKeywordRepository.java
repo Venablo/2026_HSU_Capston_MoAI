@@ -33,6 +33,10 @@ public interface UserKeywordRepository extends JpaRepository<UserKeyword, String
     List<UserKeyword> findByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqualOrderByWeaknessCountDesc(
             String userId, String curriculumId, String keywordType, Short weaknessCount);
 
+    // 매칭 가능한 약점 키워드 존재 여부 조회 (미해소 + 누적 카운트 임계값 이상). 첫 매칭 즉시 종료되도록 exists 사용.
+    boolean existsByUserIdAndCurriculumIdAndKeywordTypeAndIsResolvedFalseAndWeaknessCountGreaterThanEqual(
+            String userId, String curriculumId, String keywordType, Short weaknessCount);
+
     List<UserKeyword> findByKeywordAndKeywordTypeAndUserIdNot(
             String keyword, String keywordType, String userId);
 
