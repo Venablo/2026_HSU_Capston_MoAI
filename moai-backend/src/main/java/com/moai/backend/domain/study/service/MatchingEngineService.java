@@ -47,6 +47,7 @@ public class MatchingEngineService {
     private final LlmService llmService;
 
     private static final int MAX_CANDIDATES = 5;
+    private static final BigDecimal MAX_COMPLETION = BigDecimal.valueOf(100);
 
     @Async("matchingExecutor")
     @Transactional
@@ -90,6 +91,17 @@ public class MatchingEngineService {
 
             for (UserKeyword strengthHolder : strengthHolders) {
                 if (candidateMap.size() >= MAX_CANDIDATES) break;
+
+                // 강점 레코드 자체의 멘토 자격 검증
+                // 1) 약점 재발로 무효화된 강점 제외
+                if (Boolean.TRUE.equals(strengthHolder.getIsResolved())) continue;
+                // 2) updated_at 기준 최근 7일 이내에 살아있던 강점만 채택 (unresolve 등으로 갱신된 경우 포함)
+                if (strengthHolder.getUpdatedAt() == null
+                        || strengthHolder.getUpdatedAt().isBefore(sevenDaysAgo)) continue;
+                // 3) 강점이 속한 주차 커리큘럼이 완료된 사용자만 멘토 자격 부여
+                WeeklyCurriculum strengthCurriculum = strengthHolder.getCurriculum();
+                if (strengthCurriculum == null
+                        || strengthCurriculum.getCompletionRate().compareTo(MAX_COMPLETION) < 0) continue;
 
                 User candidate = strengthHolder.getUser();
                 if (candidateMap.containsKey(candidate.getId())) continue;
