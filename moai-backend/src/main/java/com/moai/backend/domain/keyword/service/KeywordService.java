@@ -35,8 +35,10 @@ public class KeywordService {
 
         List<UserKeyword> keywords = userKeywordRepository.findByUserIdAndRoomId(user.getId(), roomId);
 
+        // 해소(무효화)된 강점 키워드도 노출에서 제외 — 약점 재발로 무효화된 강점이 화면에 남지 않도록.
         List<KeywordListResponseDto.StrengthKeyword> strengths = keywords.stream()
                 .filter(uk -> "strength".equals(uk.getKeywordType()))
+                .filter(uk -> !Boolean.TRUE.equals(uk.getIsResolved()))
                 .map(KeywordListResponseDto.StrengthKeyword::from)
                 .toList();
 
@@ -64,8 +66,10 @@ public class KeywordService {
         List<UserKeyword> keywords =
                 userKeywordRepository.findByUserIdAndRoomIdAndCurriculumId(user.getId(), roomId, weekId);
 
+        // 해소(무효화)된 강점 키워드도 노출에서 제외 — 약점 재발로 무효화된 강점이 화면에 남지 않도록.
         List<KeywordListResponseDto.StrengthKeyword> strengths = keywords.stream()
                 .filter(uk -> "strength".equals(uk.getKeywordType()))
+                .filter(uk -> !Boolean.TRUE.equals(uk.getIsResolved()))
                 .map(KeywordListResponseDto.StrengthKeyword::from)
                 .toList();
 

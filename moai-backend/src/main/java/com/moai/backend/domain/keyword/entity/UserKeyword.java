@@ -100,4 +100,23 @@ public class UserKeyword {
         this.isResolved = true;
         this.resolvedAt = LocalDateTime.now();
     }
+
+    /**
+     * 강점으로 해소됐던 약점이 같은 주차에서 다시 약점으로 잡힌 경우 호출.
+     * 누적 카운트를 1로 리셋하고 해소 플래그를 해제한다.
+     */
+    public void reactivateAsWeakness() {
+        this.isResolved = false;
+        this.resolvedAt = null;
+        this.weaknessCount = (short) 1;
+    }
+
+    /**
+     * 약점 재발로 무효화됐던 강점이 다시 강점으로 잡힌 경우 호출.
+     * 해소 플래그만 해제한다.
+     */
+    public void unresolve() {
+        this.isResolved = false;
+        this.resolvedAt = null;
+    }
 }

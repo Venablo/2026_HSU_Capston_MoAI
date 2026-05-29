@@ -17,6 +17,11 @@ public interface UserKeywordRepository extends JpaRepository<UserKeyword, String
     Optional<UserKeyword> findByUserIdAndRoomIdAndKeywordAndKeywordType(
             String userId, String roomId, String keyword, String keywordType);
 
+    // 약점/강점 upsert 시 현재 주차(curriculum) 안에서만 같은 키워드 레코드를 찾기 위한 조회.
+    // week 1 의 약점 "X" 와 week 3 의 약점 "X" 는 서로 다른 레코드로 관리된다.
+    Optional<UserKeyword> findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+            String userId, String curriculumId, String keyword, String keywordType);
+
     List<UserKeyword> findByUserIdAndRoomId(String userId, String roomId);
 
     List<UserKeyword> findByUserIdAndRoomIdAndCurriculumId(String userId, String roomId, String curriculumId);
