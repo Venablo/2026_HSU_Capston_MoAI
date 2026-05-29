@@ -1,6 +1,7 @@
 package com.moai.backend.domain.keyword.controller;
 
 import com.moai.backend.domain.keyword.dto.KeywordListResponseDto;
+import com.moai.backend.domain.keyword.dto.MatchableWeaknessResponseDto;
 import com.moai.backend.domain.keyword.service.KeywordService;
 import com.moai.backend.global.common.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -38,5 +39,17 @@ public class KeywordController {
                 keywordService.getKeywordsByCurriculum(userDetails.getUsername(), roomId, weekId);
 
         return ResponseEntity.ok(ApiResponse.success("주차별 키워드 목록 조회 성공", responseDto));
+    }
+
+    @GetMapping("/api/learning-rooms/{roomId}/curriculum/{weekId}/matchable-weakness")
+    public ResponseEntity<ApiResponse<MatchableWeaknessResponseDto>> hasMatchableWeakness(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String roomId,
+            @PathVariable String weekId) {
+
+        MatchableWeaknessResponseDto responseDto =
+                keywordService.hasMatchableWeakness(userDetails.getUsername(), roomId, weekId);
+
+        return ResponseEntity.ok(ApiResponse.success("매칭 가능 약점 여부 조회 성공", responseDto));
     }
 }
