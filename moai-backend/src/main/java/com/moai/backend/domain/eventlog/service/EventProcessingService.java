@@ -582,11 +582,26 @@ public class EventProcessingService {
         keywords = KeywordNormalizer.normalize(keywords, curriculum.getKeywords());
         if (keywords.isEmpty()) return;
         for (String keyword : keywords) {
+            // 현재 주차의 weakness 레코드만 조회 (type 필터 필수 — 같은 주차의 strength 오인 방지)
             Optional<UserKeyword> existing = userKeywordRepository
-                    .findByUserIdAndRoomIdAndKeyword(user.getId(), room.getId(), keyword);
+                    .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                            user.getId(), curriculum.getId(), keyword, "weakness");
 
             if (existing.isPresent()) {
-                existing.get().incrementWeaknessCount();
+                UserKeyword w = existing.get();
+                if (Boolean.TRUE.equals(w.getIsResolved())) {
+                    // 강점으로 해소됐던 약점이 같은 주차에서 다시 약점으로 잡힘 → 카운트 1로 리셋
+                    w.reactivateAsWeakness();
+                    // 짝이 되는 강점은 무효화
+                    userKeywordRepository
+                            .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                                    user.getId(), curriculum.getId(), keyword, "strength")
+                            .ifPresent(s -> {
+                                if (!Boolean.TRUE.equals(s.getIsResolved())) s.resolve();
+                            });
+                } else {
+                    w.incrementWeaknessCount();
+                }
             } else {
                 UserKeyword newKeyword = UserKeyword.builder()
                         .user(user)
