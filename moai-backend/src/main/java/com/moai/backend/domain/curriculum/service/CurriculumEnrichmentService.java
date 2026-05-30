@@ -19,7 +19,7 @@ import com.moai.backend.global.material.MaterialContent;
 import com.moai.backend.global.material.MaterialGeneratorService;
 import com.moai.backend.global.s3.S3Service;
 import com.moai.backend.global.subtitle.SubtitleRetryQueue;
-import com.moai.backend.global.subtitle.SubtitleScraperService;
+import com.moai.backend.global.subtitle.SubtitleScraper;
 import com.moai.backend.global.subtitle.dto.SubtitleChunk;
 import com.moai.backend.global.subtitle.dto.SubtitleScrapeResult;
 import com.moai.backend.global.subtitle.exception.SubtitleErrorCode;
@@ -57,7 +57,7 @@ public class CurriculumEnrichmentService {
     private final WeeklyCurriculumRepository weeklyCurriculumRepository;
     private final VideoTranscriptRepository videoTranscriptRepository;
     private final LlmService llmService;
-    private final SubtitleScraperService subtitleScraperService;
+    private final SubtitleScraper subtitleScraper;
     private final MaterialGeneratorService materialGeneratorService;
     private final S3Service s3Service;
     private final YoutubeApiService youtubeApiService;
@@ -857,7 +857,7 @@ public class CurriculumEnrichmentService {
                 return new SubtitleScrapeResult(chunks, null, "cache");
             }
         }
-        return subtitleScraperService.scrape(videoId);
+        return subtitleScraper.scrape(videoId);
     }
 
     /**

@@ -165,8 +165,14 @@ public class EventProcessingService {
                 .build();
         materialRepository.save(material);
 
-        // 6. 필터링된 키워드마다 UserKeyword 약점 upsert
-        upsertWeaknessKeywords(user, room, curriculum, filteredKeywords);
+        // 6. 약점 키워드 누적은 "개념 이해 실패" 가 명확한 신호에서만 적용.
+        //    - video_rewind: "방금 그 부분 못 알아들어서 다시 본다" 명시적 신호 → 약점 누적
+        //    - video_pause(3분+): 화장실/식사 등 비학습적 이유 가능 → 자료만 보여주고 약점 미적용
+        //    - tab_departure: 단순 주의 분산. 게다가 키워드 추출 자체가 커리큘럼 교집합 검증 없이
+        //                     단일 LLM 단어를 반환하므로 환각 키워드 누적 위험 → 약점 미적용
+        if ("video_rewind".equals(eventType)) {
+            upsertWeaknessKeywords(user, room, curriculum, filteredKeywords);
+        }
 
         return new MaterialProcessResult(filteredKeywords, material.getId());
     }
@@ -212,7 +218,19 @@ public class EventProcessingService {
                 : extractAndFilterKeywords(transcriptText, curriculum);
 
         // 4. LLM 4지선다 퀴즈 1문제 생성 — 여러 키워드 중 첫 번째 하나에 대해서만 출제
-        String targetKeyword = filteredKeywords.isEmpty() ? curriculum.getTopic() : filteredKeywords.get(0);
+        //    targetKeyword 는 그대로 QuizQuestion.relatedKeyword 로 박히고 오답 시 약점 INSERT 되므로
+        //    절대 curriculum.getTopic() (긴 주제 문장) 으로 폴백하면 안 된다.
+        String targetKeyword;
+        if (!filteredKeywords.isEmpty()) {
+            targetKeyword = filteredKeywords.get(0);
+        } else if (curriculum.getKeywords() != null && !curriculum.getKeywords().isEmpty()) {
+            targetKeyword = curriculum.getKeywords().get(0);
+            log.info("[{}] 돌발 퀴즈 — 자막 필터 결과 비어있어 커리큘럼 첫 번째 키워드로 폴백: {}",
+                    curriculum.getId(), targetKeyword);
+        } else {
+            log.warn("[{}] 돌발 퀴즈 생성 스킵 — 커리큘럼 키워드 없음 (topic 폴백 금지)", curriculum.getId());
+            return new QuizProcessResult(null, null);
+        }
         LlmQuizResult quizResult = generateQuiz(targetKeyword, transcriptText, curriculum.getTopic(), room);
 
         // 5. Quiz + QuizQuestion 저장
@@ -351,20 +369,47 @@ public class EventProcessingService {
             return Collections.emptyList();
         }
 
-        // 커리큘럼 키워드와 교집합 필터링 (대소문자 무시)
+        // 커리큘럼 키워드와 교집합 필터링 (대소문자 무시 + "한글(영문)" 변형 허용)
         List<String> curriculumKeywords = curriculum.getKeywords();
         if (curriculumKeywords == null || curriculumKeywords.isEmpty()) {
             return Collections.emptyList();
         }
+
+        // "정규화(Normalization)" 같은 한글(영문) 표기를 ["정규화(normalization)", "정규화", "normalization"]
+        // 셋 다로 확장하여 LLM 이 한글만/영문만 반환해도 매칭되도록 한다.
         Set<String> curriculumKeywordSet = curriculumKeywords.stream()
-                .map(String::toLowerCase)
+                .flatMap(EventProcessingService::expandKeywordVariants)
                 .collect(Collectors.toSet());
 
-        // LLM 추출 키워드 중 커리큘럼 키워드에 포함된 것만 반환
+        // LLM 추출 키워드 중 커리큘럼 키워드(변형 포함) 에 포함된 것만 반환
         return llmKeywords.stream()
-                .filter(k -> curriculumKeywordSet.contains(k.toLowerCase()))
+                .filter(k -> curriculumKeywordSet.contains(k.toLowerCase().trim()))
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 커리큘럼 키워드 표기 변형을 생성한다.
+     * - "정규화(Normalization)" → ["정규화(normalization)", "정규화", "normalization"]
+     * - 그 외(괄호 없음) → [원본 lowercase] 한 개
+     * 모든 결과는 lowercase + trim 적용.
+     */
+    private static final java.util.regex.Pattern KOR_ENG_PAREN_PATTERN =
+            java.util.regex.Pattern.compile("^([^()]+?)\\s*\\(([^()]+)\\)$");
+
+    private static java.util.stream.Stream<String> expandKeywordVariants(String keyword) {
+        if (keyword == null || keyword.isBlank()) return java.util.stream.Stream.empty();
+        String lower = keyword.toLowerCase().trim();
+        Set<String> variants = new HashSet<>();
+        variants.add(lower);
+        java.util.regex.Matcher m = KOR_ENG_PAREN_PATTERN.matcher(lower);
+        if (m.matches()) {
+            String left = m.group(1).trim();
+            String right = m.group(2).trim();
+            if (!left.isEmpty()) variants.add(left);
+            if (!right.isEmpty()) variants.add(right);
+        }
+        return variants.stream();
     }
 
     /**

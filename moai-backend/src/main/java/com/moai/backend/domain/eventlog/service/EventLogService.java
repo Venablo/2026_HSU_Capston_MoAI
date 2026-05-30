@@ -153,6 +153,9 @@ public class EventLogService {
         double speedStartSec = extractDouble(payload, "speed_start_sec");
         int durationSec = extractInt(payload, "duration_sec");
 
+        log.info("2배속 이벤트 수신 — user={}, video={}, speedStartSec={}, durationSec={}",
+                user.getId(), videoId, speedStartSec, durationSec);
+
         // Redis에서 2배속 누적 감지 (180초 이상 여부)
         PatternResult result = patternDetectionService.detectSpeedUp(
                 user.getId(), videoId, durationSec);

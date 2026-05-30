@@ -29,6 +29,10 @@ public enum SubtitleErrorCode {
     SCRIPT_EXECUTION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "SUB_102", "Python 스크립트 실행 실패", -1),
     INVALID_SCRIPT_OUTPUT(HttpStatus.INTERNAL_SERVER_ERROR, "SUB_103", "스크립트 출력 파싱 실패", -1),
 
+    // Supadata 전용 코드 (HTTP 401/403 인증 실패, 402 크레딧 소진). Python exitCode 없음.
+    SUPADATA_AUTH_FAILED(HttpStatus.UNAUTHORIZED, "SUB_201", "Supadata API 인증 실패 (API 키 확인 필요)", -1),
+    SUPADATA_QUOTA_EXCEEDED(HttpStatus.PAYMENT_REQUIRED, "SUB_202", "Supadata API 크레딧이 소진되었습니다", -1),
+
     UNKNOWN_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "SUB_999", "자막 추출 중 알 수 없는 오류", 99);
 
     private final HttpStatus httpStatus;
