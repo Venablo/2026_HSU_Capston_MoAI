@@ -7,6 +7,13 @@ export async function requestStudyMatch(roomId: string, curriculumId: string): P
   await api.post(`/api/learning-rooms/${roomId}/match`, { curriculumId })
 }
 
+export async function getMatchableWeakness(roomId: string, weekId: string): Promise<boolean> {
+  const res = await unwrap(api.get<ApiResponse<{ hasMatchableWeakness: boolean }>>(
+    `/api/learning-rooms/${roomId}/curriculum/${weekId}/matchable-weakness`
+  ))
+  return res.hasMatchableWeakness
+}
+
 export async function getStudySuggestions(): Promise<StudySuggestion[]> {
   return unwrap(api.get<ApiResponse<StudySuggestion[]>>('/api/study-groups/suggestions'))
 }

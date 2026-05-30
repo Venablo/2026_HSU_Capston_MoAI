@@ -28,6 +28,7 @@ import {
     logout,
     connectNotificationStream,
     requestStudyMatch,
+    getMatchableWeakness,
     getCurriculumKeywords,
     getQuizAttempts,
     getQuizAttemptDetail,
@@ -153,8 +154,9 @@ function FocusClassroomContent() {
     const unreadCount = notifications.filter(n => !n.isRead).length
 
     // ── 키워드 ───────────────────────────────────────────────────────────────
-    const [userKeywords,    setUserKeywords]    = useState<CurriculumKeywordsResponse | null>(null)
-    const [keywordsLoading, setKeywordsLoading] = useState(false)
+    const [userKeywords,         setUserKeywords]         = useState<CurriculumKeywordsResponse | null>(null)
+    const [keywordsLoading,      setKeywordsLoading]      = useState(false)
+    const [hasMatchableWeakness, setHasMatchableWeakness] = useState<boolean | null>(null)
 
     // ── Refs ─────────────────────────────────────────────────────────────────
     const bodyRef            = useRef<HTMLDivElement>(null)
@@ -207,10 +209,13 @@ function FocusClassroomContent() {
             setVideoProgress(0)
             setSelectedMdIdx(0)
 
+            setHasMatchableWeakness(null)
             setKeywordsLoading(true)
             getCurriculumKeywords(roomId, weekId)
                 .then(setUserKeywords).catch(() => {})
                 .finally(() => setKeywordsLoading(false))
+            getMatchableWeakness(roomId, weekId)
+                .then(setHasMatchableWeakness).catch(() => setHasMatchableWeakness(false))
         } catch (e) {
             setWeekError(e instanceof MoaiApiError ? e.message : '데이터를 불러오지 못했습니다.')
         } finally {
@@ -254,6 +259,7 @@ function FocusClassroomContent() {
     useEffect(() => {
         if (quizCompletedCount === 0 || !weekData) return
         getCurriculumKeywords(roomId, weekData.weekId).then(setUserKeywords).catch(() => {})
+        getMatchableWeakness(roomId, weekData.weekId).then(setHasMatchableWeakness).catch(() => {})
         if (quizHistoryOpen) {
             setQuizLoading(true)
             getQuizAttempts(roomId, weekData.weekId)
@@ -994,10 +1000,16 @@ function FocusClassroomContent() {
                                     </>
                                 ) : (
                                     <>
-                                        <p className="fc-section-card__desc">메타인지 완료 후 멘토와 스터디할 수 있습니다.</p>
+                                        <p className="fc-section-card__desc">
+                                            {!metacogComplete
+                                                ? '메타인지 완료 후 멘토와 스터디할 수 있습니다.'
+                                                : hasMatchableWeakness === false
+                                                    ? '매칭 가능한 약점 키워드가 없습니다. 이해를 잘 하고 계시네요!'
+                                                    : '멘토와 매칭되어 약점 키워드를 함께 공부해보세요.'}
+                                        </p>
                                         <button
                                             className="fc-section-card__btn fc-section-card__btn--secondary"
-                                            disabled={!metacogComplete}
+                                            disabled={!metacogComplete || hasMatchableWeakness !== true}
                                             onClick={handleRequestMatching}
                                         >
                                             <Users size={13} strokeWidth={2} /> 멘토에게 스터디 요청하기
@@ -1216,6 +1228,8 @@ function FocusClassroomContent() {
                     if (weekData) {
                         getCurriculumKeywords(roomId, weekData.weekId)
                             .then(setUserKeywords).catch(() => {})
+                        getMatchableWeakness(roomId, weekData.weekId)
+                            .then(setHasMatchableWeakness).catch(() => {})
                     }
                 }}
             />
