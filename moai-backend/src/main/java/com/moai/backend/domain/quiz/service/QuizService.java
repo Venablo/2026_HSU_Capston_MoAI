@@ -53,10 +53,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -445,6 +447,10 @@ public class QuizService {
             // radarData 생성용 요약 수집
             StringBuilder gradingSummary = new StringBuilder();
 
+            // 5문항 채점 결과를 모두 모은 뒤 교집합/단독 분기로 일괄 반영하기 위한 누적 집합
+            Set<String> allGained = new LinkedHashSet<>();
+            Set<String> allWeakness = new LinkedHashSet<>();
+
             for (FinalQuizSubmitRequestDto.AnswerItem answerItem : answers) {
                 QuizQuestion question = quizQuestionRepository.findById(answerItem.getQuestionId())
                         .orElseThrow(() -> new CustomException(ErrorCode.QUIZ_QUESTION_NOT_FOUND));
@@ -466,11 +472,12 @@ public class QuizService {
                         .build();
                 quizAttemptRepository.save(attempt);
 
-                // UserKeyword UPSERT
-                if (isCorrect) {
-                    resolveAndPromoteKeywords(user, room, curriculum, grading.getGainedKeywords());
-                } else {
-                    upsertWeaknessKeywords(user, room, curriculum, grading.getWeaknessKeywords());
+                // 키워드는 즉시 반영하지 않고 5문항 전체 결과를 모은 뒤 일괄 분기 처리한다.
+                if (grading.getGainedKeywords() != null) {
+                    allGained.addAll(grading.getGainedKeywords());
+                }
+                if (grading.getWeaknessKeywords() != null) {
+                    allWeakness.addAll(grading.getWeaknessKeywords());
                 }
 
                 totalScore += grading.getScore();
@@ -496,6 +503,9 @@ public class QuizService {
                         grading.getScore(), grading.getGainedKeywords(), grading.getWeaknessKeywords()
                 ));
             }
+
+            // 5문항 합산 후 intersection / gainedOnly / weaknessOnly 로 분기 처리
+            applyKeywordUpdates(user, room, curriculum, allGained, allWeakness);
 
             // LLM으로 radarData 생성
             String radarDataJson = generateRadarData(gradingSummary.toString(), totalScore);
@@ -759,6 +769,83 @@ public class QuizService {
                         .build();
                 userKeywordRepository.save(strength);
             }
+        }
+    }
+
+    /**
+     * 5문항 채점 결과를 교집합 / gainedOnly / weaknessOnly 로 분기해 user_keywords 에 반영한다.
+     *
+     * - intersection : 같은 키워드가 gained 와 weakness 양쪽에 등장 → forceWeaknessReset
+     * - gainedOnly   : gained 에만 등장 → resolveAndPromoteKeywords (기존 정답 로직)
+     * - weaknessOnly : weakness 에만 등장 → upsertWeaknessKeywords (기존 오답 로직)
+     */
+    private void applyKeywordUpdates(User user, LearningRoom room, WeeklyCurriculum curriculum,
+                                      Set<String> gainedRaw, Set<String> weaknessRaw) {
+        // 교집합 판정 전 정규화로 표기 차이를 통일해야 같은 개념을 정확히 식별할 수 있다.
+        List<String> gained = KeywordNormalizer.normalize(
+                new ArrayList<>(gainedRaw), curriculum.getKeywords());
+        List<String> weakness = KeywordNormalizer.normalize(
+                new ArrayList<>(weaknessRaw), curriculum.getKeywords());
+
+        Set<String> intersection = new LinkedHashSet<>(gained);
+        intersection.retainAll(weakness);
+
+        List<String> gainedOnly = gained.stream()
+                .filter(k -> !intersection.contains(k))
+                .toList();
+        List<String> weaknessOnly = weakness.stream()
+                .filter(k -> !intersection.contains(k))
+                .toList();
+
+        if (!intersection.isEmpty()) {
+            forceWeaknessReset(user, room, curriculum, new ArrayList<>(intersection));
+        }
+        if (!gainedOnly.isEmpty()) {
+            resolveAndPromoteKeywords(user, room, curriculum, gainedOnly);
+        }
+        if (!weaknessOnly.isEmpty()) {
+            upsertWeaknessKeywords(user, room, curriculum, weaknessOnly);
+        }
+    }
+
+    /**
+     * 마무리 퀴즈 한 회차에서 강점/약점 양쪽 신호가 동시에 나온 키워드를
+     * 기존 DB 상태와 무관하게 weakness 1건, count=1, is_resolved=false 로 강제한다.
+     * 짝이 되는 살아있는 strength 레코드는 함께 무효화한다.
+     */
+    private void forceWeaknessReset(User user, LearningRoom room,
+                                     WeeklyCurriculum curriculum,
+                                     List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) return;
+        keywords = KeywordNormalizer.normalize(keywords, curriculum.getKeywords());
+        if (keywords.isEmpty()) return;
+
+        for (String keyword : keywords) {
+            Optional<UserKeyword> existingWeakness = userKeywordRepository
+                    .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                            user.getId(), curriculum.getId(), keyword, "weakness");
+
+            if (existingWeakness.isPresent()) {
+                // count=N 이든 isResolved=true 든 무조건 count=1 + isResolved=false 로 리셋
+                existingWeakness.get().reactivateAsWeakness();
+            } else {
+                UserKeyword newKeyword = UserKeyword.builder()
+                        .user(user)
+                        .room(room)
+                        .curriculum(curriculum)
+                        .keyword(keyword)
+                        .keywordType("weakness")
+                        .build();
+                userKeywordRepository.save(newKeyword);
+            }
+
+            // 짝이 되는 strength 가 살아있으면 무효화 (재발 처리와 동일 정책)
+            userKeywordRepository
+                    .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                            user.getId(), curriculum.getId(), keyword, "strength")
+                    .ifPresent(s -> {
+                        if (!Boolean.TRUE.equals(s.getIsResolved())) s.resolve();
+                    });
         }
     }
 
