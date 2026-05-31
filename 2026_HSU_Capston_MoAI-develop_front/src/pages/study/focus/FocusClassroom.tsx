@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
     ArrowLeft, Bell, BrainCircuit, Check, CheckCircle2, ChevronRight,
     FileEdit, FileText, Loader2, Lock, LogOut, MessageCircle, MessageSquare,
-    Moon, Package, Pause, Play, Search, Send, Sun, Trophy,
+    Moon, Package, Pause, Play, PlayCircle, Search, Send, Sun, Trophy,
     Users, UserCircle, X, Zap,
 } from 'lucide-react'
 import '../../../styles/FocusClassroom.css'
@@ -28,6 +28,7 @@ import {
     logout,
     connectNotificationStream,
     requestStudyMatch,
+    getMatchableWeakness,
     getCurriculumKeywords,
     getQuizAttempts,
     getQuizAttemptDetail,
@@ -35,6 +36,7 @@ import {
     getStudySuggestions,
     connectGroupChat,
     getGroupMessages,
+    getRecommendedVideos,
 } from '../../../services/apiService'
 import { MoaiApiError } from '../../../api/axios'
 import type {
@@ -49,6 +51,7 @@ import type {
     QuizAttemptListItem,
     QuizAttemptDetail,
     ResourceItem,
+    RecommendedVideo,
 } from '../../../types/api'
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
@@ -153,8 +156,14 @@ function FocusClassroomContent() {
     const unreadCount = notifications.filter(n => !n.isRead).length
 
     // ── 키워드 ───────────────────────────────────────────────────────────────
-    const [userKeywords,    setUserKeywords]    = useState<CurriculumKeywordsResponse | null>(null)
-    const [keywordsLoading, setKeywordsLoading] = useState(false)
+    const [userKeywords,         setUserKeywords]         = useState<CurriculumKeywordsResponse | null>(null)
+    const [keywordsLoading,      setKeywordsLoading]      = useState(false)
+    const [hasMatchableWeakness, setHasMatchableWeakness] = useState<boolean | null>(null)
+
+    // ── AI 추천 영상 ──────────────────────────────────────────────────────────
+    const [videos,       setVideos]       = useState<RecommendedVideo[] | null>(null)
+    const [videosLoading, setVideosLoading] = useState(false)
+    const [videosOpen,   setVideosOpen]   = useState(false)
 
     // ── Refs ─────────────────────────────────────────────────────────────────
     const bodyRef            = useRef<HTMLDivElement>(null)
@@ -164,6 +173,8 @@ function FocusClassroomContent() {
     openRef.current          = open
     const matchTimeoutRef    = useRef<number | null>(null)
     const matchRequestKeyRef = useRef<string | null>(null)
+    const videosRetryRef     = useRef<number | null>(null)
+    const videoRetryRef      = useRef<number | null>(null)
     const navigateRef        = useRef(navigate)
     useEffect(() => { navigateRef.current = navigate }, [navigate])
     const nicknameRef        = useRef(nickname)
@@ -206,11 +217,15 @@ function FocusClassroomContent() {
             loadSummariesForWeek(roomId, weekId)
             setVideoProgress(0)
             setSelectedMdIdx(0)
+            setVideos(null)
 
+            setHasMatchableWeakness(null)
             setKeywordsLoading(true)
             getCurriculumKeywords(roomId, weekId)
                 .then(setUserKeywords).catch(() => {})
                 .finally(() => setKeywordsLoading(false))
+            getMatchableWeakness(roomId, weekId)
+                .then(setHasMatchableWeakness).catch(() => setHasMatchableWeakness(false))
         } catch (e) {
             setWeekError(e instanceof MoaiApiError ? e.message : '데이터를 불러오지 못했습니다.')
         } finally {
@@ -250,19 +265,142 @@ function FocusClassroomContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentMatchKey])
 
-    // ── 퀴즈 완료 시 이력 갱신 ──────────────────────────────────────────────
+    // ── 퀴즈 완료 시 이력 + 진도율 갱신 ──────────────────────────────────────
     useEffect(() => {
         if (quizCompletedCount === 0 || !weekData) return
-        getCurriculumKeywords(roomId, weekData.weekId).then(setUserKeywords).catch(() => {})
+        const wid = weekData.weekId
+        getCurriculumKeywords(roomId, wid).then(setUserKeywords).catch(() => {})
+        getMatchableWeakness(roomId, wid).then(setHasMatchableWeakness).catch(() => {})
+        // 퀴즈 완료 후 서버의 최신 completionRate 반영 (내려가지 않도록 Math.max)
+        getCurriculumWeek(roomId, wid)
+            .then(detail => setWeekData(prev => prev
+                ? { ...detail, completionRate: Math.max(Number(prev.completionRate) || 0, Number(detail.completionRate) || 0) }
+                : detail))
+            .catch(() => {})
         if (quizHistoryOpen) {
             setQuizLoading(true)
-            getQuizAttempts(roomId, weekData.weekId)
+            getQuizAttempts(roomId, wid)
                 .then(setQuizAttempts).catch(() => {}).finally(() => setQuizLoading(false))
         } else {
-            setQuizAttempts(null) // 다음 열 때 새로 로드
+            setQuizAttempts(null)
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [quizCompletedCount])
+
+    // ── AI 추천 영상 lazy load ────────────────────────────────────────────────
+    useEffect(() => {
+        if (!videosOpen || !weekData || !roomId || videos !== null) return
+        setVideosLoading(true)
+        getRecommendedVideos(roomId, weekData.weekId)
+            .then(setVideos).catch(() => setVideos([])).finally(() => setVideosLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [videosOpen, weekData?.weekId, roomId, videos])
+
+    // ── 약점 보충 영상 비동기 생성 감지 폴링 ──────────────────────────────────
+    // videos === [] 상태(로드했지만 비어있음)일 때 백엔드 생성 완료를 감지해 자동 반영
+    useEffect(() => {
+        if (videosRetryRef.current) {
+            window.clearInterval(videosRetryRef.current)
+            videosRetryRef.current = null
+        }
+        if (!Array.isArray(videos) || videos.length > 0 || !roomId || !weekData?.weekId) return
+
+        let attempts = 0
+        const wid = weekData.weekId
+        videosRetryRef.current = window.setInterval(async () => {
+            attempts += 1
+            try {
+                const result = await getRecommendedVideos(roomId, wid)
+                if (result.length > 0) {
+                    setVideos(result)
+                    // setVideos가 호출되면 videos deps 변경 → effect 재실행 → 폴링 자동 중단
+                }
+            } catch { /* silent */ }
+            if (attempts >= 12) {
+                if (videosRetryRef.current) {
+                    window.clearInterval(videosRetryRef.current)
+                    videosRetryRef.current = null
+                }
+            }
+        }, 5_000)
+
+        return () => {
+            if (videosRetryRef.current) {
+                window.clearInterval(videosRetryRef.current)
+                videosRetryRef.current = null
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [videos, roomId, weekData?.weekId])
+
+    // ── 메인 강의 영상 비동기 준비 감지 폴링 ──────────────────────────────────
+    // weekData 로드 후 mainVideoId가 없을 때(LLM/자막 처리 대기) 5초마다 재확인
+    useEffect(() => {
+        if (videoRetryRef.current) {
+            window.clearInterval(videoRetryRef.current)
+            videoRetryRef.current = null
+        }
+        if (weekLoading || !weekData?.weekId || activeVideoId || !roomId) return
+
+        let attempts = 0
+        const wid = weekData.weekId
+        videoRetryRef.current = window.setInterval(async () => {
+            attempts += 1
+            try {
+                const detail = await getCurriculumWeek(roomId, wid)
+                if (detail.mainVideoId) {
+                    setWeekData(prev => prev?.weekId === wid ? detail : prev)
+                    // activeVideoId가 채워지면 deps 변경 → effect 재실행 → 폴링 자동 중단
+                }
+            } catch { /* silent */ }
+            if (attempts >= 20) {
+                if (videoRetryRef.current) {
+                    window.clearInterval(videoRetryRef.current)
+                    videoRetryRef.current = null
+                }
+            }
+        }, 5_000)
+
+        return () => {
+            if (videoRetryRef.current) {
+                window.clearInterval(videoRetryRef.current)
+                videoRetryRef.current = null
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeVideoId, weekData?.weekId, roomId, weekLoading])
+
+    // ── 메타인지 완료 → 진도율 갱신 (최종퀴즈 버튼 즉시 활성화) ──────────────
+    useEffect(() => {
+        if (!metacogComplete || !roomId || !weekData?.weekId) return
+        const wid = weekData.weekId
+        // 낙관적 업데이트
+        setWeekData(prev => prev ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, 70) } : prev)
+        setAllWeeks(prev => prev.map(w => w.weekId === wid
+            ? { ...w, completionRate: Math.max(Number(w.completionRate) || 0, 70) }
+            : w))
+        // 서버 확정값 반영
+        getCurriculumWeek(roomId, wid)
+            .then(detail => setWeekData({ ...detail, completionRate: Math.max(Number(detail.completionRate) || 0, 70) }))
+            .catch(() => {})
+        getCurriculum(roomId).then(setAllWeeks).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [metacogComplete, roomId, weekData?.weekId])
+
+    // ── 최종 퀴즈 제출 → 진도율 100% 갱신 + 주차 목록 새로고침 ──────────────
+    useEffect(() => {
+        if (!quizSubmitted || !roomId || !weekData?.weekId) return
+        const wid = weekData.weekId
+        setWeekData(prev => prev && prev.weekId === wid
+            ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, 100) }
+            : prev)
+        getCurriculumWeek(roomId, wid)
+            .then(detail => setWeekData({ ...detail, completionRate: Math.max(Number(detail.completionRate) || 0, 100) }))
+            .catch(() => {})
+        getCurriculum(roomId).then(setAllWeeks).catch(() => {})
+        setQuizAttempts(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [quizSubmitted, roomId, weekData?.weekId])
 
     // ── 퀴즈 이력 토글 (lazy load) ───────────────────────────────────────────
     const handleToggleQuizHistory = useCallback(() => {
@@ -340,7 +478,17 @@ function FocusClassroomContent() {
         if (!weekData) return
         const contrib = videoWatchRateToWeekProgress(rate)
         setVideoProgress(prev => Math.max(prev, contrib))
-        updateProgress(roomId, weekData.weekId, { completionRate: contrib }).catch(() => {})
+        const wid = weekData.weekId
+        updateProgress(roomId, wid, { completionRate: contrib })
+            .then(res => {
+                setWeekData(prev => prev
+                    ? { ...prev, completionRate: Math.max(Number(prev.completionRate) || 0, res.completionRate) }
+                    : prev)
+                setAllWeeks(prev => prev.map(w => w.weekId === wid
+                    ? { ...w, completionRate: Math.max(Number(w.completionRate) || 0, res.completionRate) }
+                    : w))
+            })
+            .catch(() => {})
     }, [weekData, roomId])
 
     // ── YouTube Player ────────────────────────────────────────────────────────
@@ -802,78 +950,7 @@ function FocusClassroomContent() {
                         {/* ── 학습 기능 영역 ── */}
                         <div className="fc-learning-panel">
 
-                            {/* 메타인지 확인 */}
-                            <div className={`fc-section-card${metacogComplete ? ' fc-section-card--complete' : ''}`}>
-                                <div className="fc-section-card__header">
-                                    <BrainCircuit size={15} strokeWidth={1.5} className={`fc-section-card__icon${metacogComplete ? ' fc-section-card__icon--done' : ''}`} />
-                                    <span>메타인지 확인 (거꾸로 학습)</span>
-                                    {metacogComplete && <CheckCircle2 size={14} strokeWidth={2} className="fc-section-card__check" />}
-                                </div>
-                                {metacogComplete ? (
-                                    <p className="fc-section-card__done-text">거꾸로 학습이 완료되었습니다.</p>
-                                ) : canStartMetacog ? (
-                                    <>
-                                        <p className="fc-section-card__desc">방금 배운 내용을 AI에게 설명해보세요. 이해도를 실시간 분석합니다.</p>
-                                        <button className="fc-section-card__btn" onClick={() => {
-                                            pausePlayerRef.current()
-                                            open('reverse-learning', { type: 'reverse-learning', conceptName: weekData?.topic ?? '', roomId, weekId: weekData?.weekId })
-                                        }}>
-                                            <BrainCircuit size={13} strokeWidth={2} /> AI에게 설명하기
-                                        </button>
-                                    </>
-                                ) : (
-                                    <p className="fc-section-card__locked-text">
-                                        진행률 40% 이상부터 가능합니다.{progress > 0 && progress < 40 && ` (현재 ${progress}%)`}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* 주간 최종 퀴즈 */}
-                            <div className={`fc-section-card${!canStartFinalQuiz && !quizSubmitted ? ' fc-section-card--locked' : ''}`}>
-                                <div className="fc-section-card__header">
-                                    {canStartFinalQuiz || quizSubmitted
-                                        ? <Trophy size={15} strokeWidth={1.5} className="fc-section-card__icon" />
-                                        : <Lock   size={15} strokeWidth={1.5} className="fc-section-card__icon fc-section-card__icon--lock" />}
-                                    <span>주간 최종 퀴즈</span>
-                                </div>
-                                <p className="fc-section-card__desc">
-                                    {quizSubmitted ? 'AI 종합 분석 리포트를 확인하세요.'
-                                        : canStartFinalQuiz ? `Week ${weekData?.weekNumber} 전체 내용 최종 평가`
-                                        : '메타인지 확인 완료 후 진행 가능합니다.'}
-                                </p>
-                                {weekData && (
-                                    <button
-                                        className="fc-section-card__btn fc-section-card__btn--secondary"
-                                        disabled={!quizSubmitted && !canStartFinalQuiz}
-                                        onClick={() => {
-                                            if (quizSubmitted || canStartFinalQuiz) {
-                                                pausePlayerRef.current()
-                                                open('final-quiz', { type: 'final-quiz', roomId, weekId: weekData.weekId, ...(quizSubmitted ? { reviewMode: true } : {}) })
-                                            }
-                                        }}
-                                    >
-                                        <Trophy size={13} strokeWidth={1.5} />
-                                        {quizSubmitted ? '결과 복습하기' : '퀴즈 도전하기'}
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* 퀴즈 이력 */}
-                            <div className="fc-section-card">
-                                <button className="fc-section-card__toggle" onClick={handleToggleQuizHistory}>
-                                    <MessageSquare size={15} strokeWidth={1.5} className="fc-section-card__icon" />
-                                    <span>퀴즈 이력</span>
-                                    {quizAttempts !== null && <span className="fc-section-card__count">{quizAttempts.length}개</span>}
-                                    <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: quizHistoryOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                                </button>
-                                {quizHistoryOpen && (
-                                    <div className="fc-quiz-history">
-                                        {renderQuizHistory()}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 핵심 키워드 */}
+                            {/* 1. 핵심 키워드 */}
                             <div className="fc-section-card">
                                 <button className="fc-section-card__toggle" onClick={() => setKeywordsOpen(v => !v)}>
                                     <Zap size={15} strokeWidth={1.5} className="fc-section-card__icon" />
@@ -900,72 +977,145 @@ function FocusClassroomContent() {
                                                         {keywordsExpanded ? '접기 ↑' : `더 보기 +${safeKeywords.length - 5}개`}
                                                     </button>
                                                 )}
-                                                {/* 강점 / 약점 키워드 */}
-                                                {(keywordsLoading || safeUserKeywords.strengths.length > 0 || safeUserKeywords.weaknesses.length > 0) && (
-                                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                                                        {keywordsLoading ? (
-                                                            <div className="fc-quiz-loading" style={{ fontSize: 11 }}><Loader2 size={12} className="animate-spin" /> 분석 중...</div>
-                                                        ) : (
-                                                            <>
-                                                                {safeUserKeywords.strengths.length > 0 && (
-                                                                    <div style={{ marginBottom: 8 }}>
-                                                                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>강점 키워드</div>
-                                                                        <div className="fc-strength-tags">
-                                                                            {safeUserKeywords.strengths.map(s => (
-                                                                                <span key={s.keyword} className="fc-strength-badge">{s.keyword}</span>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {safeUserKeywords.weaknesses.length > 0 && (
-                                                                    <div>
-                                                                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>약점 키워드</div>
-                                                                        <div className="fc-weakness-tags">
-                                                                            {safeUserKeywords.weaknesses.map(w => (
-                                                                                <span key={w.keyword} className="fc-weakness-badge">
-                                                                                    {w.keyword}{w.weaknessCount > 1 && <span style={{ marginLeft: 3, opacity: 0.7 }}>×{w.weaknessCount}</span>}
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
                                             </>
+                                        )}
+                                        {/* 강점 / 약점 키워드 — 항상 표시 */}
+                                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
+                                            {keywordsLoading ? (
+                                                <div className="fc-quiz-loading" style={{ fontSize: 11 }}><Loader2 size={12} className="animate-spin" /> 분석 중...</div>
+                                            ) : safeUserKeywords.strengths.length === 0 && safeUserKeywords.weaknesses.length === 0 ? (
+                                                <p className="fc-quiz-empty" style={{ margin: 0 }}>아직 분석된 강/약점 키워드가 없습니다.</p>
+                                            ) : (
+                                                <>
+                                                    {safeUserKeywords.strengths.length > 0 && (
+                                                        <div style={{ marginBottom: 8 }}>
+                                                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>강점 키워드</div>
+                                                            <div className="fc-strength-tags">
+                                                                {safeUserKeywords.strengths.map(s => (
+                                                                    <span key={s.keyword} className="fc-strength-badge">{s.keyword}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {safeUserKeywords.weaknesses.length > 0 && (
+                                                        <div>
+                                                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, textTransform: 'uppercase' }}>약점 키워드</div>
+                                                            <div className="fc-weakness-tags">
+                                                                {safeUserKeywords.weaknesses.map(w => (
+                                                                    <span key={w.keyword} className="fc-weakness-badge">
+                                                                        {w.keyword}{w.weaknessCount > 1 && <span style={{ marginLeft: 3, opacity: 0.7 }}>×{w.weaknessCount}</span>}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 2. AI 추천 영상 */}
+                            <div className="fc-section-card">
+                                <button className="fc-section-card__toggle" onClick={() => setVideosOpen(v => !v)}>
+                                    <PlayCircle size={15} strokeWidth={1.5} className="fc-section-card__icon" />
+                                    <span>AI 추천 영상</span>
+                                    {Array.isArray(videos) && <span className="fc-section-card__count">{videos.length}개</span>}
+                                    <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: videosOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                                </button>
+                                {videosOpen && (
+                                    <div className="fc-quiz-history">
+                                        {videosLoading ? (
+                                            <div className="fc-quiz-loading"><Loader2 size={14} className="animate-spin" /> 불러오는 중...</div>
+                                        ) : !Array.isArray(videos) ? null : videos.length === 0 ? (
+                                            <p className="fc-quiz-empty">추천 영상이 없습니다.</p>
+                                        ) : (
+                                            videos.map((v, i) => (
+                                                <a key={i} href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noreferrer" className="fc-resource-item" style={{ textDecoration: 'none' }}>
+                                                    <span style={{ width: 44, height: 30, borderRadius: 4, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-subtle)', flexShrink: 0 }}>
+                                                        <img src={`https://img.youtube.com/vi/${v.videoId}/default.jpg`} alt={v.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                                                    </span>
+                                                    <span className="fc-resource-info">
+                                                        <span className="fc-resource-name">{v.title}</span>
+                                                        <span className="fc-resource-meta">YouTube</span>
+                                                    </span>
+                                                    <span className="fc-resource-action">보기</span>
+                                                </a>
+                                            ))
                                         )}
                                     </div>
                                 )}
                             </div>
 
-                            {/* AI 요약본 다시 보기 */}
-                            {savedSummaries.length > 0 && (
-                                <div className="fc-section-card">
-                                    <button className="fc-section-card__toggle" onClick={() => setSummariesOpen(v => !v)}>
-                                        <FileText size={15} strokeWidth={1.5} className="fc-section-card__icon" />
-                                        <span>AI 요약본 다시 보기</span>
-                                        <span className="fc-section-card__count">{savedSummaries.length}개</span>
-                                        <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: summariesOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                                    </button>
-                                    {summariesOpen && (
-                                        <div className="fc-summary-list">
-                                            {savedSummaries.map((s, i) => (
-                                                <button
-                                                    key={i}
-                                                    className="fc-summary-item"
-                                                    onClick={() => open('summary-detail', { type: 'summary-detail', conceptName: s.conceptName, summaryItems: s.summaryItems })}
-                                                >
-                                                    <span className="fc-summary-item__name">{s.conceptName}</span>
-                                                    <span className="fc-summary-item__time">{new Date(s.savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            {/* 3. AI 요약본 다시 보기 — 항상 표시 */}
+                            <div className="fc-section-card">
+                                <button className="fc-section-card__toggle" onClick={() => setSummariesOpen(v => !v)}>
+                                    <FileText size={15} strokeWidth={1.5} className="fc-section-card__icon" />
+                                    <span>AI 요약본 다시 보기</span>
+                                    {savedSummaries.length > 0 && <span className="fc-section-card__count">{savedSummaries.length}개</span>}
+                                    <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: summariesOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                                </button>
+                                {summariesOpen && (
+                                    <div className="fc-summary-list">
+                                        {savedSummaries.length === 0 ? (
+                                            <p className="fc-quiz-empty">저장된 AI 요약본이 없습니다.</p>
+                                        ) : savedSummaries.map((s, i) => (
+                                            <button
+                                                key={i}
+                                                className="fc-summary-item"
+                                                onClick={() => open('summary-detail', { type: 'summary-detail', conceptName: s.conceptName, summaryItems: s.summaryItems })}
+                                            >
+                                                <span className="fc-summary-item__name">{s.conceptName}</span>
+                                                <span className="fc-summary-item__time">{new Date(s.savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
 
-                            {/* 스터디 매칭 */}
+                            {/* 4. 퀴즈 이력 */}
+                            <div className="fc-section-card">
+                                <button className="fc-section-card__toggle" onClick={handleToggleQuizHistory}>
+                                    <MessageSquare size={15} strokeWidth={1.5} className="fc-section-card__icon" />
+                                    <span>퀴즈 이력</span>
+                                    {quizAttempts !== null && <span className="fc-section-card__count">{quizAttempts.length}개</span>}
+                                    <ChevronRight size={14} strokeWidth={2} style={{ marginLeft: 'auto', transform: quizHistoryOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                                </button>
+                                {quizHistoryOpen && (
+                                    <div className="fc-quiz-history">
+                                        {renderQuizHistory()}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 5. 메타인지 확인 */}
+                            <div className={`fc-section-card${metacogComplete ? ' fc-section-card--complete' : ''}`}>
+                                <div className="fc-section-card__header">
+                                    <BrainCircuit size={15} strokeWidth={1.5} className={`fc-section-card__icon${metacogComplete ? ' fc-section-card__icon--done' : ''}`} />
+                                    <span>메타인지 확인 (거꾸로 학습)</span>
+                                    {metacogComplete && <CheckCircle2 size={14} strokeWidth={2} className="fc-section-card__check" />}
+                                </div>
+                                {metacogComplete ? (
+                                    <p className="fc-section-card__done-text">거꾸로 학습이 완료되었습니다.</p>
+                                ) : canStartMetacog ? (
+                                    <>
+                                        <p className="fc-section-card__desc">방금 배운 내용을 AI에게 설명해보세요. 이해도를 실시간 분석합니다.</p>
+                                        <button className="fc-section-card__btn" onClick={() => {
+                                            pausePlayerRef.current()
+                                            open('reverse-learning', { type: 'reverse-learning', conceptName: weekData?.topic ?? '', roomId, weekId: weekData?.weekId })
+                                        }}>
+                                            <BrainCircuit size={13} strokeWidth={2} /> AI에게 설명하기
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="fc-section-card__locked-text">
+                                        진행률 40% 이상부터 가능합니다.{progress > 0 && progress < 40 && ` (현재 ${progress}%)`}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* 6. 스터디 매칭 */}
                             <div className="fc-section-card">
                                 <div className="fc-section-card__header">
                                     <Users size={15} strokeWidth={1.5} className="fc-section-card__icon" />
@@ -994,10 +1144,17 @@ function FocusClassroomContent() {
                                     </>
                                 ) : (
                                     <>
-                                        <p className="fc-section-card__desc">메타인지 완료 후 멘토와 스터디할 수 있습니다.</p>
+                                        <p className="fc-section-card__desc">
+                                            {!metacogComplete
+                                                ? '메타인지 완료 후 멘토와 스터디할 수 있습니다.'
+                                                : hasMatchableWeakness === false
+                                                    ? '매칭 가능한 약점 키워드가 없습니다. 이해를 잘 하고 계시네요!'
+                                                    : '멘토와 매칭되어 약점 키워드를 함께 공부해보세요.'}
+                                        </p>
+
                                         <button
                                             className="fc-section-card__btn fc-section-card__btn--secondary"
-                                            disabled={!metacogComplete}
+                                            disabled={!metacogComplete || hasMatchableWeakness !== true}
                                             onClick={handleRequestMatching}
                                         >
                                             <Users size={13} strokeWidth={2} /> 멘토에게 스터디 요청하기
@@ -1128,6 +1285,36 @@ function FocusClassroomContent() {
                             )
                         })()}
 
+                            {/* 7. 주간 최종 퀴즈 */}
+                            <div className={`fc-section-card${!canStartFinalQuiz && !quizSubmitted ? ' fc-section-card--locked' : ''}`}>
+                                <div className="fc-section-card__header">
+                                    {canStartFinalQuiz || quizSubmitted
+                                        ? <Trophy size={15} strokeWidth={1.5} className="fc-section-card__icon" />
+                                        : <Lock   size={15} strokeWidth={1.5} className="fc-section-card__icon fc-section-card__icon--lock" />}
+                                    <span>주간 최종 퀴즈</span>
+                                </div>
+                                <p className="fc-section-card__desc">
+                                    {quizSubmitted ? 'AI 종합 분석 리포트를 확인하세요.'
+                                        : canStartFinalQuiz ? `Week ${weekData?.weekNumber} 전체 내용 최종 평가`
+                                        : '메타인지 확인 완료 후 진행 가능합니다.'}
+                                </p>
+                                {weekData && (
+                                    <button
+                                        className="fc-section-card__btn fc-section-card__btn--secondary"
+                                        disabled={!quizSubmitted && !canStartFinalQuiz}
+                                        onClick={() => {
+                                            if (quizSubmitted || canStartFinalQuiz) {
+                                                pausePlayerRef.current()
+                                                open('final-quiz', { type: 'final-quiz', roomId, weekId: weekData.weekId, ...(quizSubmitted ? { reviewMode: true } : {}) })
+                                            }
+                                        }}
+                                    >
+                                        <Trophy size={13} strokeWidth={1.5} />
+                                        {quizSubmitted ? '결과 복습하기' : '퀴즈 도전하기'}
+                                    </button>
+                                )}
+                            </div>
+
                         </div>{/* /fc-learning-panel */}
                     </div>
                 </div>
@@ -1216,6 +1403,8 @@ function FocusClassroomContent() {
                     if (weekData) {
                         getCurriculumKeywords(roomId, weekData.weekId)
                             .then(setUserKeywords).catch(() => {})
+                        getMatchableWeakness(roomId, weekData.weekId)
+                            .then(setHasMatchableWeakness).catch(() => {})
                     }
                 }}
             />

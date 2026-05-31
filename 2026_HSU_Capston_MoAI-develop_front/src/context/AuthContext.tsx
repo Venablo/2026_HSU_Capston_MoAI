@@ -183,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *          다음에 앱을 열 때 readFromStorage 가 null 을 반환하게 된다.
    */
   const clearAuth = useCallback(() => {
-    Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key))
+    localStorage.clear()
     setAuth({ accessToken: null, refreshToken: null, userId: null, nickname: null })
   }, [])
 
