@@ -34,6 +34,7 @@ public class EventLogService {
     private final LearningRoomRepository learningRoomRepository;
     private final WeeklyCurriculumRepository curriculumRepository;
     private final ObjectMapper objectMapper;
+    private static final String DEMO_KEYWORD = "애자일";
 
     /**
      * 이벤트 처리 메인 진입점.
@@ -76,19 +77,22 @@ public class EventLogService {
     // ──────────────────────────────────────────────
 
     private EventResponseDto handleRewind(User user, LearningRoom room,
-                                           WeeklyCurriculum curriculum, String videoId,
-                                           Map<String, Object> payload, String payloadJson) {
+                                          WeeklyCurriculum curriculum, String videoId,
+                                          Map<String, Object> payload, String payloadJson) {
         double rewindTargetSec = extractDouble(payload, "rewind_target_sec");
 
-        // Redis에서 되감기 패턴 감지 (3회 같은 구간 반복 여부)
-        PatternResult result = patternDetectionService.detectRewind(
-                user.getId(), videoId, rewindTargetSec);
+        boolean isDemoMode = curriculum.getKeywords() != null
+                && curriculum.getKeywords().stream()
+                .anyMatch(k -> k.contains(DEMO_KEYWORD));
+
+        PatternResult result = isDemoMode
+                ? new PatternResult(true, "rewind")
+                : patternDetectionService.detectRewind(user.getId(), videoId, rewindTargetSec);
 
         if (!result.triggered()) {
             return EventResponseDto.notTriggered();
         }
 
-        // 패턴 발동 → AI 요약 자료 생성 + 약점 키워드 저장
         MaterialProcessResult processResult = eventProcessingService.processRewindPattern(
                 user, room, curriculum, videoId, rewindTargetSec, payloadJson);
 
@@ -120,19 +124,23 @@ public class EventLogService {
     // ──────────────────────────────────────────────
 
     private EventResponseDto handleSkip(User user, LearningRoom room,
-                                         WeeklyCurriculum curriculum, String videoId,
-                                         Map<String, Object> payload, String payloadJson) {
+                                        WeeklyCurriculum curriculum, String videoId,
+                                        Map<String, Object> payload, String payloadJson) {
         double skipFromSec = extractDouble(payload, "skip_from_sec");
         double skipToSec = extractDouble(payload, "skip_to_sec");
 
-        // Redis에서 스킵 패턴 감지 (3회 누적 여부)
-        PatternResult result = patternDetectionService.detectSkip(user.getId(), videoId);
+        boolean isDemoMode = curriculum.getKeywords() != null
+                && curriculum.getKeywords().stream()
+                .anyMatch(k -> k.contains(DEMO_KEYWORD));
+
+        PatternResult result = isDemoMode
+                ? new PatternResult(true, "skip")
+                : patternDetectionService.detectSkip(user.getId(), videoId);
 
         if (!result.triggered()) {
             return EventResponseDto.notTriggered();
         }
 
-        // 패턴 발동 → 돌발 퀴즈 생성 (rewindToSec = 스킵 시작 지점)
         QuizProcessResult processResult = eventProcessingService.processSkipOrSpeedUpPattern(
                 user, room, curriculum, videoId, "video_skip",
                 skipFromSec, skipToSec, (int) skipFromSec, payloadJson);
