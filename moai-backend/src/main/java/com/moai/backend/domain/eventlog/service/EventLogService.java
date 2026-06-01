@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -81,6 +82,8 @@ public class EventLogService {
                                           Map<String, Object> payload, String payloadJson) {
         double rewindTargetSec = extractDouble(payload, "rewind_target_sec");
         boolean isAgile = isAgileCurriculum(curriculum);
+        log.info("handleRewind — userId={}, videoId={}, isAgile={}, keywords={}",
+                user.getId(), videoId, isAgile, curriculum.getKeywords());
 
         // 애자일이면 임계값 1, 아니면 기본값 3
         int threshold = isAgile ? 1 : REWIND_THRESHOLD_DEFAULT;
@@ -91,9 +94,9 @@ public class EventLogService {
 
         if (isAgile) {
             rewindTargetSec = DEMO_SEGMENT_START;
-            redisTemplate.opsForValue().set(
-                    DEMO_REWIND_DONE_KEY + user.getId(), "1", Duration.ofHours(1));
-            log.info("애자일 패턴1 발동 — 구간 고정 {}초", rewindTargetSec);
+            String rewindDoneKey = DEMO_REWIND_DONE_KEY + user.getId();
+            redisTemplate.opsForValue().set(rewindDoneKey, "1", Duration.ofHours(1));
+            log.info("애자일 패턴1 발동 — 구간 고정 {}초, rewindDoneKey={} 저장", rewindTargetSec, rewindDoneKey);
         }
 
         MaterialProcessResult processResult = eventProcessingService.processRewindPattern(
@@ -132,16 +135,24 @@ public class EventLogService {
         double skipFromSec = extractDouble(payload, "skip_from_sec");
         double skipToSec   = extractDouble(payload, "skip_to_sec");
         boolean isAgile = isAgileCurriculum(curriculum);
+        log.info("handleSkip — userId={}, videoId={}, isAgile={}, keywords={}",
+                user.getId(), videoId, isAgile, curriculum.getKeywords());
 
         if (isAgile) {
             // 패턴1 완료 전이면 패턴3 막기
-            Boolean rewindDone = redisTemplate.hasKey(DEMO_REWIND_DONE_KEY + user.getId());
+            String rewindDoneKey = DEMO_REWIND_DONE_KEY + user.getId();
+            Boolean rewindDone = redisTemplate.hasKey(rewindDoneKey);
+            log.info("handleSkip 순서 체크 — rewindDoneKey={}, exists={}", rewindDoneKey, rewindDone);
             if (!Boolean.TRUE.equals(rewindDone)) {
+                log.info("handleSkip 차단 — 패턴1 미완료");
                 return EventResponseDto.notTriggered();
             }
             // 패턴3 이미 발동됐으면 막기
-            Boolean skipDone = redisTemplate.hasKey(DEMO_SKIP_DONE_KEY + user.getId());
+            String skipDoneKey = DEMO_SKIP_DONE_KEY + user.getId();
+            Boolean skipDone = redisTemplate.hasKey(skipDoneKey);
+            log.info("handleSkip 중복 체크 — skipDoneKey={}, exists={}", skipDoneKey, skipDone);
             if (Boolean.TRUE.equals(skipDone)) {
+                log.info("handleSkip 차단 — 패턴3 이미 발동됨");
                 return EventResponseDto.notTriggered();
             }
         }
@@ -205,9 +216,12 @@ public class EventLogService {
     // ──────────────────────────────────────────────
 
     private boolean isAgileCurriculum(WeeklyCurriculum curriculum) {
-        return curriculum.getKeywords() != null
-                && curriculum.getKeywords().stream()
-                .anyMatch(k -> k.contains(DEMO_KEYWORD));
+        List<String> keywords = curriculum.getKeywords();
+        boolean result = keywords != null
+                && keywords.stream().anyMatch(k -> k.contains(DEMO_KEYWORD));
+        log.info("isAgileCurriculum — curriculumId={}, keywords={}, result={}",
+                curriculum.getId(), keywords, result);
+        return result;
     }
 
     private String extractString(Map<String, Object> payload, String key) {
