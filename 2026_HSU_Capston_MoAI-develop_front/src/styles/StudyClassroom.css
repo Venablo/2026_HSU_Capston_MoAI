@@ -86,6 +86,28 @@
     transition: width 0.4s ease;
 }
 
+.sc-next-week-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--color-purple-400);
+    background: var(--color-purple-600);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+    margin-bottom: 16px;
+    justify-content: center;
+}
+.sc-next-week-btn:hover { background: var(--color-purple-700); }
+.dark .sc-next-week-btn { background: var(--color-purple-500); border-color: var(--color-purple-400); }
+.dark .sc-next-week-btn:hover { background: var(--color-purple-600); }
+
 /* Lesson title */
 .classroom__lesson-title {
     font-size: 24px;

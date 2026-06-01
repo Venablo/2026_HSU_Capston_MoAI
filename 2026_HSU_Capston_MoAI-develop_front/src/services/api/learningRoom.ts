@@ -48,6 +48,7 @@ export async function getMaterialDetail(roomId: string, materialId: string): Pro
   return unwrap(api.get<ApiResponse<MaterialDetail>>(`/api/learning-rooms/${roomId}/materials/${materialId}`))
 }
 
+
 export async function getQuizAttempts(roomId: string, weekId: string): Promise<QuizAttemptListItem[]> {
   const raw = await unwrap(api.get<ApiResponse<unknown>>(`/api/learning-rooms/${roomId}/curriculum/${weekId}/quiz-attempts`))
   if (Array.isArray(raw)) return raw as QuizAttemptListItem[]

@@ -677,7 +677,7 @@ function FocusClassroomContent() {
         setChatMessages([])
         getGroupMessages(groupId)
             .then(msgs => {
-                setChatMessages(msgs.map((m: ChatMessage) => ({
+                setChatMessages([...msgs].reverse().map((m: ChatMessage) => ({
                     id:   Number(m.messageId) || Date.now() + Math.random(),
                     role: m.senderType === 'ai'
                         ? 'ai'
@@ -824,6 +824,9 @@ function FocusClassroomContent() {
 
     // ── 렌더 ─────────────────────────────────────────────────────────────────
     const currentWeekEntry = allWeeks.find(w => w.weekId === weekData?.weekId)
+    const nextWeek = progress >= 100 && weekData
+        ? allWeeks.find(w => w.weekNumber === weekData.weekNumber + 1)
+        : undefined
 
     return (
         <div className="fc-root">
@@ -849,6 +852,18 @@ function FocusClassroomContent() {
                     </div>
                     <span className="fc-topbar__progress-pct">{progress}%</span>
                 </div>
+
+                {nextWeek && (
+                    <button
+                        className="fc-topbar__next-week-btn"
+                        onClick={() => navigate(`/study/${roomId}/focus?curriculumId=${nextWeek.weekId}`)}
+                        title={`다음 주차: Week ${nextWeek.weekNumber} ${nextWeek.topic}`}
+                    >
+                        <Trophy size={13} strokeWidth={2} />
+                        다음 주차
+                        <ChevronRight size={13} strokeWidth={2} />
+                    </button>
+                )}
 
                 <div className="fc-topbar__right">
                     <button className="fc-topbar__icon-btn" onClick={toggleDark} title={darkMode ? '라이트 모드' : '다크 모드'}>

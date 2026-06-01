@@ -101,7 +101,7 @@ export default function StudyMatchDropdown() {
                             <button
                                 key={`${m.roomId}_${m.weekId}`}
                                 onClick={() => {
-                                    navigate(`/study/${m.roomId}/classroom?curriculumId=${m.weekId}`)
+                                    navigate(`/study/${m.roomId}/focus?curriculumId=${m.weekId}`)
                                     setOpen(false)
                                 }}
                                 className="smd-item"
