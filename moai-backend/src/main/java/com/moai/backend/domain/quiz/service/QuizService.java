@@ -27,10 +27,14 @@ import com.moai.backend.domain.quiz.entity.QuizAttempt;
 import com.moai.backend.domain.quiz.entity.QuizOption;
 import com.moai.backend.domain.quiz.entity.QuizQuestion;
 import com.moai.backend.domain.quiz.entity.QuizReport;
+import com.moai.backend.domain.quiz.entity.MockFinalQuiz;
+import com.moai.backend.domain.quiz.entity.MockFinalQuizQuestion;
 import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
 import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizReportRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.quiz.repository.MockFinalQuizRepository;
+import com.moai.backend.domain.quiz.repository.MockFinalQuizQuestionRepository;
 import com.moai.backend.domain.notification.dto.SseSimpleEvent;
 import com.moai.backend.domain.notification.service.NotificationService;
 import com.moai.backend.domain.users.entity.User;
@@ -81,6 +85,8 @@ public class QuizService {
     private final ObjectMapper objectMapper;
     private final CurriculumEnrichmentService curriculumEnrichmentService;
     private final NotificationService notificationService;
+    private final MockFinalQuizRepository mockFinalQuizRepository;
+    private final MockFinalQuizQuestionRepository mockFinalQuizQuestionRepository;
 
     @Autowired
     @Lazy
@@ -259,8 +265,45 @@ public class QuizService {
             return buildFinalQuizResponse(quiz, questions);
         }
 
+        // 시연용 목업 시드가 있으면 LLM 호출 없이 시드를 실제 quizzes/quiz_questions 로 복사 후 반환
+        Optional<MockFinalQuiz> seed = mockFinalQuizRepository
+                .findBySubjectAndWeekNumber(room.getSubject(), curriculum.getWeekNumber());
+        if (seed.isPresent()) {
+            return copyMockSeedToQuiz(seed.get(), curriculum);
+        }
+
         // 없으면 LLM으로 서술형 5문제 생성
         return generateFinalQuiz(curriculum);
+    }
+
+    // 시연용: 목업 시드를 실제 Quiz/QuizQuestion 으로 복사 (LLM 우회).
+    // 채점 흐름은 기존 Quiz/QuizQuestion 만 참조하므로 별도 변경 없이 동작한다.
+    private FinalQuizResponseDto copyMockSeedToQuiz(MockFinalQuiz seed, WeeklyCurriculum curriculum) {
+        Quiz quiz = Quiz.builder()
+                .curriculum(curriculum)
+                .quizType("weekly")
+                .title(seed.getTitle())
+                .build();
+        quizRepository.save(quiz);
+
+        List<MockFinalQuizQuestion> seedQuestions =
+                mockFinalQuizQuestionRepository.findByMockQuizIdOrderByQuestionOrder(seed.getId());
+
+        List<QuizQuestion> questions = new ArrayList<>();
+        for (MockFinalQuizQuestion sq : seedQuestions) {
+            QuizQuestion q = QuizQuestion.builder()
+                    .quiz(quiz)
+                    .questionType("essay")
+                    .question(sq.getQuestion())
+                    .questionOrder(sq.getQuestionOrder())
+                    .relatedKeyword(sq.getRelatedKeyword())
+                    .maxLength(sq.getMaxLength() != null ? sq.getMaxLength() : (short) 500)
+                    .tip(sq.getTip())
+                    .build();
+            questions.add(quizQuestionRepository.save(q));
+        }
+
+        return buildFinalQuizResponse(quiz, questions);
     }
 
     private FinalQuizResponseDto generateFinalQuiz(WeeklyCurriculum curriculum) {
