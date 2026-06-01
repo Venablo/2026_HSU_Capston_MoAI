@@ -36,27 +36,22 @@ public class EventLogService {
     private final LearningRoomRepository learningRoomRepository;
     private final WeeklyCurriculumRepository curriculumRepository;
     private final ObjectMapper objectMapper;
-    private static final String DEMO_KEYWORD = "애자일";
-    private static final double DEMO_SEGMENT_START = 2701.0; // 45분 1초
-    private static final double DEMO_SEGMENT_END   = 2761.0; // 46분 1초
-    private static final String DEMO_REWIND_DONE_KEY = "moai:demo:rewind_done:";
     private final RedisTemplate<String, String> redisTemplate;
 
-    /**
-     * 이벤트 처리 메인 진입점.
-     * 1) 사용자·학습실·주차 검증
-     * 2) event_type별 Redis 패턴 감지
-     * 3) 패턴 발동 시 AI 처리 서비스 호출
-     */
+    private static final String DEMO_KEYWORD           = "애자일";
+    private static final double DEMO_SEGMENT_START     = 2701.0;
+    private static final double DEMO_SEGMENT_END       = 2761.0;
+    private static final String DEMO_REWIND_DONE_KEY   = "moai:demo:rewind_done:";
+    private static final String DEMO_SKIP_DONE_KEY     = "moai:demo:skip_done:";
+    private static final int    REWIND_THRESHOLD_DEFAULT = 3;
+    private static final int    SKIP_THRESHOLD_DEFAULT   = 3;
+
     @Transactional
     public EventResponseDto processEvent(String email, String roomId, EventRequestDto request) {
-        // 사용자 및 학습실 소유권 검증
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
         LearningRoom room = learningRoomRepository.findByIdAndUserId(roomId, user.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.LEARNING_ROOM_NOT_FOUND));
-
-        // 주차 커리큘럼 조회 및 학습실 소속 검증
         WeeklyCurriculum curriculum = curriculumRepository
                 .findByIdAndRoomId(request.getCurriculumId(), room.getId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CURRICULUM_NOT_FOUND));
@@ -65,15 +60,14 @@ public class EventLogService {
         String videoId = extractString(payload, "video_id");
         String payloadJson = serializePayload(payload);
 
-        // 이벤트 타입별 분기 처리
         return switch (request.getEventType()) {
-            case "video_rewind" -> handleRewind(user, room, curriculum, videoId, payload, payloadJson);
-            case "video_pause" -> handleMaterialTrigger(user, room, curriculum, videoId, payloadJson,
+            case "video_rewind"  -> handleRewind(user, room, curriculum, videoId, payload, payloadJson);
+            case "video_pause"   -> handleMaterialTrigger(user, room, curriculum, videoId, payloadJson,
                     "video_pause", extractDouble(payload, "pause_start_sec"));
             case "tab_departure" -> handleMaterialTrigger(user, room, curriculum, videoId, payloadJson,
                     "tab_departure", extractDouble(payload, "departure_sec"));
-            case "video_skip" -> handleSkip(user, room, curriculum, videoId, payload, payloadJson);
-            case "video_speed_up" -> handleSpeedUp(user, room, curriculum, videoId, payload, payloadJson);
+            case "video_skip"    -> handleSkip(user, room, curriculum, videoId, payload, payloadJson);
+            case "video_speed_up"-> handleSpeedUp(user, room, curriculum, videoId, payload, payloadJson);
             default -> throw new CustomException(ErrorCode.EVENT_UNSUPPORTED_TYPE);
         };
     }
@@ -86,24 +80,20 @@ public class EventLogService {
                                           WeeklyCurriculum curriculum, String videoId,
                                           Map<String, Object> payload, String payloadJson) {
         double rewindTargetSec = extractDouble(payload, "rewind_target_sec");
+        boolean isAgile = isAgileCurriculum(curriculum);
 
-        boolean isAgileCurriculum = curriculum.getKeywords() != null
-                && curriculum.getKeywords().stream()
-                .anyMatch(k -> k.contains(DEMO_KEYWORD));
+        // 애자일이면 임계값 1, 아니면 기본값 3
+        int threshold = isAgile ? 1 : REWIND_THRESHOLD_DEFAULT;
+        PatternResult result = patternDetectionService.detectRewind(
+                user.getId(), videoId, rewindTargetSec, threshold);
 
-        PatternResult result = isAgileCurriculum
-                ? new PatternResult(true, "rewind")
-                : patternDetectionService.detectRewind(user.getId(), videoId, rewindTargetSec);
+        if (!result.triggered()) return EventResponseDto.notTriggered();
 
-        if (!result.triggered()) {
-            return EventResponseDto.notTriggered();
-        }
-
-        if (isAgileCurriculum) {
+        if (isAgile) {
             rewindTargetSec = DEMO_SEGMENT_START;
-            // 패턴1 완료 플래그 저장
             redisTemplate.opsForValue().set(
                     DEMO_REWIND_DONE_KEY + user.getId(), "1", Duration.ofHours(1));
+            log.info("애자일 패턴1 발동 — 구간 고정 {}초", rewindTargetSec);
         }
 
         MaterialProcessResult processResult = eventProcessingService.processRewindPattern(
@@ -141,27 +131,34 @@ public class EventLogService {
                                         Map<String, Object> payload, String payloadJson) {
         double skipFromSec = extractDouble(payload, "skip_from_sec");
         double skipToSec   = extractDouble(payload, "skip_to_sec");
+        boolean isAgile = isAgileCurriculum(curriculum);
 
-        boolean isAgileCurriculum = curriculum.getKeywords() != null
-                && curriculum.getKeywords().stream()
-                .anyMatch(k -> k.contains(DEMO_KEYWORD));
-
-        PatternResult result = isAgileCurriculum
-                ? new PatternResult(true, "skip")
-                : patternDetectionService.detectSkip(user.getId(), videoId);
-
-        if (!result.triggered()) {
-            return EventResponseDto.notTriggered();
-        }
-
-        if (isAgileCurriculum) {
-            // 패턴1 아직 안 했으면 패턴3 막기
+        if (isAgile) {
+            // 패턴1 완료 전이면 패턴3 막기
             Boolean rewindDone = redisTemplate.hasKey(DEMO_REWIND_DONE_KEY + user.getId());
             if (!Boolean.TRUE.equals(rewindDone)) {
                 return EventResponseDto.notTriggered();
             }
+            // 패턴3 이미 발동됐으면 막기
+            Boolean skipDone = redisTemplate.hasKey(DEMO_SKIP_DONE_KEY + user.getId());
+            if (Boolean.TRUE.equals(skipDone)) {
+                return EventResponseDto.notTriggered();
+            }
+        }
+
+        // 애자일이면 임계값 1, 아니면 기본값 3
+        int threshold = isAgile ? 1 : SKIP_THRESHOLD_DEFAULT;
+        PatternResult result = patternDetectionService.detectSkip(
+                user.getId(), videoId, threshold);
+
+        if (!result.triggered()) return EventResponseDto.notTriggered();
+
+        if (isAgile) {
             skipFromSec = DEMO_SEGMENT_START;
             skipToSec   = DEMO_SEGMENT_END;
+            redisTemplate.opsForValue().set(
+                    DEMO_SKIP_DONE_KEY + user.getId(), "1", Duration.ofHours(1));
+            log.info("애자일 패턴3 발동 — 구간 고정 {}-{}초", skipFromSec, skipToSec);
         }
 
         QuizProcessResult processResult = eventProcessingService.processSkipOrSpeedUpPattern(
@@ -179,24 +176,19 @@ public class EventLogService {
     // ──────────────────────────────────────────────
 
     private EventResponseDto handleSpeedUp(User user, LearningRoom room,
-                                            WeeklyCurriculum curriculum, String videoId,
-                                            Map<String, Object> payload, String payloadJson) {
+                                           WeeklyCurriculum curriculum, String videoId,
+                                           Map<String, Object> payload, String payloadJson) {
         double speedStartSec = extractDouble(payload, "speed_start_sec");
         int durationSec = extractInt(payload, "duration_sec");
 
         log.info("2배속 이벤트 수신 — user={}, video={}, speedStartSec={}, durationSec={}",
                 user.getId(), videoId, speedStartSec, durationSec);
 
-        // Redis에서 2배속 누적 감지 (180초 이상 여부)
         PatternResult result = patternDetectionService.detectSpeedUp(
                 user.getId(), videoId, durationSec);
 
-        if (!result.triggered()) {
-            return EventResponseDto.notTriggered();
-        }
+        if (!result.triggered()) return EventResponseDto.notTriggered();
 
-        // 패턴 발동 → 돌발 퀴즈 생성 (rewindToSec = 2배속 시작 지점)
-        // fromSec~toSec: 2배속 구간 (speed_start_sec ~ speed_start_sec + duration_sec)
         double toSec = speedStartSec + durationSec;
         QuizProcessResult processResult = eventProcessingService.processSkipOrSpeedUpPattern(
                 user, room, curriculum, videoId, "video_speed_up",
@@ -209,30 +201,30 @@ public class EventLogService {
     }
 
     // ──────────────────────────────────────────────
-    // payload 값 추출 헬퍼
+    // 헬퍼
     // ──────────────────────────────────────────────
+
+    private boolean isAgileCurriculum(WeeklyCurriculum curriculum) {
+        return curriculum.getKeywords() != null
+                && curriculum.getKeywords().stream()
+                .anyMatch(k -> k.contains(DEMO_KEYWORD));
+    }
 
     private String extractString(Map<String, Object> payload, String key) {
         Object value = payload.get(key);
-        if (value == null) {
-            throw new CustomException(ErrorCode.INVALID_INPUT);
-        }
+        if (value == null) throw new CustomException(ErrorCode.INVALID_INPUT);
         return value.toString();
     }
 
     private double extractDouble(Map<String, Object> payload, String key) {
         Object value = payload.get(key);
-        if (value == null) {
-            throw new CustomException(ErrorCode.INVALID_INPUT);
-        }
+        if (value == null) throw new CustomException(ErrorCode.INVALID_INPUT);
         return ((Number) value).doubleValue();
     }
 
     private int extractInt(Map<String, Object> payload, String key) {
         Object value = payload.get(key);
-        if (value == null) {
-            throw new CustomException(ErrorCode.INVALID_INPUT);
-        }
+        if (value == null) throw new CustomException(ErrorCode.INVALID_INPUT);
         return ((Number) value).intValue();
     }
 
