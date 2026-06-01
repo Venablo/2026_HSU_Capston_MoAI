@@ -886,6 +886,13 @@ public class QuizService {
                         .keywordType("weakness")
                         .build();
                 userKeywordRepository.save(newKeyword);
+                // 짝이 되는 강점이 살아있으면 무효화 (forceWeaknessReset / 재발 처리와 동일 정책)
+                userKeywordRepository
+                        .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                                user.getId(), curriculum.getId(), keyword, "strength")
+                        .ifPresent(s -> {
+                            if (!Boolean.TRUE.equals(s.getIsResolved())) s.resolve();
+                        });
             }
         }
     }
@@ -1177,6 +1184,13 @@ public class QuizService {
                     .keywordType("weakness")
                     .build();
             userKeywordRepository.save(newKeyword);
+            // 짝이 되는 강점이 살아있으면 무효화 (재발 처리와 동일 정책)
+            userKeywordRepository
+                    .findByUserIdAndCurriculumIdAndKeywordAndKeywordType(
+                            user.getId(), curriculum.getId(), keyword, "strength")
+                    .ifPresent(s -> {
+                        if (!Boolean.TRUE.equals(s.getIsResolved())) s.resolve();
+                    });
         }
     }
 
