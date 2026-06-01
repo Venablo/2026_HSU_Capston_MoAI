@@ -40,9 +40,6 @@ function AppLayoutContent() {
     const acceptedMatchRef = useRef<StudyMatchResponse | null>(null)
 
     useEffect(() => {
-        const isInClassroom = location.pathname.includes('/classroom')
-        if (isInClassroom) return
-
         const sse = connectNotificationStream()
 
         const handleStudyGroupActivated = (e: MessageEvent) => {
@@ -66,7 +63,7 @@ function AppLayoutContent() {
                 )
                 acceptedMatchRef.current = null
                 const curriculumParam = `?curriculumId=${activatedCurriculumId}`
-                navigateRef.current(`/study/${activatedRoomId}/classroom${curriculumParam}`)
+                navigateRef.current(`/study/${activatedRoomId}/focus${curriculumParam}`)
             } catch {}
         }
 
@@ -121,7 +118,7 @@ function AppLayoutContent() {
                 }
                 setPendingMatch(null)
                 const curriculumParam = res.curriculumId ? `?curriculumId=${res.curriculumId}` : ''
-                navigate(`/study/${res.roomId}/classroom${curriculumParam}`)
+                navigate(`/study/${res.roomId}/focus${curriculumParam}`)
             } else {
                 // I accepted first — wait for study_group_activated SSE before navigating
                 acceptedMatchRef.current = pendingMatch

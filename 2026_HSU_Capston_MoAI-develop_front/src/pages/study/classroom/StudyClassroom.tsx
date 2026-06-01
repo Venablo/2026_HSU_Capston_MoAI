@@ -975,7 +975,7 @@ function StudyClassroomContent() {
         // 이전 대화 이력 로드
         getGroupMessages(groupId)
             .then(msgs => {
-                setChatMessages(msgs.map((m: ChatMessage) => ({
+                setChatMessages([...msgs].reverse().map((m: ChatMessage) => ({
                     id:   Number(m.messageId) || Date.now() + Math.random(),
                     role: m.senderType === 'ai'
                         ? 'ai'
@@ -1054,6 +1054,9 @@ function StudyClassroomContent() {
 
     // progress: 서버 값과 로컬 영상 기여도(최대 40) 중 높은 값을 표시
     const progress = Math.max(Number(weekData?.completionRate) || 0, videoProgress)
+    const nextWeek = progress >= 100 && weekData
+        ? allWeeks.find(w => w.weekNumber === weekData.weekNumber + 1 && !isWeekLocked(w))
+        : undefined
     const safeResources = weekData?.resources ?? []
     const safeUserKeywords = userKeywords ?? { strengths: [], weaknesses: [] }
     const safeKeywords = weekData?.keywords ?? []
@@ -1272,6 +1275,16 @@ function StudyClassroomContent() {
                     <div className="classroom__progress-track">
                         <div className="classroom__progress-fill" style={{ width: `${progress}%` }} />
                     </div>
+                    {nextWeek && (
+                        <button
+                            className="sc-next-week-btn"
+                            onClick={() => handleWeekSwitch(nextWeek.weekId)}
+                        >
+                            <Trophy size={13} strokeWidth={1.5} />
+                            다음 주차로 이동
+                            <ChevronRight size={13} strokeWidth={1.5} />
+                        </button>
+                    )}
 
                     {/* 강의 정보 */}
                     <h1 className="classroom__lesson-title">
