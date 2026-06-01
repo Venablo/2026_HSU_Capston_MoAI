@@ -17,9 +17,11 @@ import com.moai.backend.global.exception.CustomException;
 import com.moai.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Slf4j
@@ -35,6 +37,10 @@ public class EventLogService {
     private final WeeklyCurriculumRepository curriculumRepository;
     private final ObjectMapper objectMapper;
     private static final String DEMO_KEYWORD = "애자일";
+    private static final double DEMO_SEGMENT_START = 2701.0; // 45분 1초
+    private static final double DEMO_SEGMENT_END   = 2761.0; // 46분 1초
+    private static final String DEMO_REWIND_DONE_KEY = "moai:demo:rewind_done:";
+    private final RedisTemplate<String, String> redisTemplate;
 
     /**
      * 이벤트 처리 메인 진입점.
@@ -81,16 +87,23 @@ public class EventLogService {
                                           Map<String, Object> payload, String payloadJson) {
         double rewindTargetSec = extractDouble(payload, "rewind_target_sec");
 
-        boolean isDemoMode = curriculum.getKeywords() != null
+        boolean isAgileCurriculum = curriculum.getKeywords() != null
                 && curriculum.getKeywords().stream()
                 .anyMatch(k -> k.contains(DEMO_KEYWORD));
 
-        PatternResult result = isDemoMode
+        PatternResult result = isAgileCurriculum
                 ? new PatternResult(true, "rewind")
                 : patternDetectionService.detectRewind(user.getId(), videoId, rewindTargetSec);
 
         if (!result.triggered()) {
             return EventResponseDto.notTriggered();
+        }
+
+        if (isAgileCurriculum) {
+            rewindTargetSec = DEMO_SEGMENT_START;
+            // 패턴1 완료 플래그 저장
+            redisTemplate.opsForValue().set(
+                    DEMO_REWIND_DONE_KEY + user.getId(), "1", Duration.ofHours(1));
         }
 
         MaterialProcessResult processResult = eventProcessingService.processRewindPattern(
@@ -127,18 +140,28 @@ public class EventLogService {
                                         WeeklyCurriculum curriculum, String videoId,
                                         Map<String, Object> payload, String payloadJson) {
         double skipFromSec = extractDouble(payload, "skip_from_sec");
-        double skipToSec = extractDouble(payload, "skip_to_sec");
+        double skipToSec   = extractDouble(payload, "skip_to_sec");
 
-        boolean isDemoMode = curriculum.getKeywords() != null
+        boolean isAgileCurriculum = curriculum.getKeywords() != null
                 && curriculum.getKeywords().stream()
                 .anyMatch(k -> k.contains(DEMO_KEYWORD));
 
-        PatternResult result = isDemoMode
+        PatternResult result = isAgileCurriculum
                 ? new PatternResult(true, "skip")
                 : patternDetectionService.detectSkip(user.getId(), videoId);
 
         if (!result.triggered()) {
             return EventResponseDto.notTriggered();
+        }
+
+        if (isAgileCurriculum) {
+            // 패턴1 아직 안 했으면 패턴3 막기
+            Boolean rewindDone = redisTemplate.hasKey(DEMO_REWIND_DONE_KEY + user.getId());
+            if (!Boolean.TRUE.equals(rewindDone)) {
+                return EventResponseDto.notTriggered();
+            }
+            skipFromSec = DEMO_SEGMENT_START;
+            skipToSec   = DEMO_SEGMENT_END;
         }
 
         QuizProcessResult processResult = eventProcessingService.processSkipOrSpeedUpPattern(
