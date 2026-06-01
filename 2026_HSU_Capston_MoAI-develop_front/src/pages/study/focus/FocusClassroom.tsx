@@ -7,6 +7,8 @@ import {
     Users, UserCircle, X, Zap,
 } from 'lucide-react'
 import '../../../styles/FocusClassroom.css'
+import '../../../styles/StudyClassroom.css'
+import '../../../styles/FinalQuizModal.css'
 import { ThemeProvider, useTheme } from '../../../context/ThemeContext'
 import { ClassroomModalProvider, useClassroomModal } from '../../../context/ClassroomModalContext'
 import type { WeekMatchState } from '../../../context/ClassroomModalContext'
@@ -250,6 +252,16 @@ function FocusClassroomContent() {
             .catch(() => { setWeekError('커리큘럼을 불러오지 못했습니다.'); setWeekLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roomId])
+
+    // ── 주차 파라미터 변경 대응 (다음 주차 버튼 등) ──────────────────────────
+    // roomId가 동일한 채로 curriculumId search param만 바뀌면 위 effect가 재실행되지 않으므로
+    // targetCurriculumId를 별도로 감시해 해당 주차를 직접 로드한다.
+    useEffect(() => {
+        if (!targetCurriculumId || !allWeeks.length) return
+        if (weekData?.weekId === targetCurriculumId) return
+        loadWeek(targetCurriculumId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [targetCurriculumId])
 
     // ── 주차 전환 시 매칭 상태 검증 ──────────────────────────────────────────
     useEffect(() => {
