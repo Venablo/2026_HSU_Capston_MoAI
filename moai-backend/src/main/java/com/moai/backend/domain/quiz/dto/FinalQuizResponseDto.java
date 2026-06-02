@@ -21,6 +21,7 @@ public class FinalQuizResponseDto {
         private String questionType;
         private Short order;
         private String question;
+        private String relatedKeyword;
         private Short maxLength;
         private String tip;
 
@@ -30,6 +31,7 @@ public class FinalQuizResponseDto {
                     q.getQuestionType(),
                     q.getQuestionOrder(),
                     q.getQuestion(),
+                    q.getRelatedKeyword(),
                     q.getMaxLength(),
                     q.getTip()
             );
