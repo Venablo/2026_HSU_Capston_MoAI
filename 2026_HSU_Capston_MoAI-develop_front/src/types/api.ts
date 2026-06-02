@@ -384,6 +384,7 @@ export interface FinalQuizQuestion {
   question: string
   maxLength: number
   tip: string
+  relatedKeyword?: string
 }
 
 export interface FinalQuizResponse {

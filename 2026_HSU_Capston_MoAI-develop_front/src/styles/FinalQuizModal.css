@@ -285,6 +285,38 @@
     line-height: 1.6;
 }
 
+.fq-quiz__related-kw-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: -4px;
+}
+
+.fq-quiz__related-kw-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+}
+
+.fq-quiz__related-kw {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 99px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.dark .fq-quiz__related-kw {
+    background: rgba(29, 78, 216, 0.12);
+    border-color: rgba(29, 78, 216, 0.3);
+    color: #93c5fd;
+}
+
 .fq-quiz__tip {
     font-size: 12px;
     color: var(--color-text-muted);
