@@ -385,6 +385,7 @@ export interface FinalQuizQuestion {
   maxLength: number
   tip: string
   relatedKeyword?: string
+  prefilledAnswer?: string | null
 }
 
 export interface FinalQuizResponse {
