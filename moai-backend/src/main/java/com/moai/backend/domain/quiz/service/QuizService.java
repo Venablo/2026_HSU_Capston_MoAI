@@ -586,17 +586,16 @@ public class QuizService {
 
     private LlmEssayGradingResult gradeEssayQuestion(QuizQuestion question, String studentAnswer,
                                                       List<String> curriculumKeywords, LearningRoom room) {
-        String keywordsStr = String.join(", ", curriculumKeywords);
         String subject = (room != null) ? room.getSubject() : "";
         String level = (room != null) ? room.getLevel() : "";
+        String relatedKeyword = question.getRelatedKeyword() != null ? question.getRelatedKeyword() : "";
 
         String userMessage = String.format(
-                "{\"subject\":%s,\"question\":%s,\"related_keyword\":%s,\"max_score\":20,\"student_answer\":%s,\"curriculum_keywords\":[%s]}",
+                "{\"subject\":%s,\"question\":%s,\"related_keyword\":%s,\"max_score\":20,\"student_answer\":%s}",
                 quoteJson(subject),
                 quoteJson(question.getQuestion()),
-                quoteJson(question.getRelatedKeyword()),
-                quoteJson(studentAnswer),
-                curriculumKeywords.stream().map(this::quoteJson).collect(java.util.stream.Collectors.joining(","))
+                quoteJson(relatedKeyword),
+                quoteJson(studentAnswer)
         );
 
         String systemPrompt = String.format("""
@@ -631,12 +630,16 @@ public class QuizService {
                 2. keyword_analysis에서 각 필수 키워드의 등장 여부와 맥락 분석
                 3. 부분 점수 인정 (키워드는 있지만 설명이 부정확한 경우 등)
                 4. 모든 텍스트 필드: 핵심만, 장황 금지. detail·summary는 각 10~15자 이내 초간결하게.
-                5. gained_keywords, weakness_keywords 는 반드시 입력된 curriculum_keywords 목록에서만 선택. 목록 외 임의 생성 금지.
-                   [허용 키워드] %s
+                5. gained_keywords, weakness_keywords 는 반드시 이 문항의 related_keyword 하나만 사용 가능.
+                   다른 키워드를 임의로 추가하거나 생성하는 것은 엄격히 금지.
+                   - 학생이 이 키워드를 잘 이해했으면: gained_keywords: ["%s"], weakness_keywords: []
+                   - 학생이 이 키워드를 부족하게 이해했으면: gained_keywords: [], weakness_keywords: ["%s"]
+                   - 부분적으로 이해했으면(점수 10~14): gained_keywords: [], weakness_keywords: ["%s"]
+                   [이 문항 전용 키워드] %s
                 6. 문항별 해설은 반드시 3줄 화면 형식(점수 / 핵심 / 보완)에 맞춘다.
                    최종 해설은 줄바꿈으로 줄을 나눈다.
                    각 피드백 필드는 한 문장만 작성하고 문단형 설명은 금지한다.
-                """, subject, level, subject, keywordsStr);
+                """, subject, level, subject, relatedKeyword, relatedKeyword, relatedKeyword, relatedKeyword);
 
         LlmRequestDto request = LlmRequestDto.builder()
                 .systemPrompt(systemPrompt)
