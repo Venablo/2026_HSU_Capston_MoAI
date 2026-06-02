@@ -468,6 +468,13 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                     <>
                         <p className="fq-quiz__question">{currentQ.question}</p>
 
+                        {currentQ.relatedKeyword && (
+                            <div className="fq-quiz__related-kw-wrap">
+                                <span className="fq-quiz__related-kw-label">핵심 키워드</span>
+                                <span className="fq-quiz__related-kw">{currentQ.relatedKeyword}</span>
+                            </div>
+                        )}
+
                         {currentQ.tip && (
                             <p className="fq-quiz__tip">
                                 💡 힌트: {currentQ.tip.replace(/^(💡\s*)?힌트\s*:\s*/i, '')}
