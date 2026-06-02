@@ -40,6 +40,8 @@ docker-compose up -d
 - `LLM_API_KEY` — LLM API key (OpenAI or Gemini)
 - `LLM_API_URL` — LLM API endpoint URL
 - `LLM_MODEL` — Model name to use (e.g. gpt-4o)
+- `SUBTITLE_PROVIDER` — `ytdlp`(로컬 기본, 미설정 시 동일) 또는 `supadata`(EC2 등 클라우드 IP)
+- `SUPADATA_API_KEYS` — Supadata Transcript API 키 (콤마 구분 다중 키 — 429 시 자동 회전. `SUBTITLE_PROVIDER=supadata` 일 때만 필수). 단일 키는 기존 `SUPADATA_API_KEY` 로도 가능 (하위 호환 폴백).
 
 ## Architecture
 
@@ -67,7 +69,10 @@ docker-compose up -d
   - `exception/` — `CustomException(status, code, message)`, `GlobalExceptionHandler`
   - `llm/` — shared `LlmService` (WebClient-based), `LlmConfig`, request/response DTOs. All LLM calls go through this module
   - `s3/` — `S3Service` / `S3Config` (AWS SDK v2) for learning-room file URLs
-  - `subtitle/` — `SubtitleScraperService` invokes `scripts/scrape_subtitle.py` via `ProcessBuilder` (yt-dlp 기본 + youtube-transcript-api 폴백). 에러는 `SubtitleScrapeException(SubtitleErrorCode)`로 분기.
+  - `subtitle/` — `SubtitleScraper` 인터페이스 + 두 구현체. `subtitle.provider` 프로퍼티로 토글:
+    - `YtdlpSubtitleScraper` (기본/local) — `scripts/scrape_subtitle.py` 를 `ProcessBuilder` 로 실행 (yt-dlp 기본 + youtube-transcript-api 폴백)
+    - `SupadataSubtitleScraper` (EC2/prod) — Supadata Transcript API (`GET /v1/transcript`, `mode=native` + `text=false` 고정, `x-api-key` 헤더 인증). EC2 IP 대역의 YouTube 봇 탐지(IP 밴) 우회 목적. 다중 키 풀(`SupadataApiKeyRotator`)에서 회전 — 429 응답 시 한 호출 안에서 다음 키로 자동 재시도.
+    - 호출부(`CurriculumEnrichmentService`)는 인터페이스에만 의존. 에러는 `SubtitleScrapeException(SubtitleErrorCode)` 로 분기 (Supadata 전용 코드 — `SUPADATA_AUTH_FAILED` 401/402/403)
   - `material/` — `MaterialGeneratorService` + `MaterialContent` (PDF output)
 
 ### Key patterns
@@ -172,9 +177,11 @@ graph TB
 - **패턴 감지**: Redis 기반 카운팅. 키 `moai:events:{userId}:{videoId}:{eventType}` (TTL 10분), 쿨다운 `moai:cooldown:{userId}:{videoId}:{pattern}` (TTL 5분)
 - **진척도**: 영상 시청 40% + 거꾸로 학습 30% + 파이널 퀴즈 30%. 학습실 전체 달성률 = 주차별 평균
 - **매칭 엔진**: 약점 키워드 weakness_count >= 2 + 동일 키워드 strength 보유자 + created_at 7일 이내 + Redis 토큰 존재(온라인)
-- **자막 스크래핑**: Python 스크립트 경로 `src/main/resources/scripts/scrape_subtitle.py` (yt-dlp 기본 + youtube-transcript-api 폴백).
-  application.yaml `subtitle.script-path` / `python-bin` / `timeout-sec` / `preferred-langs` / `enable-fallback` 프로퍼티로 관리.
-  ProcessBuilder로 호출 (stdout/stderr 분리). 실패 시 `SubtitleScrapeException(SubtitleErrorCode)` 발생, 에러 코드별 분기:
+- **자막 스크래핑**: `SubtitleScraper` 인터페이스 추상화. `subtitle.provider` 프로퍼티로 두 구현체 토글:
+  - **ytdlp** (기본/로컬) — `src/main/resources/scripts/scrape_subtitle.py` 를 ProcessBuilder 로 호출 (yt-dlp 기본 + youtube-transcript-api 폴백). `subtitle.script-path` / `python-bin` / `timeout-sec` / `preferred-langs` / `enable-fallback` / `cookies-path` / `concurrency-limit` 프로퍼티로 관리.
+  - **supadata** (EC2/prod) — Supadata Transcript API (`GET https://api.supadata.ai/v1/transcript`, `x-api-key` 헤더, `mode=native` + `text=false` 고정). 202 비동기 응답은 jobId 폴링(최대 30초 — 15회 × 2초, 기존 yt-dlp 의 30초 타임아웃 정책과 일치). 폴링 한도는 @Async 스레드 풀 보호 목적이며, 폴링은 jobId 를 발급한 키 그대로 유지(다른 키로 매칭 안 됨). HTTP status 매핑: 200→정상, 202→폴링, 206→NO_SUBTITLES_AVAILABLE, 401/402/403→SUPADATA_AUTH_FAILED, 404→VIDEO_NOT_FOUND, 429→다음 키 회전(`SupadataApiKeyRotator`) → 모든 키 소진 시 RATE_LIMITED + `ERROR` 로그(`[CRITICAL] Supadata 모든 키 (N개) 소진`), 5xx/네트워크→NETWORK_ERROR, 폴링 초과→SCRIPT_TIMEOUT. 회전 포인터는 메모리 보관 — 재시작 시 첫 키부터.
+
+  공통: 실패 시 `SubtitleScrapeException(SubtitleErrorCode)` 발생, 호출부 분기 정책은 구현체 무관하게 동일:
     - `NO_SUBTITLES_AVAILABLE` → 후보 풀 차순위 영상으로 재선정 1회 시도
     - `RATE_LIMITED` → `SubtitleRetryQueue` 에 등록 (60초 뒤 같은 영상 재시도)
     - 기타 (PRIVATE/AGE/REGION/NOT_FOUND/NETWORK/TIMEOUT 등) → 자막 없이 다음 Step 진행
