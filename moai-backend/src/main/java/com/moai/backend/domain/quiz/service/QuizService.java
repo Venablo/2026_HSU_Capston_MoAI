@@ -28,11 +28,13 @@ import com.moai.backend.domain.quiz.entity.QuizOption;
 import com.moai.backend.domain.quiz.entity.QuizQuestion;
 import com.moai.backend.domain.quiz.entity.QuizReport;
 import com.moai.backend.domain.quiz.entity.MockFinalQuiz;
+import com.moai.backend.domain.quiz.entity.MockFinalQuizAnswer;
 import com.moai.backend.domain.quiz.entity.MockFinalQuizQuestion;
 import com.moai.backend.domain.quiz.repository.QuizAttemptRepository;
 import com.moai.backend.domain.quiz.repository.QuizQuestionRepository;
 import com.moai.backend.domain.quiz.repository.QuizReportRepository;
 import com.moai.backend.domain.quiz.repository.QuizRepository;
+import com.moai.backend.domain.quiz.repository.MockFinalQuizAnswerRepository;
 import com.moai.backend.domain.quiz.repository.MockFinalQuizRepository;
 import com.moai.backend.domain.quiz.repository.MockFinalQuizQuestionRepository;
 import com.moai.backend.domain.notification.dto.SseSimpleEvent;
@@ -87,6 +89,7 @@ public class QuizService {
     private final NotificationService notificationService;
     private final MockFinalQuizRepository mockFinalQuizRepository;
     private final MockFinalQuizQuestionRepository mockFinalQuizQuestionRepository;
+    private final MockFinalQuizAnswerRepository mockFinalQuizAnswerRepository;
 
     @Autowired
     @Lazy
@@ -289,6 +292,14 @@ public class QuizService {
         List<MockFinalQuizQuestion> seedQuestions =
                 mockFinalQuizQuestionRepository.findByMockQuizIdOrderByQuestionOrder(seed.getId());
 
+        // 시연용 미리 채워둔 답안 (question_order → answer_text)
+        Map<Short, String> prefilledAnswers = mockFinalQuizAnswerRepository
+                .findByMockQuizIdOrderByQuestionOrder(seed.getId())
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        MockFinalQuizAnswer::getQuestionOrder,
+                        MockFinalQuizAnswer::getAnswerText));
+
         List<QuizQuestion> questions = new ArrayList<>();
         for (MockFinalQuizQuestion sq : seedQuestions) {
             QuizQuestion q = QuizQuestion.builder()
@@ -303,7 +314,7 @@ public class QuizService {
             questions.add(quizQuestionRepository.save(q));
         }
 
-        return buildFinalQuizResponse(quiz, questions);
+        return buildFinalQuizResponse(quiz, questions, prefilledAnswers);
     }
 
     private FinalQuizResponseDto generateFinalQuiz(WeeklyCurriculum curriculum) {
@@ -409,8 +420,14 @@ public class QuizService {
     }
 
     private FinalQuizResponseDto buildFinalQuizResponse(Quiz quiz, List<QuizQuestion> questions) {
+        return buildFinalQuizResponse(quiz, questions, Map.of());
+    }
+
+    private FinalQuizResponseDto buildFinalQuizResponse(Quiz quiz, List<QuizQuestion> questions,
+                                                         Map<Short, String> prefilledAnswers) {
         List<FinalQuizResponseDto.QuestionItem> items = questions.stream()
-                .map(FinalQuizResponseDto.QuestionItem::from)
+                .map(q -> FinalQuizResponseDto.QuestionItem.from(
+                        q, prefilledAnswers.get(q.getQuestionOrder())))
                 .toList();
         return new FinalQuizResponseDto(quiz.getId(), quiz.getTitle(), items);
     }

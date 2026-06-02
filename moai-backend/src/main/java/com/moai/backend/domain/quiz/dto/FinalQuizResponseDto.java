@@ -24,8 +24,14 @@ public class FinalQuizResponseDto {
         private String relatedKeyword;
         private Short maxLength;
         private String tip;
+        // 시연용 미리 채워둔 답안 (mock 시드 분기에서만 값, 그 외엔 null)
+        private String prefilledAnswer;
 
         public static QuestionItem from(QuizQuestion q) {
+            return from(q, null);
+        }
+
+        public static QuestionItem from(QuizQuestion q, String prefilledAnswer) {
             return new QuestionItem(
                     q.getId(),
                     q.getQuestionType(),
@@ -33,7 +39,8 @@ public class FinalQuizResponseDto {
                     q.getQuestion(),
                     q.getRelatedKeyword(),
                     q.getMaxLength(),
-                    q.getTip()
+                    q.getTip(),
+                    prefilledAnswer
             );
         }
     }
