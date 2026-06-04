@@ -268,7 +268,13 @@ function FocusClassroomContent() {
         if (!currentMatchKey) return
         const reset = () => { setMatchStatus('idle'); setPartnerConnected(false); setPartnerInfo(null); setGroupId(null) }
         if (matchStatus === 'completed' && groupId) {
-            getStudyGroup(groupId).catch(() => reset())
+            getStudyGroup(groupId)
+                .then(detail => {
+                    if (detail.matchKeyword && partnerInfo && !partnerInfo.matchKeyword) {
+                        setPartnerInfo({ ...partnerInfo, matchKeyword: detail.matchKeyword })
+                    }
+                })
+                .catch(() => reset())
         } else if (matchStatus === 'pending') {
             getStudySuggestions().then(list => { if (list.length === 0) reset() }).catch(() => reset())
         } else if (matchStatus === 'searching' || matchStatus === 'waiting_partner') {
