@@ -248,7 +248,13 @@ function StudyClassroomContent() {
 
         // 이 시점의 matchStatus / groupId는 currentMatchKey에 해당하는 주차의 값이다.
         if (matchStatus === 'completed' && groupId) {
-            getStudyGroup(groupId).catch(() => reset())
+            getStudyGroup(groupId)
+                .then(detail => {
+                    if (detail.matchKeyword && partnerInfo && !partnerInfo.matchKeyword) {
+                        setPartnerInfo({ ...partnerInfo, matchKeyword: detail.matchKeyword })
+                    }
+                })
+                .catch(() => reset())
         } else if (matchStatus === 'pending') {
             getStudySuggestions()
                 .then(list => { if (list.length === 0) reset() })
@@ -1951,6 +1957,15 @@ function StudyClassroomContent() {
                                                 </p>
                                             ) : (
                                                 <>
+                                                    {/* 채팅 상단 매칭 키워드 뱃지 */}
+                                                    {partner?.matchKeyword && (
+                                                        <div className="partner-widget__chat-match-kw">
+                                                            <span className="partner-widget__chat-match-kw-tag">
+                                                                # {partner.matchKeyword}
+                                                            </span>
+                                                            <span className="partner-widget__chat-match-kw-desc">키워드로 매칭됨</span>
+                                                        </div>
+                                                    )}
                                                     <div className="partner-widget__chat-log">
                                                         {chatMessages.length === 0 ? (
                                                             <p className="partner-widget__chat-placeholder">
