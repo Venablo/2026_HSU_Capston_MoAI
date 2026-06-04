@@ -1,0 +1,97 @@
+**백엔드**: Spring Security + JWT 필터 체인을 세팅합니다. 회원가입 시 비밀번호는 bcrypt로 해싱해서 USERS.password_hash에 저장하고, 로그인 성공 시 accessToken(만료 1시간)과 refreshToken을 발급합니다. refreshToken은 Redis에 `auth:refresh:{userId}` 키로 저장해서, 로그아웃 시 삭제하면 즉시 무효화됩니다.
+
+**프론트**: 로그인 후 accessToken은 메모리(또는 httpOnly 쿠키)에, refreshToken은 별도 저장합니다. Axios 인터셉터에서 401 응답이 오면 자동으로 `POST /auth/refresh`를 호출해 토큰을 갱신하는 로직을 넣으면 됩니다.
+
+**구현 순서**: register → login → JWT 필터 → refresh → logout
+
+---
+
+## 기능 2. 온보딩 + 학습실 생성
+
+사용자가 처음 들어와서 커리큘럼을 만드는 흐름입니다. 화면 캡처 무제1~무제4에 해당합니다.
+
+**프론트**: Step 1~4를 하나의 모달 컴포넌트로 만들고, 각 Step에서 선택한 값(키워드, 난이도, 주 수, 시간)을 로컬 state에 모아둡니다. Step 4에서 "이대로 학습실 개설하기" 클릭 시 `POST /learning-rooms`로 한 번에 전송합니다.
+
+**백엔드**: 이 API가 프로젝트에서 가장 무거운 파이프라인 중 하나입니다. 요청을 받으면 순서대로 LEARNING_ROOMS INSERT → LLM API 호출(subject, level, duration_weeks를 프롬프트에 넣어서 주차별 topic/description 생성) → WEEKLY_CURRICULUMS를 duration_weeks 수만큼 INSERT → 각 주차별 YouTube Data API로 추천 영상 검색 → youtube-transcript-api(Python 마이크로서비스 또는 Spring에서 HTTP 호출)로 자막 스크래핑 → VIDEO_TRANSCRIPTS에 청크 단위 INSERT → 자막 텍스트를 LLM에 던져서 키워드 추출 → WEEKLY_CURRICULUMS.keywords 업데이트까지 해야 합니다.
+
+이 전체 과정이 시간이 걸리니까, 화면 캡처 무제4처럼 프론트에서 "AI가 첫 주차 목표를 설계할 예정입니다" 같은 로딩 UI를 보여주면서 비동기로 처리하거나, 최소한 커리큘럼 생성까지는 동기로 하고 자막 스크래핑은 비동기(Spring @Async)로 백그라운드 처리하는 방식을 추천합니다.
+
+---
+
+## 기능 3. 학습실 상세 (영상 시청)
+
+화면 캡처 무제5, 무제18에 해당하는 메인 학습 화면입니다.
+
+**프론트**: 학습실 진입 시 `GET /curriculum/{weekId}`로 주차 정보를 가져오고, 하단 탭 4개(주차별 공식 교안, AI 추천 영상, AI 핵심 요약, 퀴즈 내역)를 구성합니다. YouTube 영상은 IFrame API로 임베드하되, 여기서 핵심은 IFrame API의 이벤트 리스너를 걸어서 사용자 행동을 감지하는 겁니다. `onStateChange`로 재생/일시정지/종료 상태를 추적하고, `getCurrentTime()`을 주기적으로 폴링해서 되감기나 스킵을 감지합니다.
+
+**백엔드**: 이 단계에서는 주로 조회 API들이라 단순합니다. JPA Repository에서 roomId/weekId 기준으로 SELECT하면 됩니다. `PATCH /progress`로 진척도 업데이트할 때는 WEEKLY_CURRICULUMS.completion_rate와 LEARNING_ROOMS.completion_rate를 함께 갱신해야 합니다.
+
+---
+
+## 기능 4. 패턴 감지 (행동 분석 기반 능동 가이드)
+
+화면 캡처 무제7~무제14에 해당합니다. 프로젝트의 핵심 차별점이에요.
+
+**프론트**: YouTube IFrame API에서 행동을 감지할 때마다 `POST /events`를 호출합니다. 되감기 감지는 이전 재생 위치보다 현재 위치가 뒤로 갔을 때, 스킵은 앞으로 일정 구간 이상 점프했을 때, 일시정지는 pause 상태에서 타이머를 돌려서 3분 이상 지속되면 호출합니다. 탭 이탈은 `document.visibilitychange` 이벤트로 잡습니다. 응답에서 `aiTriggered: true`가 오면 eventType에 따라 요약 자료 팝업(패턴1/2) 또는 돌발 퀴즈 팝업(패턴3)을 띄웁니다.
+
+**백엔드(Redis)**: `POST /events`를 받으면 Redis에 `moai:events:{userId}:{videoId}:{eventType}` 키로 카운트를 누적합니다. TTL은 10분 정도로 설정해서 오래된 행동은 자동 만료시킵니다. 임계값(되감기 3회, 스킵 3회 등)을 넘기면 패턴 발동으로 판단합니다. 발동되면 LEARNING_EVENT_LOGS에 INSERT하고, 쿨다운 키(`moai:cooldown:{userId}:{videoId}:{pattern}`, TTL 5~10분)를 심어서 연속 발동을 방지합니다.
+
+**백엔드(LLM 연동 — 패턴1/2)**: 패턴1이 발동되면 rewind_target_sec 기준으로 VIDEO_TRANSCRIPTS에서 해당 구간 자막을 조회(`WHERE start_sec <= ? AND end_sec >= ?`)하고, 자막 텍스트를 LLM에 보내서 키워드 추출 + 요약 카드 생성을 요청합니다. 결과를 CUSTOM_MATERIALS에 저장하고 materialId를 프론트에 반환합니다.
+
+**백엔드(LLM 연동 — 패턴3)**: 패턴3 발동 시에는 스킵된 구간의 자막을 LLM에 보내서 4지선다 퀴즈 1문제를 생성하게 합니다. QUIZZES(quiz_type="multiple_popup")와 QUIZ_QUESTIONS에 저장 후 questionId를 반환합니다.
+
+---
+
+## 기능 5. 거꾸로 학습 (Flipped Learning)
+
+화면 캡처 무제18~무제20에 해당합니다.
+
+**프론트**: "AI에게 거꾸로 설명하기" 클릭 시 `POST /flipped/start`로 sessionId와 firstMessage를 받아 모달을 엽니다. 이후 사용자가 메시지를 입력하면 `SSE /flipped/stream`으로 보내고, EventSource로 스트리밍 응답을 받아서 토큰 단위로 채팅 버블에 표시합니다. `type: "counter_question"`이 오면 역질문임을 시각적으로 강조합니다. "설명 완료하고 최종 평가받기" 클릭 시 `POST /flipped/end`를 호출합니다.
+
+**백엔드**: `/flipped/start`에서 sessionId(UUID)를 발급하고 WEEKLY_CURRICULUMS.keywords를 기반으로 firstMessage를 생성해 AI_INTERACTIONS에 저장합니다. `/flipped/stream`에서는 AI_INTERACTIONS에서 해당 sessionId의 전체 대화 이력을 가져와서 새 메시지와 함께 LLM messages 배열로 묶어 전송합니다. Spring WebFlux의 `SseEmitter` 또는 `Flux<ServerSentEvent>`로 스트리밍합니다. LLM에게 "학생 역할을 하는 AI 튜터" 시스템 프롬프트를 줘서, 학생의 설명을 듣고 역질문하도록 유도합니다.
+
+`/flipped/end`가 가장 복잡합니다. 전체 대화 이력을 LLM에 보내서 평가(score, gainedKeywords, weakKeywords, feedback)를 요청하고, FLIPPED_SESSIONS에 저장하고, USER_KEYWORDS를 업데이트(강점은 keyword_type="strength", 약점은 "weakness"로 INSERT 또는 weakness_count 증가)하고, 매칭 엔진을 실행합니다.
+
+---
+
+## 기능 6. 파이널 퀴즈 + AI 분석 리포트
+
+화면 캡처 무제21, 무제25~무제27에 해당합니다.
+
+**프론트**: "퀴즈 도전하기" 클릭 시 `GET /quizzes/final`로 5문제를 받고, Step 형태(1/5, 2/5...)로 한 문제씩 보여줍니다. 전체 답안 작성 후 `POST /quizzes/final/submit`으로 제출하면 202(Accepted) 응답과 함께 reportId, estimatedSec을 받습니다. 그 후 무제26처럼 로딩 화면을 보여주면서 `GET /quiz-report`를 estimatedSec 간격으로 폴링합니다. status가 "completed"가 되면 리포트 화면(무제27)으로 전환합니다. 레이더 차트는 Recharts의 RadarChart 컴포넌트로 radarData를 시각화합니다.
+
+**백엔드**: submit을 받으면 QUIZ_REPORTS에 status="analyzing"으로 INSERT하고 즉시 202를 반환합니다. @Async로 비동기 작업을 시작해서, 각 문항의 답변 텍스트를 LLM에 보내 채점(score, gainedKeywords, missingKeywords, aiComment)을 요청합니다. 5문제 모두 채점이 끝나면 QUIZ_REPORTS를 status="completed"로 UPDATE하고, QUIZ_ATTEMPTS에 각 문항 결과를 INSERT하고, USER_KEYWORDS도 갱신합니다(정답 키워드는 강점, 오답 키워드는 약점).
+
+---
+
+## 기능 7. 스터디 매칭
+
+화면 캡처 무제22에 해당합니다.
+
+**백엔드**: 매칭 엔진은 `/flipped/end` 처리의 마지막 단계에서 실행됩니다. USER_KEYWORDS에서 현재 사용자의 약점 키워드(weakness_count >= 2, is_resolved = FALSE, created_at이 7일 이내)를 조회하고, 같은 키워드를 강점(keyword_type="strength")으로 가진 다른 사용자 중 Redis에 토큰이 있는(현재 로그인 중인) 사용자를 탐색합니다. 시나리오 문서에 따르면 LLM을 매칭 엔진으로 사용한다고 했으니, 후보군의 키워드 데이터를 LLM에 보내서 최적 매칭 상대와 matchScore, matchReason을 생성할 수도 있습니다. 매칭 대상이 확정되면 STUDY_GROUPS(status="pending_acceptance") INSERT → STUDY_SUGGESTIONS를 양측에 INSERT → SSE로 양측에 알림 푸시합니다.
+
+**프론트**: SSE 알림을 받으면 매칭 팝업(무제22)을 표시합니다. "멘토에게 스터디 요청하기"는 `POST /suggestions/{id}/accept`, "나중에 결정하기"는 `POST /suggestions/{id}/reject`를 호출합니다. 양측 모두 수락하면 STUDY_GROUPS.status가 "active"로 바뀌고 채팅방이 열립니다.
+
+---
+
+## 기능 8. 실시간 채팅
+
+화면 캡처 무제24에 해당합니다.
+
+**프론트**: 채팅방 진입 시 `GET /messages?page=0&size=50`으로 이전 이력을 가져오고, 이후 WebSocket(`wss://api.moai.app/ws/study-groups/{groupId}`)에 연결합니다. STOMP 프로토콜을 쓰면 Spring과 궁합이 좋습니다. 메시지 전송은 WebSocket으로, 상대방 타이핑 인디케이터도 WebSocket 채널로 처리합니다.
+
+**백엔드**: Spring WebSocket + STOMP를 설정합니다. 메시지가 들어오면 STUDY_MESSAGES에 INSERT하고, 상대방이 같은 WebSocket에 연결되어 있으면 바로 전달합니다. 연결되어 있지 않으면 NOTIFICATIONS에 type="chat_message"로 INSERT하고 SSE로 알림을 푸시합니다. AI 오류 정정(is_ai_correction=true)은, 채팅 내용을 주기적으로 또는 메시지마다 LLM에 보내서 학습적으로 틀린 내용이 있으면 AI가 끼어드는 방식으로 구현합니다.
+
+---
+
+## 기능 9. 알림 시스템
+
+**백엔드**: 사용자가 로그인하면 프론트에서 즉시 `SSE /notifications/stream`에 연결합니다. Spring의 `SseEmitter`를 사용자별로 관리하는 Map을 만들어 두고, 매칭/수락/거절/채팅 알림이 발생하면 해당 사용자의 SseEmitter로 이벤트를 전송합니다. 동시에 NOTIFICATIONS 테이블에도 INSERT해서, 오프라인이었던 사용자가 로그인했을 때 `GET /notifications`로 밀린 알림을 조회할 수 있게 합니다.
+
+**프론트**: SSE 연결을 EventSource로 유지하고, 이벤트가 오면 헤더의 알림 벨 아이콘에 배지를 표시합니다. 알림 클릭 시 `PATCH /notifications/{id}/read`로 읽음 처리합니다.
+
+---
+
+## 기능 10. 마이페이지
+
+**프론트**: `GET /api/users/me`로 전체 프로필을 받아서 표시합니다. 닉네임/사진 수정은 `PATCH /users/me`, 관심 키워드 수정은 `PATCH /users/me/keywords`, 회원 탈퇴는 `DELETE /users/me`입니다. 프로필 사진은 S3에 업로드하고 URL을 저장하는 방식입니다.

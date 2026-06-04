@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/User/IdeaProjects/**)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(grep -r \"icon\\\\|Icon\\\\|svg\\\\|emoji\" /c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/src --include=*.tsx --include=*.ts -l)",
+      "Bash(npm install:*)",
+      "Bash(npm --prefix /c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI install recharts @types/recharts)",
+      "Bash(find \"/c/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/src\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec head -20 {} \\\\;)",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(mkdir -p monitoring flipped quiz common)",
+      "Bash(mv MonitoringModal.tsx FastTrackModal.tsx SummaryDetailModal.tsx monitoring/)",
+      "Bash(mv FlippedModal.tsx ReverseLearningModal.tsx MetaEvaluationModal.tsx StudyMatchingModal.tsx flipped/)",
+      "Bash(mv FinalQuizModal.tsx QuizCorrectModal.tsx QuizIncorrectModal.tsx QuizPassModal.tsx quiz/)",
+      "Bash(mv Modal.tsx ClassroomModals.tsx DebugEventController.tsx common/)",
+      "Bash(sed -i 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./|from '\\\\''../../../|g' ClassroomModals.tsx)",
+      "Bash(sed -i 's|from '\\\\''\\\\./MonitoringModal'\\\\''|from '\\\\''../monitoring/MonitoringModal'\\\\''|g' ClassroomModals.tsx)",
+      "Bash(sed -i 's|from '\\\\''\\\\./SummaryDetailModal'\\\\''|from '\\\\''../monitoring/SummaryDetailModal'\\\\''|g' ClassroomModals.tsx)",
+      "Bash(sed -i 's|from '\\\\''\\\\./FastTrackModal'\\\\''|from '\\\\''../monitoring/FastTrackModal'\\\\''|g' ClassroomModals.tsx)",
+      "Bash(sed -i 's|from '\\\\''\\\\./QuizPassModal'\\\\''|from '\\\\''../quiz/QuizPassModal'\\\\''|g' ClassroomModals.tsx)",
+      "Bash(sed -i 's|from '\\\\''\\\\.\\\\./\\\\.\\\\./|from '\\\\''../../../|g' DebugEventController.tsx)",
+      "Bash(sed -i 's|'\\\\''\\\\.\\\\./\\\\.\\\\./styles/|'\\\\''../../../styles/|g' DebugEventController.tsx)",
+      "Bash(sed -i 's|components/modals/ClassroomModals|components/modals/common/ClassroomModals|g' pages/study/classroom/StudyClassroom.tsx)",
+      "Bash(sed -i 's|components/modals/DebugEventController|components/modals/common/DebugEventController|g' pages/study/classroom/StudyClassroom.tsx)",
+      "Bash(sed -i 's|components/modals/SummaryDetailModal|components/modals/monitoring/SummaryDetailModal|g' services/aiSummaryService.ts)",
+      "Bash(sed -i 's|components/modals/SummaryDetailModal|components/modals/monitoring/SummaryDetailModal|g' types/aiEvents.ts)",
+      "Bash(python -c \"import pdfplumber; pdf=pdfplumber.open\\('MoAI_API_Spec_real_final.pdf'\\); [print\\(p.extract_text\\(\\)\\) for p in pdf.pages[:15]]\")",
+      "Bash(python3 -c \"import pdfplumber; pdf=pdfplumber.open\\('MoAI_API_Spec_real_final.pdf'\\); [print\\(p.extract_text\\(\\)\\) for p in pdf.pages[:15]]\")",
+      "Bash(python -c \"import pdfplumber; pdf=pdfplumber.open\\('C:/Users/User/IdeaProjects/2026_HSU_Capston_MoAI/MoAI_API_Spec_real_final.pdf'\\); [print\\(p.extract_text\\(\\)\\) for p in pdf.pages[:15]]\")",
+      "Bash(node -e ':*)"
+    ]
+  }
+}

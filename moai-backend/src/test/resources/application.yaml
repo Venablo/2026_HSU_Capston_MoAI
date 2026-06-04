@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: MoAI
+
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MYSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+jwt:
+  secret: test-secret-key-for-unit-testing-must-be-at-least-256-bits-long!!
+  access-expiration: 1800000
+  refresh-expiration: 1209600000
+
+llm:
+  api-key: test-api-key
+  api-url: https://generativelanguage.googleapis.com/v1beta/models
+  model: gemini-2.5-pro
+
+cloud:
+  aws:
+    s3:
+      bucket: test-bucket
+    region:
+      static: ap-northeast-2
+
+subtitle:
+  script-path: src/main/resources/scripts/subtitle_scraper.py

@@ -1,0 +1,315 @@
+/* ── Sidebar ── */
+.sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    background: var(--color-bg-sidebar);
+    border-right: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px 16px;
+    z-index: 100;
+    transition: width 0.25s ease, min-width 0.25s ease, padding 0.25s ease;
+    overflow: hidden;
+}
+
+.sidebar--collapsed {
+    width: 60px;
+    min-width: 60px;
+    padding: 24px 8px;
+}
+
+.sidebar__logo-wrap {
+    min-height: 56px;
+}
+
+.sidebar__logo-name {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--color-purple-800);
+    letter-spacing: -0.5px;
+}
+
+.sidebar__logo-sub {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--color-purple-400);
+    letter-spacing: 2px;
+    margin-top: 2px;
+    margin-bottom: 32px;
+}
+
+.sidebar__nav {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar__nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    width: 100%;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+}
+
+.sidebar--collapsed .sidebar__nav-btn {
+    justify-content: center;
+    padding: 10px;
+}
+
+.sidebar__nav-btn:hover {
+    background: var(--color-purple-50);
+    color: var(--color-purple-800);
+}
+
+.sidebar__nav-btn--active {
+    background: var(--color-purple-600);
+    color: #ffffff;
+}
+
+.sidebar__nav-btn--active:hover {
+    background: var(--color-purple-700);
+    color: #ffffff;
+}
+
+.sidebar__nav-icon {
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.sidebar__nav-btn--active .sidebar__nav-icon {
+    color: #ffffff;
+}
+
+.sidebar__bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar__bottom-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    font-weight: 500;
+    font-family: inherit;
+    width: 100%;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+}
+
+.sidebar--collapsed .sidebar__bottom-btn {
+    justify-content: center;
+    padding: 10px;
+}
+
+.sidebar__bottom-btn:hover {
+    background: var(--color-purple-50);
+    color: var(--color-purple-800);
+}
+
+/* ── Mobile hamburger toggle (AppLayout에서 렌더링) ── */
+.layout__mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 22px;
+    left: 14px;
+    z-index: 400;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Mobile backdrop (모바일에서만 표시) ── */
+.layout__backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    backdrop-filter: blur(2px);
+}
+
+/* ── Layout wrapper ── */
+.layout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--color-bg-app);
+}
+
+.layout__main {
+    margin-left: var(--sidebar-width);
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    transition: margin-left 0.25s ease;
+}
+
+.layout__main--left-collapsed {
+    margin-left: 60px;
+}
+
+/* ── Topbar ── */
+.topbar {
+    flex: 0 0 var(--topbar-height);
+    height: var(--topbar-height);
+    min-height: var(--topbar-height);
+    max-height: var(--topbar-height);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.topbar__title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.topbar__icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    display: flex;
+    align-items: center;
+    padding: 4px;
+}
+
+.topbar__avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-purple-600), #9333ea);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 1023px) {
+    .topbar {
+        padding: 0 20px;
+    }
+
+    .topbar__title {
+        font-size: 16px;
+    }
+}
+
+/* Mobile: sidebar as slide-in overlay drawer */
+@media (max-width: 767px) {
+    .sidebar {
+        z-index: 300;
+        width: 220px;
+        min-width: 220px;
+        padding: 24px 16px;
+        transform: translateX(0);
+        transition: transform 0.25s ease;
+        /* animate-slide-up은 transform:translateY fill-mode를 남기므로
+           transform 트랜지션(translateX) 을 덮어쓴다. 모바일에서는 취소한다. */
+        animation: none;
+    }
+
+    /* On mobile, collapsed = hidden off-screen (transform instead of width) */
+    .sidebar--collapsed {
+        transform: translateX(-220px);
+        width: 220px;
+        min-width: 220px;
+        padding: 24px 16px;
+    }
+
+    /* Sidebar labels always visible (override desktop icon-only mode) */
+    .sidebar--collapsed .sidebar__nav-btn {
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+
+    .sidebar--collapsed .sidebar__bottom-btn {
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+
+    /* Main content always full width on mobile */
+    .layout__main,
+    .layout__main--left-collapsed {
+        margin-left: 0;
+    }
+
+    /* Topbar: leave room for hamburger button */
+    .topbar {
+        padding: 0 16px 0 58px;
+    }
+
+    .topbar__title {
+        font-size: 15px;
+    }
+
+    /* Show hamburger toggle on mobile */
+    .layout__mobile-toggle {
+        display: flex;
+    }
+
+    /* Show backdrop on mobile when sidebar is open */
+    .layout__backdrop {
+        display: block;
+    }
+}
