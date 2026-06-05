@@ -124,7 +124,8 @@ export default function ClassroomModals({ onSeekPlayer, onAnyQuizComplete, onMet
                 // 이동할 새 룸+주차 키에 완성된 상태를 미리 저장
                 // → navigate 후 currentMatchKey가 바뀌어도 groupId / partnerInfo 보존
                 if (res.curriculumId) {
-                    setMatchStateForKey(`${res.roomId}_${res.curriculumId}`, () => ({
+                    setMatchStateForKey(`${res.roomId}_${res.curriculumId}`, (prev) => ({
+                        ...prev,
                         matchStatus:      'completed',
                         partnerConnected: true,
                         partnerInfo:      modalData.match,
