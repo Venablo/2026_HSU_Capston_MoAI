@@ -144,7 +144,7 @@ export default function FinalQuizModal({ roomId, weekId, onClose, onComplete, re
                 const data = await getFinalQuiz(roomId, weekId)
                 if (!cancelled) {
                     setQuiz(data)
-                    setAnswers(new Array(data.questions.length).fill(''))
+                    setAnswers(data.questions.map(q => q.prefilledAnswer ?? ''))
                     setPhase('answering')
                 }
             } catch (e) {
